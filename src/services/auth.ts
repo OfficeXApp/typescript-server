@@ -1,0 +1,489 @@
+import { Principal } from "@dfinity/principal";
+import { sign, verify, getPublicKey } from "@noble/ed25519";
+import { mnemonicToSeed, validateMnemonic } from "bip39";
+import { getAddress, HDNodeWallet } from "ethers";
+import {
+  toByteArray as base64Decode,
+  fromByteArray as base64Encode,
+} from "base64-js";
+import { FastifyRequest } from "fastify"; // Import FastifyRequest
+import {
+  ApiKey,
+  ApiKeyID,
+  ApiKeyValue,
+  FactoryApiKey,
+  UserID,
+} from "@officexapp/types";
+
+// --- Types (Equivalent to Rust structs/enums) ---
+
+export enum AuthTypeEnum {
+  Signature = "Signature",
+  ApiKey = "ApiKey",
+}
+
+export interface Challenge {
+  timestamp_ms: number;
+  self_auth_principal: number[]; // Raw public key bytes
+  canonical_principal: string;
+  // Add other fields from your Rust Challenge if any
+}
+
+export interface SignatureProof {
+  auth_type: AuthTypeEnum.Signature;
+  challenge: Challenge;
+  signature: number[]; // Signature bytes
+}
+
+export interface ApiKeyProof {
+  auth_type: AuthTypeEnum.ApiKey;
+  // The Rust code implies the API key value is the entire btoa_token,
+  // so no explicit field here, but can be added if your JSON changes.
+}
+
+export type AuthJsonDecoded = SignatureProof | ApiKeyProof;
+
+// Removed: export interface HttpRequest { ... } - Now using FastifyRequest
+
+export interface HttpResponse {
+  statusCode: number;
+  body: string;
+  headers?: [string, string][];
+}
+
+export class ErrorResponse {
+  code: number;
+  message: string;
+
+  constructor(code: number, message: string) {
+    this.code = code;
+    this.message = message;
+  }
+
+  static unauthorized(): ErrorResponse {
+    return new ErrorResponse(401, "Unauthorized");
+  }
+
+  static err(code: number, message: string): ErrorResponse {
+    return new ErrorResponse(code, message);
+  }
+
+  encode(): Uint8Array {
+    // Simple JSON encoding for demonstration.
+    // In a real application, you might have a more structured error response.
+    return new TextEncoder().encode(JSON.stringify(this));
+  }
+}
+
+export interface WalletAddresses {
+  icp_principal: string;
+  evm_public_address: string;
+}
+
+export class SeedPhraseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SeedPhraseError";
+  }
+}
+
+// --- Canister State (Replace with actual backend/DB integration) ---
+// In a real application, these would be fetched from a database or a persistent store.
+const APIKEYS_BY_ID_HASHTABLE = new Map<ApiKeyID, ApiKey>();
+const APIKEYS_BY_VALUE_HASHTABLE = new Map<ApiKeyValue, ApiKeyID>();
+
+// Helper function to get current time in nanoseconds (BigInt)
+function get_current_nanoseconds(): bigint {
+  return BigInt(Date.now()) * 1_000_000n; // Convert milliseconds to nanoseconds
+}
+
+// --- Utility Functions ---
+
+function debug_log(...args: any[]): void {
+  console.log("[DEBUG]", ...args);
+}
+
+function format_user_id(principalText: string): UserID {
+  // Implement your user ID formatting logic here, likely based on the principal
+  return `user_${principalText.replace(/[^a-zA-Z0-9]/g, "_")}`; // Simple sanitization
+}
+
+function update_last_online_at(userId: UserID): void {
+  // In a real system, this would update a user's last online timestamp in a database.
+  debug_log(`Updating last online for user: ${userId}`);
+}
+
+function create_response(
+  statusCode: number,
+  body: string,
+  headers: [string, string][] = []
+): HttpResponse {
+  return { statusCode, body, headers };
+}
+
+export const getOwnerId = (): UserID => {
+  return process.env.FACTORY_OWNER_ID as UserID;
+};
+
+// --- Main Authentication Logic ---
+
+export async function authenticateRequest(
+  req: FastifyRequest, // Changed to FastifyRequest
+  appType: "factory" | "drive"
+): Promise<ApiKey | FactoryApiKey | null> {
+  let btoaToken: string | null = null;
+
+  // Access Authorization header directly from req.headers
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    if (authHeader.startsWith("Bearer ")) {
+      btoaToken = authHeader.substring("Bearer ".length).trim();
+      debug_log("Found token in Authorization header");
+    } else {
+      debug_log("Authorization header not in Bearer format");
+    }
+  }
+
+  // If no token from header, try query parameter
+  if (btoaToken === null) {
+    // Fastify automatically parses query parameters into req.query
+    // We assume 'auth' query parameter is a string. Cast for type safety.
+    const queryAuth = (req.query as { auth?: string }).auth;
+    if (queryAuth) {
+      debug_log(`Found auth query parameter: ${queryAuth}`);
+      btoaToken = queryAuth;
+    }
+  }
+
+  // If no token found in either place, return null
+  if (btoaToken === null) {
+    debug_log("No authentication token found in header or query parameter");
+    return null;
+  }
+
+  // Pad the Base64 token
+  const paddedToken =
+    btoaToken.length % 4 === 0
+      ? btoaToken
+      : `${btoaToken}${"=".repeat(4 - (btoaToken.length % 4))}`;
+
+  let stringifiedToken: string;
+  try {
+    const decoded = base64Decode(paddedToken);
+    stringifiedToken = new TextDecoder().decode(decoded);
+  } catch (e) {
+    debug_log(`Failed to decode base64 btoa_token: ${e}`);
+    return null;
+  }
+
+  let authJson: AuthJsonDecoded;
+  try {
+    authJson = JSON.parse(stringifiedToken);
+  } catch (e) {
+    debug_log(`Failed to parse JSON proof: ${e}`);
+    return null;
+  }
+
+  debug_log("auth_json:", authJson);
+
+  // Handle different authentication types
+  if (authJson.auth_type === AuthTypeEnum.Signature) {
+    const proof = authJson as SignatureProof;
+
+    // Check challenge timestamp (must be within 30 seconds)
+    const now = Number(get_current_nanoseconds() / 1_000_000n); // Convert ns to ms
+    if (now > proof.challenge.timestamp_ms + 30_000) {
+      debug_log("Signature challenge expired");
+      return null;
+    }
+
+    // Serialize the challenge as was signed.
+    const challengeBytes = new TextEncoder().encode(
+      JSON.stringify(proof.challenge)
+    );
+
+    // The raw public key (32 bytes) as provided in the challenge.
+    const publicKeyBytes = new Uint8Array(proof.challenge.self_auth_principal);
+    if (publicKeyBytes.length !== 32) {
+      debug_log(
+        `Expected 32-byte raw public key, got ${publicKeyBytes.length} bytes`
+      );
+      return null;
+    }
+
+    try {
+      const signatureBytes = new Uint8Array(proof.signature);
+      const isValid = await verify(
+        signatureBytes,
+        challengeBytes,
+        publicKeyBytes
+      );
+
+      if (!isValid) {
+        debug_log("Signature verification failed");
+        return null;
+      }
+
+      debug_log("Signature verification successful");
+
+      // To compute the canonical principal that matches getPrincipal(),
+      // first convert the raw public key into DER format by prepending the header.
+      const derHeader = new Uint8Array([
+        0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+      ]);
+      const derKey = new Uint8Array(derHeader.length + publicKeyBytes.length);
+      derKey.set(derHeader);
+      derKey.set(publicKeyBytes, derHeader.length);
+
+      // Compute the canonical principal using the DER-encoded key.
+      const computedPrincipal = Principal.selfAuthenticating(derKey).toText();
+
+      // Compare with the canonical_principal included in the challenge.
+      if (computedPrincipal !== proof.challenge.canonical_principal) {
+        debug_log(
+          `Mismatch between computed and provided canonical principal: ${computedPrincipal} vs ${proof.challenge.canonical_principal}`
+        );
+        return null;
+      }
+      debug_log(`Successfully authenticated user: ${computedPrincipal}`);
+
+      update_last_online_at(format_user_id(computedPrincipal));
+
+      // Create and return an API key based on the computed principal.
+      return {
+        id: `sig_auth_${now}`,
+        value: `signature_auth_${computedPrincipal}`,
+        user_id: format_user_id(computedPrincipal),
+        name: `Signature Authenticated User ${computedPrincipal}`,
+        private_note: null,
+        created_at: now,
+        begins_at: 0,
+        expires_at: -1,
+        is_revoked: false,
+        labels: [],
+        external_id: undefined,
+        external_payload: undefined,
+      } as ApiKey;
+    } catch (e) {
+      debug_log(`Signature verification failed: ${e}`);
+      return null;
+    }
+  } else if (authJson.auth_type === AuthTypeEnum.ApiKey) {
+    // API key authentication
+    const apiKeyValue = btoaToken; // The full btoa_token is the API key value
+    debug_log(`Looking up API key from payload: ${apiKeyValue}`);
+
+    const apiKeyId = APIKEYS_BY_VALUE_HASHTABLE.get(apiKeyValue);
+
+    if (apiKeyId) {
+      debug_log(`Found api_key_id: ${apiKeyId}`);
+      const fullApiKey = APIKEYS_BY_ID_HASHTABLE.get(apiKeyId);
+
+      if (fullApiKey) {
+        const now = Number(get_current_nanoseconds() / 1_000_000n); // Convert ns to ms
+
+        debug_log(`Checking API Key for user: ${fullApiKey.user_id}`);
+        debug_log(`Key expires at: ${fullApiKey.expires_at}, now: ${now}`);
+        debug_log(
+          `Is revoked: ${fullApiKey.is_revoked}, begins at: ${fullApiKey.begins_at}`
+        );
+
+        // Check if key is valid (not expired and not revoked), and begins time is past
+        if (
+          (fullApiKey.expires_at <= 0 || now < fullApiKey.expires_at) &&
+          !fullApiKey.is_revoked &&
+          fullApiKey.begins_at <= now
+        ) {
+          update_last_online_at(fullApiKey.user_id);
+          return fullApiKey;
+        }
+      }
+    }
+    debug_log("API key authentication failed");
+    return null;
+  }
+
+  return null;
+}
+
+export function create_auth_error_response(): HttpResponse {
+  const body = new TextDecoder().decode(ErrorResponse.unauthorized().encode());
+  return create_response(401, body);
+}
+
+export function create_raw_upload_error_response(
+  error_msg: string
+): HttpResponse {
+  const errorStruct = ErrorResponse.err(400, error_msg);
+  const body = new TextDecoder().decode(errorStruct.encode());
+  return create_response(400, body);
+}
+
+// --- Wallet Address Derivation ---
+
+/**
+ * Converts a BIP39 seed phrase to ICP principal and EVM address.
+ *
+ * This function handles the cryptographic derivation of blockchain addresses
+ * from a standard mnemonic seed phrase. It uses industry-standard libraries
+ * for both ICP (Ed25519) and EVM (secp256k1) key derivation.
+ */
+export async function seed_phrase_to_wallet_addresses(
+  seed_phrase: string
+): Promise<WalletAddresses> {
+  // Validate the mnemonic phrase
+  if (!validateMnemonic(seed_phrase)) {
+    // Use validateMnemonic directly
+    throw new SeedPhraseError("Invalid mnemonic seed phrase");
+  }
+
+  // Generate the 512-bit seed from the mnemonic
+  const seedBuffer = await mnemonicToSeed(seed_phrase); // Use mnemonicToSeed directly
+  const seedBytes = new Uint8Array(seedBuffer); // Convert to Uint8Array for consistency
+
+  // ---- ICP Principal Generation (Ed25519) ----
+
+  // The ICP self-authenticating principal typically uses the first 32 bytes of the seed
+  // as the Ed25519 private key.
+  const ed25519PrivateKey = seedBytes.slice(0, 32);
+
+  // Derive the Ed25519 public key from the private key using getPublicKey
+  const ed25519PublicKey = await getPublicKey(ed25519PrivateKey); // This is a Uint8Array (32 bytes)
+
+  // To compute the canonical principal, convert the raw public key into DER format
+  // by prepending the standard Ed25519 DER header.
+  const derHeader = new Uint8Array([
+    0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+  ]);
+  const derKey = new Uint8Array(derHeader.length + ed25519PublicKey.length);
+  derKey.set(derHeader);
+  derKey.set(ed25519PublicKey, derHeader.length);
+
+  // Compute the self-authenticating principal using the DER-encoded key.
+  const principal = Principal.selfAuthenticating(derKey);
+  const icp_principal = principal.toText();
+
+  // ---- EVM Address Generation (secp256k1 - using ethers.js BIP39/BIP44) ----
+
+  // ethers.js's HDNodeWallet can directly derive from the BIP39 seed.
+  // It handles the secp256k1 key derivation according to standard paths (e.g., m/44'/60'/0'/0/0 for Ethereum).
+  const ethWallet = HDNodeWallet.fromSeed(seedBuffer);
+
+  // The `address` property of the Wallet object provides the checksummed Ethereum address.
+  const evm_public_address = getAddress(ethWallet.address); // Use getAddress for checksumming
+
+  return {
+    icp_principal,
+    evm_public_address,
+  };
+}
+
+// --- Example Usage (How you might use this in a Node.js context with Fastify) ---
+
+/*
+// Mock API keys for testing (these would typically be in a database)
+const mockApiKey1: ApiKey = {
+    id: "test_api_key_1",
+    value: "signature_auth_testprincipal",
+    userId: "user_test_principal",
+    name: "Test API Key",
+    privateNote: null,
+    createdAt: Date.now(),
+    begsAt: 0,
+    expiresAt: -1,
+    isRevoked: false,
+    labels: [],
+    externalId: null,
+    externalPayload: null,
+};
+
+const mockApiKey2: ApiKey = {
+    id: "valid_api_key_2",
+    value: "valid_token_value",
+    userId: "user_valid",
+    name: "Valid API Key",
+    privateNote: null,
+    createdAt: Date.now() - 10000,
+    begsAt: Date.now() - 20000,
+    expiresAt: Date.now() + 3600000,
+    isRevoked: false,
+    labels: [],
+    externalId: null,
+    externalPayload: null,
+};
+
+APIKEYS_BY_ID_HASHTABLE.set(mockApiKey1.id, mockApiKey1);
+APIKEYS_BY_VALUE_HASHTABLE.set(mockApiKey1.value, mockApiKey1.id);
+
+APIKEYS_BY_ID_HASHTABLE.set(mockApiKey2.id, mockApiKey2);
+APIKEYS_BY_VALUE_HASHTABLE.set(mockApiKey2.value, mockApiKey2.id);
+
+
+// Example of a Fastify route handler using authenticateRequest
+import Fastify from 'fastify';
+
+const fastify = Fastify({ logger: true });
+
+fastify.get('/secure-data', async (request, reply) => {
+    // The `authenticateRequest` now directly accepts FastifyRequest
+    const authenticatedKey = await authenticateRequest(request, 'drive');
+
+    if (authenticatedKey) {
+        reply.send({ message: 'Access granted!', apiKey: authenticatedKey });
+    } else {
+        reply.code(401).send(create_auth_error_response());
+    }
+});
+
+fastify.get('/upload-data', async (request, reply) => {
+    const errorMsg = "Raw upload failed due to invalid content type."; // Example error
+    reply.code(400).send(create_raw_upload_error_response(errorMsg));
+});
+
+
+const start = async () => {
+    try {
+        await fastify.listen({ port: 3000 });
+        console.log('Fastify server listening on http://localhost:3000');
+
+        // You can make test requests using a tool like Postman, curl, or your browser.
+        // Example with API Key in header:
+        // curl -H "Authorization: Bearer valid_token_value" http://localhost:3000/secure-data
+        // Example with API Key in query:
+        // curl "http://localhost:3000/secure-data?auth=valid_token_value"
+
+        // Example with Signature Auth (requires client-side signing to generate token)
+        // This part would typically be handled by a frontend application.
+        // const testPrivateKey = crypto.getRandomValues(new Uint8Array(32));
+        // const testPublicKey = await getPublicKey(testPrivateKey);
+        // const derHeader = new Uint8Array([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00]);
+        // const derKey = new Uint8Array(derHeader.length + testPublicKey.length);
+        // derKey.set(derHeader);
+        // derKey.set(testPublicKey, derHeader.length);
+        // const testCanonicalPrincipal = Principal.selfAuthenticating(derKey).toText();
+
+        // const challenge: Challenge = {
+        //     timestamp_ms: Date.now(),
+        //     self_auth_principal: Array.from(testPublicKey),
+        //     canonical_principal: testCanonicalPrincipal,
+        // };
+        // const challengeBytes = new TextEncoder().encode(JSON.stringify(challenge));
+        // const signature = Array.from(await sign(challengeBytes, testPrivateKey));
+
+        // const signatureProof: SignatureProof = {
+        //     auth_type: AuthTypeEnum.Signature,
+        //     challenge,
+        //     signature,
+        // };
+        // const btoaSignatureToken = base64Encode(new TextEncoder().encode(JSON.stringify(signatureProof)));
+        // console.log(`\nExample Signature Token: ${btoaSignatureToken}\n`);
+        // // Then use this token in a "Bearer" header: curl -H "Authorization: Bearer <token>" http://localhost:3000/secure-data
+
+    } catch (err) {
+        fastify.log.error(err);
+        process.exit(1);
+    }
+};
+
+start();
+*/
