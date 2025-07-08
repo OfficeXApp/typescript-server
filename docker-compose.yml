@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+    volumes:
+      - app_data:/data
+
+volumes:
+  app_data:
+    driver: local
