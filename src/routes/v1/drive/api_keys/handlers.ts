@@ -8,9 +8,14 @@ import {
   IRequestUpdateApiKey,
   IRequestDeleteApiKey,
   IResponseDeleteApiKey,
+  IDPrefixEnum,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
-import { authenticateRequest, getOwnerId } from "../../../../services/auth";
+import {
+  authenticateRequest,
+  generateApiKey,
+  getOwnerId,
+} from "../../../../services/auth";
 
 interface OrgIdParams {
   org_id: string;
@@ -23,16 +28,6 @@ interface GetApiKeyParams extends OrgIdParams {
 
 interface ListApiKeysParams extends OrgIdParams {
   user_id: string;
-}
-
-// Helper function to generate API key value
-function generateApiKey(): string {
-  return crypto.randomBytes(32).toString("base64url");
-}
-
-// Helper function to generate UUID with prefix
-function generateUuidv4(prefix: string): string {
-  return `${prefix}_${uuidv4()}`;
 }
 
 // Helper function to validate request body
@@ -118,7 +113,7 @@ export async function getApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "factory");
+    const requesterApiKey = await authenticateRequest(request, "drive");
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -418,7 +413,7 @@ export async function createApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "factory");
+    const requesterApiKey = await authenticateRequest(request, "drive");
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -443,8 +438,8 @@ export async function createApiKeyHandler(
 
     // Build API key
     const apiKey: ApiKey = {
-      id: generateUuidv4("ApiKeyID") as any,
-      value: generateApiKey() as any,
+      id: `${IDPrefixEnum.ApiKey}${uuidv4()}` as any,
+      value: await generateApiKey(),
       user_id: requesterApiKey.user_id,
       name: createBody.name,
       created_at: Date.now(),
@@ -491,7 +486,7 @@ export async function updateApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "factory");
+    const requesterApiKey = await authenticateRequest(request, "drive");
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -604,7 +599,7 @@ export async function deleteApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "factory");
+    const requesterApiKey = await authenticateRequest(request, "drive");
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -681,11 +676,4 @@ export async function deleteApiKeyHandler(
       })
     );
   }
-}
-
-export async function snapshotHandler(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
-  return;
 }

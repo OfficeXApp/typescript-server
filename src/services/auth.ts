@@ -12,8 +12,10 @@ import {
   ApiKeyID,
   ApiKeyValue,
   FactoryApiKey,
+  IDPrefixEnum,
   UserID,
 } from "@officexapp/types";
+import { v4 as uuidv4 } from "uuid";
 
 // --- Types (Equivalent to Rust structs/enums) ---
 
@@ -37,8 +39,7 @@ export interface SignatureProof {
 
 export interface ApiKeyProof {
   auth_type: AuthTypeEnum.ApiKey;
-  // The Rust code implies the API key value is the entire btoa_token,
-  // so no explicit field here, but can be added if your JSON changes.
+  value: string;
 }
 
 export type AuthJsonDecoded = SignatureProof | ApiKeyProof;
@@ -376,6 +377,39 @@ export async function seed_phrase_to_wallet_addresses(
     icp_principal,
     evm_public_address,
   };
+}
+
+export async function generateApiKey(): Promise<string> {
+  const input = `${IDPrefixEnum.ApiKey}${uuidv4()}`;
+  const salt = Date.now();
+  const combined = `${input}${salt}`;
+
+  function arrayBufferToHex(buffer: ArrayBuffer): string {
+    const uint8Array = new Uint8Array(buffer);
+    return Array.from(uint8Array)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  // Use Web Crypto API for hashing
+  const encoder = new TextEncoder();
+  const data = encoder.encode(combined);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const apiKeyInnerValue = arrayBufferToHex(hashBuffer);
+
+  const apiKeyProof: ApiKeyProof = {
+    auth_type: AuthTypeEnum.ApiKey,
+    value: apiKeyInnerValue,
+  };
+
+  console.log("API Key Proof:", apiKeyProof);
+
+  // Serialize to JSON
+  const jsonPayload = JSON.stringify(apiKeyProof);
+  console.log("json_payload:", jsonPayload);
+
+  // Base64 encode the JSON
+  return btoa(jsonPayload);
 }
 
 // --- Example Usage (How you might use this in a Node.js context with Fastify) ---

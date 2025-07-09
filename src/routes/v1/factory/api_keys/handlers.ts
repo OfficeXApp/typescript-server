@@ -11,6 +11,7 @@ import {
   FactoryDeletedApiKeyData,
   FactoryStateSnapshot,
   FactorySnapshotResponse,
+  IDPrefixEnum,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, getOwnerId } from "../../../../services/auth";
@@ -231,15 +232,15 @@ export async function upsertApiKeyHandler(
   reply: FastifyReply
 ): Promise<void> {
   try {
-    // // Authenticate request
-    // const requesterApiKey = await authenticateRequest(request);
-    // if (!requesterApiKey) {
-    //   return reply
-    //     .status(401)
-    //     .send(
-    //       createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-    //     );
-    // }
+    // Authenticate request
+    const requesterApiKey = await authenticateRequest(request, "factory");
+    if (!requesterApiKey) {
+      return reply
+        .status(401)
+        .send(
+          createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+        );
+    }
 
     const body = request.body as FactoryUpsertApiKeyRequestBody;
 
@@ -257,30 +258,24 @@ export async function upsertApiKeyHandler(
         );
       }
 
-      //   const ownerId = await getOwnerId();
-      //   const isOwner = requesterApiKey.user_id === ownerId;
+      const ownerId = await getOwnerId();
+      const isOwner = requesterApiKey.user_id === ownerId;
 
-      //   // Check permissions
-      //   if (!isOwner) {
-      //     return reply
-      //       .status(403)
-      //       .send(
-      //         createApiResponse(undefined, { code: 403, message: "Forbidden" })
-      //       );
-      //   }
-
-      //   // Determine user_id for new key
-      //   const keyUserId =
-      //     isOwner && createBody.user_id
-      //       ? createBody.user_id
-      //       : requesterApiKey.user_id;
-      const keyUserId = "UserID_default_owner";
+      // Check permissions
+      if (!isOwner) {
+        return reply
+          .status(403)
+          .send(
+            createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          );
+      }
+      const ownerID = request.server.factory_owner;
 
       // Create new API key
       const newApiKey: FactoryApiKey = {
-        id: generateUuidv4("ApiKeyID") as any,
-        value: generateApiKey() as any,
-        user_id: keyUserId as any,
+        id: `${IDPrefixEnum.ApiKey}${uuidv4()}` as any,
+        value: await generateApiKey(),
+        user_id: ownerID,
         name: createBody.name,
         created_at: Date.now(),
         expires_at: createBody.expires_at || -1,
@@ -336,17 +331,17 @@ export async function upsertApiKeyHandler(
 
       const apiKey = apiKeys[0] as FactoryApiKey;
       const ownerId = await getOwnerId();
-      //   const isOwner = requesterApiKey.user_id === ownerId;
-      //   const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
+      const isOwner = requesterApiKey.user_id === ownerId;
+      const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
-      //   // Check permissions
-      //   if (!isOwner && !isOwnKey) {
-      //     return reply
-      //       .status(403)
-      //       .send(
-      //         createApiResponse(undefined, { code: 403, message: "Forbidden" })
-      //       );
-      //   }
+      // Check permissions
+      if (!isOwner && !isOwnKey) {
+        return reply
+          .status(403)
+          .send(
+            createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          );
+      }
 
       // Build update query dynamically
       const updates: string[] = [];

@@ -22,7 +22,7 @@ Poke around in SQLite in Docker
 
 ```sh
 $ docker ps
-$ docker exec -it c63d516867b6 /bin/bash
+$ docker exec -it typescript-server-app-1 /bin/bash
 
 
 app@3a9a55d2fe95:/data/organizations/te/test-org$ ls

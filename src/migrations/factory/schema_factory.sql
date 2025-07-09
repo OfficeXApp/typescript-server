@@ -1,3 +1,5 @@
+-- src/migrations/factory/schema_factory.sql
+
 -- Table: factory_api_keys
 -- Source: src/core/state/api_keys/types.rs -> ApiKey
 -- Description: Stores API keys used to authenticate with the factory canister.
@@ -8,8 +10,7 @@ CREATE TABLE factory_api_keys (
     name TEXT NOT NULL,                   -- Corresponds to ApiKey.name
     created_at INTEGER NOT NULL,          -- Corresponds to ApiKey.created_at (Unix timestamp in ms)
     expires_at INTEGER NOT NULL,          -- Corresponds to ApiKey.expires_at (-1 for no expiry)
-    is_revoked INTEGER NOT NULL DEFAULT 0, -- Corresponds to ApiKey.is_revoked
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE
+    is_revoked INTEGER NOT NULL DEFAULT 0 -- Corresponds to ApiKey.is_revoked
 );
 
 -- Index for fast lookup by API key value
@@ -44,8 +45,6 @@ CREATE TABLE factory_spawn_history (
     giftcard_id TEXT NOT NULL UNIQUE,      -- Corresponds to FactorySpawnHistoryRecord.giftcard_id
     gas_cycles_included INTEGER NOT NULL,  -- Corresponds to FactorySpawnHistoryRecord.gas_cycles_included
     timestamp_ms INTEGER NOT NULL,         -- Corresponds to FactorySpawnHistoryRecord.timestamp_ms
-    FOREIGN KEY(owner_id) REFERENCES contacts(id),
-    FOREIGN KEY(drive_id) REFERENCES drives(id),
     FOREIGN KEY(giftcard_id) REFERENCES giftcard_spawn_orgs(id)
 );
 
@@ -56,7 +55,6 @@ CREATE TABLE user_giftcard_spawn_orgs (
     user_id TEXT NOT NULL,
     giftcard_id TEXT NOT NULL,
     PRIMARY KEY (user_id, giftcard_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE,
     FOREIGN KEY(giftcard_id) REFERENCES giftcard_spawn_orgs(id) ON DELETE CASCADE
 );
 
@@ -93,6 +91,5 @@ CREATE TABLE user_giftcard_refuels (
     user_id TEXT NOT NULL,
     giftcard_id TEXT NOT NULL,
     PRIMARY KEY (user_id, giftcard_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE,
     FOREIGN KEY(giftcard_id) REFERENCES giftcard_refuels(id) ON DELETE CASCADE
 );
