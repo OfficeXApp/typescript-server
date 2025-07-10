@@ -11,11 +11,13 @@ import {
   ApiKey,
   ApiKeyID,
   ApiKeyValue,
+  DriveID,
   FactoryApiKey,
   IDPrefixEnum,
   UserID,
 } from "@officexapp/types";
 import { v4 as uuidv4 } from "uuid";
+import { db } from "./database";
 
 // --- Types (Equivalent to Rust structs/enums) ---
 
@@ -109,11 +111,6 @@ function format_user_id(principalText: string): UserID {
   return `user_${principalText.replace(/[^a-zA-Z0-9]/g, "_")}`; // Simple sanitization
 }
 
-function update_last_online_at(userId: UserID): void {
-  // In a real system, this would update a user's last online timestamp in a database.
-  debug_log(`Updating last online for user: ${userId}`);
-}
-
 function create_response(
   statusCode: number,
   body: string,
@@ -122,15 +119,12 @@ function create_response(
   return { statusCode, body, headers };
 }
 
-export const getOwnerId = (): UserID => {
-  return process.env.FACTORY_OWNER_ID as UserID;
-};
-
 // --- Main Authentication Logic ---
 
 export async function authenticateRequest(
   req: FastifyRequest, // Changed to FastifyRequest
-  appType: "factory" | "drive"
+  appType: "factory" | "drive",
+  orgID?: DriveID
 ): Promise<ApiKey | FactoryApiKey | null> {
   let btoaToken: string | null = null;
 
@@ -248,7 +242,9 @@ export async function authenticateRequest(
       }
       debug_log(`Successfully authenticated user: ${computedPrincipal}`);
 
-      update_last_online_at(format_user_id(computedPrincipal));
+      if (orgID) {
+        update_last_online_at(format_user_id(computedPrincipal), orgID);
+      }
 
       // Create and return an API key based on the computed principal.
       return {
@@ -274,33 +270,72 @@ export async function authenticateRequest(
     const apiKeyValue = btoaToken; // The full btoa_token is the API key value
     debug_log(`Looking up API key from payload: ${apiKeyValue}`);
 
-    const apiKeyId = APIKEYS_BY_VALUE_HASHTABLE.get(apiKeyValue);
+    let fullApiKey: ApiKey | FactoryApiKey | null = null;
+    const now = Number(get_current_nanoseconds() / 1_000_000n);
 
-    if (apiKeyId) {
-      debug_log(`Found api_key_id: ${apiKeyId}`);
-      const fullApiKey = APIKEYS_BY_ID_HASHTABLE.get(apiKeyId);
-
-      if (fullApiKey) {
-        const now = Number(get_current_nanoseconds() / 1_000_000n); // Convert ns to ms
-
-        debug_log(`Checking API Key for user: ${fullApiKey.user_id}`);
-        debug_log(`Key expires at: ${fullApiKey.expires_at}, now: ${now}`);
-        debug_log(
-          `Is revoked: ${fullApiKey.is_revoked}, begins at: ${fullApiKey.begins_at}`
+    if (appType === "factory") {
+      try {
+        const result = await db.queryFactory(
+          `SELECT id, value, user_id, name, created_at, expires_at, is_revoked FROM factory_api_keys WHERE value = ?`,
+          [apiKeyValue]
         );
-
-        // Check if key is valid (not expired and not revoked), and begins time is past
-        if (
-          (fullApiKey.expires_at <= 0 || now < fullApiKey.expires_at) &&
-          !fullApiKey.is_revoked &&
-          fullApiKey.begins_at <= now
-        ) {
-          update_last_online_at(fullApiKey.user_id);
-          return fullApiKey;
+        if (result.length > 0) {
+          fullApiKey = result[0] as FactoryApiKey;
         }
+      } catch (e) {
+        debug_log(`Error querying factory_api_keys: ${e}`);
+        return null;
+      }
+    } else if (appType === "drive") {
+      // Now use the provided orgID directly
+      if (!orgID) {
+        debug_log(
+          "orgID (DriveID) not provided for drive appType API key authentication."
+        );
+        return null;
+      }
+
+      try {
+        const result = await db.queryDrive(
+          orgID, // Use orgID here
+          `SELECT id, value, user_id, name, private_note, created_at, begins_at, expires_at, is_revoked, external_id, external_payload FROM api_keys WHERE value = ?`,
+          [apiKeyValue]
+        );
+        if (result.length > 0) {
+          fullApiKey = result[0] as ApiKey;
+        }
+      } catch (e) {
+        debug_log(`Error querying api_keys for drive ${orgID}: ${e}`);
+        return null;
       }
     }
-    debug_log("API key authentication failed");
+
+    if (fullApiKey) {
+      debug_log(
+        `Found API Key: ${fullApiKey.id} for user: ${fullApiKey.user_id}`
+      );
+      debug_log(`Key expires at: ${fullApiKey.expires_at}, now: ${now}`);
+      debug_log(`Is revoked: ${fullApiKey.is_revoked}`);
+      if (appType === "drive") {
+        debug_log(`Begins at: ${(fullApiKey as ApiKey).begins_at}`);
+      }
+
+      const isBeginsValid =
+        appType === "factory" || (fullApiKey as ApiKey).begins_at <= now;
+
+      if (
+        (fullApiKey.expires_at <= 0 || now < fullApiKey.expires_at) &&
+        !fullApiKey.is_revoked &&
+        isBeginsValid
+      ) {
+        // Pass appType and orgID to update_last_online_at
+        if (orgID) {
+          await update_last_online_at(fullApiKey.user_id, orgID);
+        }
+        return fullApiKey;
+      }
+    }
+    debug_log("API key authentication failed: Key invalid or expired/revoked.");
     return null;
   }
 
@@ -410,6 +445,27 @@ export async function generateApiKey(): Promise<string> {
 
   // Base64 encode the JSON
   return btoa(jsonPayload);
+}
+
+async function update_last_online_at(
+  userId: UserID,
+  orgID: DriveID
+): Promise<void> {
+  const now = Date.now(); // Milliseconds
+  // Update last_online_ms in the contacts table of the specific drive DB
+  try {
+    await db.queryDrive(
+      orgID,
+      `UPDATE contacts SET last_online_ms = ? WHERE id = ?`,
+      [now, userId]
+    );
+    debug_log(`Updated last online for user ${userId} in drive ${orgID}`);
+  } catch (error) {
+    console.error(
+      `Failed to update last online for drive user ${userId} in drive ${orgID}:`,
+      error
+    );
+  }
 }
 
 // --- Example Usage (How you might use this in a Node.js context with Fastify) ---

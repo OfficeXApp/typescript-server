@@ -14,7 +14,7 @@ import {
   IDPrefixEnum,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
-import { authenticateRequest, getOwnerId } from "../../../../services/auth";
+import { authenticateRequest } from "../../../../services/auth";
 
 // Import the database service
 
@@ -147,7 +147,7 @@ export async function getApiKeyHandler(
     }
 
     const apiKey = apiKeys[0] as FactoryApiKey;
-    const ownerId = await getOwnerId();
+    const ownerId = request.server.factory_owner;
     const isOwner = requesterApiKey.user_id === ownerId;
     const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
@@ -258,7 +258,7 @@ export async function upsertApiKeyHandler(
         );
       }
 
-      const ownerId = await getOwnerId();
+      const ownerId = request.server.factory_owner;
       const isOwner = requesterApiKey.user_id === ownerId;
 
       // Check permissions
@@ -330,7 +330,7 @@ export async function upsertApiKeyHandler(
       }
 
       const apiKey = apiKeys[0] as FactoryApiKey;
-      const ownerId = await getOwnerId();
+      const ownerId = request.server.factory_owner;
       const isOwner = requesterApiKey.user_id === ownerId;
       const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
@@ -450,7 +450,7 @@ export async function deleteApiKeyHandler(
     }
 
     const apiKey = apiKeys[0] as FactoryApiKey;
-    const ownerId = await getOwnerId();
+    const ownerId = request.server.factory_owner;
     const isOwner = requesterApiKey.user_id === ownerId;
     const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
@@ -479,169 +479,6 @@ export async function deleteApiKeyHandler(
     return reply.status(200).send(createApiResponse(deletedData));
   } catch (error) {
     request.log.error("Error in deleteApiKeyHandler:", error);
-    return reply.status(500).send(
-      createApiResponse(undefined, {
-        code: 500,
-        message: "Internal server error",
-      })
-    );
-  }
-}
-
-export async function snapshotHandler(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
-  try {
-    // Check if local environment (implement your own logic)
-    const isLocalEnvironment = process.env.NODE_ENV === "development";
-
-    if (!isLocalEnvironment) {
-      // Authenticate request
-      const requesterApiKey = await authenticateRequest(request, "factory");
-      if (!requesterApiKey) {
-        return reply
-          .status(401)
-          .send(
-            createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-          );
-      }
-
-      // Check if requester is owner
-      const ownerId = await getOwnerId();
-      const isOwner = requesterApiKey.user_id === ownerId;
-      if (!isOwner) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
-    }
-
-    // Gather all state data using the database helpers
-    const stateSnapshot = await dbHelpers.withFactory((database) => {
-      // Get all API keys
-      const apiKeysStmt = database.prepare("SELECT * FROM factory_api_keys");
-      const apiKeys = apiKeysStmt.all() as FactoryApiKey[];
-
-      const apiKeysByIdMap: Record<string, FactoryApiKey> = {};
-      const apiKeysByValueMap: Record<string, string> = {};
-      const apiKeysHistory: string[] = [];
-
-      for (const key of apiKeys) {
-        apiKeysByIdMap[key.id] = key;
-        apiKeysByValueMap[key.value] = key.id;
-        apiKeysHistory.push(key.id);
-      }
-
-      // Get users' API keys mapping
-      const usersApiKeysStmt = database.prepare(`
-        SELECT user_id, GROUP_CONCAT(id) as api_key_ids 
-        FROM factory_api_keys 
-        GROUP BY user_id
-      `);
-      const usersApiKeys = usersApiKeysStmt.all() as any[];
-      const usersApiKeysMap: Record<string, string[]> = {};
-
-      for (const row of usersApiKeys) {
-        usersApiKeysMap[row.user_id] = row.api_key_ids
-          ? row.api_key_ids.split(",")
-          : [];
-      }
-
-      // Get GiftcardSpawnOrg data
-      const giftcardsStmt = database.prepare(
-        "SELECT * FROM giftcard_spawn_orgs"
-      );
-      const giftcards = giftcardsStmt.all() as any[];
-      const giftcardByIdMap: Record<string, any> = {};
-      const historicalGiftcards: string[] = [];
-
-      for (const giftcard of giftcards) {
-        giftcardByIdMap[giftcard.id] = giftcard;
-        historicalGiftcards.push(giftcard.id);
-      }
-
-      // Get deployments
-      const deploymentsStmt = database.prepare(
-        "SELECT * FROM factory_spawn_history"
-      );
-      const deployments = deploymentsStmt.all() as any[];
-      const deploymentsByGiftcardId: Record<string, any> = {};
-
-      for (const deployment of deployments) {
-        deploymentsByGiftcardId[deployment.giftcard_id] = deployment;
-      }
-
-      // Get drive to giftcard mapping
-      const driveToGiftcardStmt = database.prepare(
-        "SELECT drive_id, giftcard_id FROM factory_spawn_history"
-      );
-      const driveToGiftcard = driveToGiftcardStmt.all() as any[];
-      const driveToGiftcardMap: Record<string, string> = {};
-
-      for (const row of driveToGiftcard) {
-        driveToGiftcardMap[row.drive_id] = row.giftcard_id;
-      }
-
-      // Get user to giftcards mapping
-      const userGiftcardsStmt = database.prepare(`
-        SELECT user_id, GROUP_CONCAT(giftcard_id) as giftcard_ids 
-        FROM user_giftcard_spawn_orgs 
-        GROUP BY user_id
-      `);
-      const userGiftcards = userGiftcardsStmt.all() as any[];
-      const userToGiftcardsMap: Record<string, string[]> = {};
-
-      for (const row of userGiftcards) {
-        userToGiftcardsMap[row.user_id] = row.giftcard_ids
-          ? row.giftcard_ids.split(",")
-          : [];
-      }
-
-      // Get system configuration
-      const systemConfig = {
-        canister_id: process.env.CANISTER_ID || "unknown",
-        version: process.env.VERSION || "1.0.0",
-        owner_id: process.env.OWNER_ID || "UserID_default_owner",
-        endpoint_url: process.env.ENDPOINT_URL || "http://localhost:3000",
-      };
-
-      return {
-        // System info
-        canister_id: systemConfig.canister_id,
-        version: systemConfig.version,
-        owner_id: systemConfig.owner_id as any,
-        endpoint_url: systemConfig.endpoint_url,
-
-        // API keys state
-        apikeys_by_value: apiKeysByValueMap,
-        apikeys_by_id: apiKeysByIdMap,
-        users_apikeys: usersApiKeysMap,
-        apikeys_history: apiKeysHistory,
-
-        // GiftcardSpawnOrg state
-        deployments_by_giftcard_id: deploymentsByGiftcardId,
-        historical_giftcards: historicalGiftcards,
-        drive_to_giftcard_hashtable: driveToGiftcardMap,
-        user_to_giftcards_hashtable: userToGiftcardsMap,
-        giftcard_by_id: giftcardByIdMap,
-
-        // Timestamp
-        timestamp_ns: Date.now() * 1_000_000, // Convert to nanoseconds
-      } as FactoryStateSnapshot;
-    });
-
-    const response: FactorySnapshotResponse = {
-      status: "success",
-      data: stateSnapshot,
-      timestamp: Date.now(),
-    };
-
-    return reply.status(200).send(response);
-  } catch (error) {
-    request.log.error("Error in snapshotHandler:", error);
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,

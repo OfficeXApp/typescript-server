@@ -1,5 +1,12 @@
 -- src/migrations/factory/schema_factory.sql
 
+-- Table: factory_admins
+-- Description: Logs administrative notes and the user ID of the administrator.
+CREATE TABLE factory_admins (
+    admin_user_id TEXT NOT NULL,          -- The ID of the administrator user
+    note TEXT                              -- A note or description from the administrator
+);
+
 -- Table: factory_api_keys
 -- Source: src/core/state/api_keys/types.rs -> ApiKey
 -- Description: Stores API keys used to authenticate with the factory canister.
