@@ -4,6 +4,27 @@
 -- Main Data Tables
 -- =============================================
 
+
+-- src/migrations/drive/schema_drive.sql
+
+-- Table: about_drive
+-- Source: src/core/state/drives/state.rs -> thread_local statics
+-- Description: Stores essential, largely immutable, information about the drive itself.
+CREATE TABLE about_drive (
+    drive_id TEXT PRIMARY KEY NOT NULL,
+    drive_name TEXT NOT NULL,
+    canister_id TEXT NOT NULL UNIQUE,          -- Corresponds to CANISTER_ID (PublicKeyICP)
+    version TEXT NOT NULL,                     -- Corresponds to VERSION
+    drive_state_checksum TEXT NOT NULL,        -- Corresponds to DRIVE_STATE_CHECKSUM
+    drive_state_timestamp_ns TEXT NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
+    owner_id TEXT NOT NULL,                    -- Corresponds to OWNER_ID
+    url_endpoint TEXT NOT NULL,                -- Corresponds to URL_ENDPOINT
+    transfer_owner_id TEXT NOT NULL,           -- Corresponds to TRANSFER_OWNER_ID
+    spawn_redeem_code TEXT NOT NULL,           -- Corresponds to SPAWN_REDEEM_CODE
+    spawn_note TEXT NOT NULL,                  -- Corresponds to SPAWN_NOTE
+    nonce_uuid_generated INTEGER NOT NULL      -- Corresponds to NONCE_UUID_GENERATED
+);
+
 -- Table: contacts
 -- Source: src/core/state/contacts/types.rs -> Contact
 -- Description: Stores contact information.

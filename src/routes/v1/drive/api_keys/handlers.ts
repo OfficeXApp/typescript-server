@@ -11,11 +11,7 @@ import {
   IDPrefixEnum,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
-import {
-  authenticateRequest,
-  generateApiKey,
-  getOwnerId,
-} from "../../../../services/auth";
+import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 
 interface OrgIdParams {
   org_id: string;
@@ -141,7 +137,7 @@ export async function getApiKeyHandler(
     }
 
     const apiKey = apiKeys[0] as ApiKey;
-    const ownerId = await getOwnerId();
+    const ownerId = "check_db_owner";
     const isOwner = requesterApiKey.user_id === ownerId;
     const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
@@ -525,7 +521,7 @@ export async function updateApiKeyHandler(
     }
 
     const apiKey = apiKeys[0] as ApiKey;
-    const ownerId = await getOwnerId();
+    const ownerId = "check_db_owner";
     const isOwner = requesterApiKey.user_id === ownerId;
     const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
@@ -638,7 +634,7 @@ export async function deleteApiKeyHandler(
     }
 
     const apiKey = apiKeys[0] as ApiKey;
-    const ownerId = await getOwnerId();
+    const ownerId = "check_db_owner";
     const isOwner = requesterApiKey.user_id === ownerId;
     const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 

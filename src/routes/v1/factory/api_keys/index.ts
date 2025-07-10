@@ -5,7 +5,6 @@ import {
   listApiKeysHandler,
   upsertApiKeyHandler,
   deleteApiKeyHandler,
-  snapshotHandler,
 } from "./handlers";
 
 const apiKeyRoutes: FastifyPluginAsync = async (
@@ -23,15 +22,6 @@ const apiKeyRoutes: FastifyPluginAsync = async (
 
   // POST /v1/factory/api_keys/delete
   fastify.post("/delete", deleteApiKeyHandler);
-
-  // GET /v1/factory/snapshot
-  // Note: This route is at a different path level, so we register it separately
-  fastify.register(
-    async (fastify, opts) => {
-      fastify.get("/snapshot", snapshotHandler);
-    },
-    { prefix: "/../.." }
-  ); // Go up to /v1/factory level
 };
 
 export default apiKeyRoutes;

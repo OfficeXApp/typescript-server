@@ -6,6 +6,9 @@ $ docker compose up --build -d
 
 # view logs
 $ docker compose logs -f
+
+# clear and restart, wipe volumes
+$ docker compose down --volumes
 ```
 
 Test it
