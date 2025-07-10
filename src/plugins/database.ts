@@ -1,7 +1,7 @@
 // src/plugins/database.ts
 import fp from "fastify-plugin";
 import { FastifyPluginAsync } from "fastify";
-import { initializeDatabase, dbHelpers } from "../services/database";
+import { initFactoryDB, dbHelpers } from "../services/database"; // Changed initializeDatabase to initFactoryDB
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -11,7 +11,7 @@ declare module "fastify" {
 
 const databasePlugin: FastifyPluginAsync = async (fastify, options) => {
   // Initialize database schema on startup
-  initializeDatabase();
+  await initFactoryDB(); // Call the new async initialization function
 
   // Decorate fastify instance with database helpers
   fastify.decorate("db", dbHelpers);

@@ -11,8 +11,10 @@ import {
   FactoryDeletedApiKeyData,
   FactoryStateSnapshot,
   FactorySnapshotResponse,
+  IDPrefixEnum,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
+import { authenticateRequest, getOwnerId } from "../../../../services/auth";
 
 // Import the database service
 
@@ -100,43 +102,6 @@ function validateDeleteRequest(body: FactoryDeleteApiKeyRequestBody): {
   return { valid: true };
 }
 
-// Authentication middleware - implement according to your auth system
-async function authenticateRequest(
-  request: FastifyRequest
-): Promise<FactoryApiKey | null> {
-  const authHeader = request.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const apiKeyValue = authHeader.substring(7);
-
-  // Look up API key in database
-  const apiKeys = await db.query(
-    "SELECT * FROM factory_api_keys WHERE value = ? AND is_revoked = 0",
-    [apiKeyValue]
-  );
-
-  if (!apiKeys || apiKeys.length === 0) {
-    return null;
-  }
-
-  const apiKey = apiKeys[0] as FactoryApiKey;
-
-  // Check if expired
-  if (apiKey.expires_at !== -1 && apiKey.expires_at <= Date.now()) {
-    return null;
-  }
-
-  return apiKey;
-}
-
-// Get the owner ID from your configuration
-async function getOwnerId(): Promise<string> {
-  // Replace with your actual implementation
-  return process.env.OWNER_ID || "UserID_default_owner";
-}
-
 function createApiResponse<T>(
   data?: T,
   error?: { code: number; message: string }
@@ -155,7 +120,7 @@ export async function getApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request);
+    const requesterApiKey = await authenticateRequest(request, "factory");
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -167,7 +132,7 @@ export async function getApiKeyHandler(
     const requestedId = request.params.api_key_id;
 
     // Get the requested API key
-    const apiKeys = await db.query(
+    const apiKeys = await db.queryFactory(
       "SELECT * FROM factory_api_keys WHERE id = ?",
       [requestedId]
     );
@@ -235,7 +200,7 @@ export async function listApiKeysHandler(
     // }
 
     // Get all API keys (matching Rust implementation)
-    const apiKeys = await db.query(
+    const apiKeys = await db.queryFactory(
       "SELECT * FROM factory_api_keys ORDER BY created_at DESC"
     );
 
@@ -267,15 +232,15 @@ export async function upsertApiKeyHandler(
   reply: FastifyReply
 ): Promise<void> {
   try {
-    // // Authenticate request
-    // const requesterApiKey = await authenticateRequest(request);
-    // if (!requesterApiKey) {
-    //   return reply
-    //     .status(401)
-    //     .send(
-    //       createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-    //     );
-    // }
+    // Authenticate request
+    const requesterApiKey = await authenticateRequest(request, "factory");
+    if (!requesterApiKey) {
+      return reply
+        .status(401)
+        .send(
+          createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+        );
+    }
 
     const body = request.body as FactoryUpsertApiKeyRequestBody;
 
@@ -293,30 +258,24 @@ export async function upsertApiKeyHandler(
         );
       }
 
-      //   const ownerId = await getOwnerId();
-      //   const isOwner = requesterApiKey.user_id === ownerId;
+      const ownerId = await getOwnerId();
+      const isOwner = requesterApiKey.user_id === ownerId;
 
-      //   // Check permissions
-      //   if (!isOwner) {
-      //     return reply
-      //       .status(403)
-      //       .send(
-      //         createApiResponse(undefined, { code: 403, message: "Forbidden" })
-      //       );
-      //   }
-
-      //   // Determine user_id for new key
-      //   const keyUserId =
-      //     isOwner && createBody.user_id
-      //       ? createBody.user_id
-      //       : requesterApiKey.user_id;
-      const keyUserId = "UserID_default_owner";
+      // Check permissions
+      if (!isOwner) {
+        return reply
+          .status(403)
+          .send(
+            createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          );
+      }
+      const ownerID = request.server.factory_owner;
 
       // Create new API key
       const newApiKey: FactoryApiKey = {
-        id: generateUuidv4("ApiKeyID") as any,
-        value: generateApiKey() as any,
-        user_id: keyUserId as any,
+        id: `${IDPrefixEnum.ApiKey}${uuidv4()}` as any,
+        value: await generateApiKey(),
+        user_id: ownerID,
         name: createBody.name,
         created_at: Date.now(),
         expires_at: createBody.expires_at || -1,
@@ -324,7 +283,7 @@ export async function upsertApiKeyHandler(
       };
 
       // Insert into database using transaction
-      await dbHelpers.transaction(null, (database) => {
+      await dbHelpers.transaction("factory", null, (database) => {
         const stmt = database.prepare(
           `INSERT INTO factory_api_keys (id, value, user_id, name, created_at, expires_at, is_revoked) 
            VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -356,7 +315,7 @@ export async function upsertApiKeyHandler(
       }
 
       // Get the existing API key
-      const apiKeys = await db.query(
+      const apiKeys = await db.queryFactory(
         "SELECT * FROM factory_api_keys WHERE id = ?",
         [updateBody.id]
       );
@@ -372,17 +331,17 @@ export async function upsertApiKeyHandler(
 
       const apiKey = apiKeys[0] as FactoryApiKey;
       const ownerId = await getOwnerId();
-      //   const isOwner = requesterApiKey.user_id === ownerId;
-      //   const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
+      const isOwner = requesterApiKey.user_id === ownerId;
+      const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
-      //   // Check permissions
-      //   if (!isOwner && !isOwnKey) {
-      //     return reply
-      //       .status(403)
-      //       .send(
-      //         createApiResponse(undefined, { code: 403, message: "Forbidden" })
-      //       );
-      //   }
+      // Check permissions
+      if (!isOwner && !isOwnKey) {
+        return reply
+          .status(403)
+          .send(
+            createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          );
+      }
 
       // Build update query dynamically
       const updates: string[] = [];
@@ -413,7 +372,7 @@ export async function upsertApiKeyHandler(
       values.push(updateBody.id);
 
       // Update in transaction
-      await dbHelpers.transaction(null, (database) => {
+      await dbHelpers.transaction("factory", null, (database) => {
         const stmt = database.prepare(
           `UPDATE factory_api_keys SET ${updates.join(", ")} WHERE id = ?`
         );
@@ -421,7 +380,7 @@ export async function upsertApiKeyHandler(
       });
 
       // Get updated API key
-      const updatedKeys = await db.query(
+      const updatedKeys = await db.queryFactory(
         "SELECT * FROM factory_api_keys WHERE id = ?",
         [updateBody.id]
       );
@@ -453,7 +412,7 @@ export async function deleteApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request);
+    const requesterApiKey = await authenticateRequest(request, "factory");
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -476,7 +435,7 @@ export async function deleteApiKeyHandler(
     }
 
     // Get the API key to be deleted
-    const apiKeys = await db.query(
+    const apiKeys = await db.queryFactory(
       "SELECT * FROM factory_api_keys WHERE id = ?",
       [body.id]
     );
@@ -505,7 +464,7 @@ export async function deleteApiKeyHandler(
     }
 
     // Delete the API key in transaction
-    await dbHelpers.transaction(null, (database) => {
+    await dbHelpers.transaction("factory", null, (database) => {
       const stmt = database.prepare(
         "DELETE FROM factory_api_keys WHERE id = ?"
       );
@@ -539,7 +498,7 @@ export async function snapshotHandler(
 
     if (!isLocalEnvironment) {
       // Authenticate request
-      const requesterApiKey = await authenticateRequest(request);
+      const requesterApiKey = await authenticateRequest(request, "factory");
       if (!requesterApiKey) {
         return reply
           .status(401)
