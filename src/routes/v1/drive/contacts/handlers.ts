@@ -40,10 +40,7 @@ import {
   validateUrl,
   validateUserId,
 } from "../../../../services/validation";
-
-interface OrgIdParams {
-  org_id: string;
-}
+import { OrgIdParams } from "../../types";
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {

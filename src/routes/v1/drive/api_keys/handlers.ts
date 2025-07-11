@@ -12,10 +12,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
-
-interface OrgIdParams {
-  org_id: string;
-}
+import { OrgIdParams } from "../../types";
 
 // Type definitions for route params
 interface GetApiKeyParams extends OrgIdParams {
