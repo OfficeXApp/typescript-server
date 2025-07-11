@@ -2,12 +2,9 @@ import { db, dbHelpers } from "../database";
 import {
   Webhook,
   WebhookEventLabel,
-  WebhookID,
-  WebhookIDList,
+  IRequestInboxOrg,
 } from "@officexapp/types";
-import { InboxOrgRequestBody } from "@officexapp/types/routes";
 import fetch from "node-fetch";
-import { debug_log } from "../utils";
 
 // Constants for special webhook alt indexes
 const SUPERSWAP_USER_SLUG = "SUPERSWAP_USER";
@@ -42,7 +39,7 @@ export async function get_superswap_user_webhooks(
 
     return webhooks as Webhook[];
   } catch (error) {
-    debug_log("Error in get_superswap_user_webhooks:", error);
+    console.log("Error in get_superswap_user_webhooks:", error);
     return [];
   }
 }
@@ -60,7 +57,7 @@ export async function get_org_inbox_webhooks(
     const webhooks = await db.queryDrive(
       "org_id_placeholder", // TODO: Replace with actual org ID parameter
       `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND is_active = 1`,
-      [INBOX_NEW_MAIL_SLUG, WebhookEventLabel.OrganizationInboxNewNotif]
+      [INBOX_NEW_MAIL_SLUG, WebhookEventLabel.ORG_INBOX_NEW_MAIL]
     );
 
     if (!webhooks || webhooks.length === 0) {
@@ -76,7 +73,7 @@ export async function get_org_inbox_webhooks(
           const filters = JSON.parse(webhook.filters);
           return filters.topic === topic;
         } catch (e) {
-          debug_log("Error parsing webhook filters:", e);
+          console.log("Error parsing webhook filters:", e);
           return false;
         }
       });
@@ -85,7 +82,7 @@ export async function get_org_inbox_webhooks(
     // Return all inbox webhooks if no topic filter
     return webhooks as Webhook[];
   } catch (error) {
-    debug_log("Error in get_org_inbox_webhooks:", error);
+    console.log("Error in get_org_inbox_webhooks:", error);
     return [];
   }
 }
@@ -136,12 +133,12 @@ export async function fire_superswap_user_webhook(
       });
 
       if (!response.ok) {
-        debug_log(
+        console.log(
           `Webhook ${webhook.id} failed with status ${response.status}`
         );
       }
     } catch (error) {
-      debug_log(`Error firing webhook ${webhook.id}:`, error);
+      console.log(`Error firing webhook ${webhook.id}:`, error);
     }
   }
 }
@@ -157,8 +154,8 @@ export async function fire_superswap_user_webhook(
 export async function fire_org_inbox_new_notif_webhook(
   event: WebhookEventLabel,
   webhooks: Webhook[],
-  before_snap?: InboxOrgRequestBody,
-  after_snap?: InboxOrgRequestBody,
+  before_snap?: IRequestInboxOrg,
+  after_snap?: IRequestInboxOrg,
   notes?: string
 ): Promise<void> {
   const timestamp_ms = Date.now();
@@ -193,12 +190,12 @@ export async function fire_org_inbox_new_notif_webhook(
       });
 
       if (!response.ok) {
-        debug_log(
+        console.log(
           `Webhook ${webhook.id} failed with status ${response.status}`
         );
       }
     } catch (error) {
-      debug_log(`Error firing webhook ${webhook.id}:`, error);
+      console.log(`Error firing webhook ${webhook.id}:`, error);
     }
   }
 }

@@ -21,7 +21,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { OrgIdParams } from "../../types";
+import { createApiResponse, OrgIdParams } from "../../types";
 
 // TODO: Implement getOwnerId() to retrieve the owner_id for permission checks.
 // This will likely involve querying the `about_drive` table in the drive's database.
@@ -132,19 +132,6 @@ function castDriveToFE(drive: Drive, userId: UserID): DriveFEWithRedaction {
     private_note: privateNote,
     labels: redactedLabels,
     permission_previews: permissionPreviews,
-  };
-}
-
-// Generic API Response Helper
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): ApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
   };
 }
 

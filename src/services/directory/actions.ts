@@ -1,7 +1,8 @@
+// src/services/directory/actions.ts
+
 import {
   DirectoryAction,
   DirectoryActionEnum,
-  DirectoryActionResult,
   CopyFilePayload,
   CopyFolderPayload,
   CreateFilePayload,
@@ -15,7 +16,7 @@ import {
   RestoreTrashPayload,
   UpdateFilePayload,
   UpdateFolderPayload,
-} from "../../types/actions";
+} from "@officexapp/types";
 import {
   DriveID,
   UserID,
@@ -361,7 +362,7 @@ export async function pipeAction(
   userId: UserID,
   driveId: DriveID
   // TODO: Add isOwner check similar to Rust's `OWNER_ID` check
-): Promise<DirectoryActionResult> {
+) {
   // TODO: Add robust validation for each payload type, similar to `validate_body` in Rust.
 
   switch (action.action) {
@@ -455,7 +456,7 @@ export async function pipeAction(
 
       const now = Date.now();
       const fileId = payload.id || GenerateID.File();
-      const versionId = GenerateID.FileVersion(); // Custom type in Rust, string here
+      const versionId = GenerateID.FileVersionID(); // Custom type in Rust, string here
       const parentFolder = await getFolderById(
         payload.parent_folder_uuid,
         driveId
@@ -811,8 +812,6 @@ export async function pipeAction(
     }
 
     default:
-      // This ensures that all enum cases are handled.
-      const _exhaustiveCheck: never = action.action;
       throw new DirectoryActionError(
         400,
         "Unsupported or unimplemented directory action"

@@ -9,7 +9,6 @@ import {
   FileWebhookData,
   FolderWebhookData,
   WebhookEventPayload,
-  WebhookEventData,
   WebhookResourceData,
 } from "@officexapp/types";
 import { v4 as uuidv4 } from "uuid";
@@ -41,11 +40,11 @@ export async function getActiveFileWebhooks(
 
   // Check if we should look for parent folder webhooks
   const shouldCheckParents = [
-    WebhookEventLabel.SubfileViewed,
-    WebhookEventLabel.SubfileCreated,
-    WebhookEventLabel.SubfileUpdated,
-    WebhookEventLabel.SubfileDeleted,
-    WebhookEventLabel.SubfileShared,
+    WebhookEventLabel.SUBFILE_VIEWED,
+    WebhookEventLabel.SUBFILE_CREATED,
+    WebhookEventLabel.SUBFILE_UPDATED,
+    WebhookEventLabel.SUBFILE_DELETED,
+    WebhookEventLabel.SUBFILE_SHARED,
   ].includes(event);
 
   if (!shouldCheckParents) {
@@ -136,11 +135,11 @@ export async function getActiveFolderWebhooks(
 
   // Check if we should look for parent folder webhooks
   const shouldCheckParents = [
-    WebhookEventLabel.SubfolderViewed,
-    WebhookEventLabel.SubfolderCreated,
-    WebhookEventLabel.SubfolderUpdated,
-    WebhookEventLabel.SubfolderDeleted,
-    WebhookEventLabel.SubfolderShared,
+    WebhookEventLabel.SUBFOLDER_VIEWED,
+    WebhookEventLabel.SUBFOLDER_CREATED,
+    WebhookEventLabel.SUBFOLDER_UPDATED,
+    WebhookEventLabel.SUBFOLDER_DELETED,
+    WebhookEventLabel.SUBFOLDER_SHARED,
   ].includes(event);
 
   if (!shouldCheckParents) {
@@ -259,7 +258,6 @@ export async function fireDirectoryWebhook(
             signature: webhook.signature,
           },
           body: JSON.stringify(payload),
-          timeout: 5000, // 5 second timeout (requires Node 16+)
         });
 
         if (!response.ok) {
@@ -282,20 +280,26 @@ export async function fireDirectoryWebhook(
 function mapDirectoryWebhookDataToResource(
   data: DirectoryWebhookData
 ): WebhookResourceData {
-  switch (data.type) {
-    case "File":
-      return { type: "file", data: data.data } as WebhookResourceData;
-    case "Folder":
-      return { type: "folder", data: data.data } as WebhookResourceData;
-    case "Subfile":
-      return { type: "subfile", data: data.data } as WebhookResourceData;
-    case "Subfolder":
-      return { type: "subfolder", data: data.data } as WebhookResourceData;
-    case "ShareTracking":
-      return { type: "share_tracking", data: data.data } as WebhookResourceData;
-    default:
-      throw new Error(
-        `Unknown directory webhook data type: ${(data as any).type}`
-      );
+  if ("File" in data) {
+    // The key is "File", but the target type in WebhookResourceData is "file".
+    // We spread the nested data from data.File to flatten it.
+    return { type: "file", ...data.File };
   }
+  if ("Folder" in data) {
+    return { type: "folder", ...data.Folder };
+  }
+  if ("Subfile" in data) {
+    return { type: "subfile", ...data.Subfile };
+  }
+  if ("Subfolder" in data) {
+    return { type: "subfolder", ...data.Subfolder };
+  }
+  if ("ShareTracking" in data) {
+    return { type: "share_tracking", ...data.ShareTracking };
+  }
+
+  // This path should be unreachable for valid data, but it satisfies the compiler.
+  throw new Error(
+    `Unknown directory webhook data shape: ${JSON.stringify(data)}`
+  );
 }

@@ -217,7 +217,7 @@ export async function listWebhooksHandler(
     // Get webhooks from database
     const webhooks = await db.queryDrive(request.params.org_id, sql, params);
 
-    const response: IResponseListWebhooks = {
+    const response = {
       items: webhooks as Webhook[],
       page_size: webhooks.length,
       total: webhooks.length, // TODO: Get total count from separate query for accurate pagination

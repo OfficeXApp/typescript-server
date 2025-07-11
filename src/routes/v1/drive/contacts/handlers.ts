@@ -40,24 +40,11 @@ import {
   validateUrl,
   validateUserId,
 } from "../../../../services/validation";
-import { OrgIdParams } from "../../types";
+import { createApiResponse, OrgIdParams } from "../../types";
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {
   contact_id: UserID;
-}
-
-// Helper for API Response
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): FactoryApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
-  };
 }
 
 // --- Utility Functions (Mimicking Rust's `Contact::redacted` and permission checks) ---

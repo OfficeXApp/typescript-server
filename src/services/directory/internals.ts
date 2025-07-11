@@ -1,3 +1,4 @@
+// src/services/directory/internals.ts
 import {
   DirectoryResourceID,
   DiskID,
@@ -12,11 +13,72 @@ import {
   FolderID,
   UserID,
   GenerateID,
+  IDPrefixEnum,
 } from "@officexapp/types";
-import { db } from "../database";
+import { db, dbHelpers } from "../database";
 import { FolderRecord, FileRecord } from "@officexapp/types";
-import { permissionsService } from "../permissions"; // TODO: Implement permissions service
-import { diskService } from "../disk"; // TODO: Implement disk service
+import type { Database } from "better-sqlite3";
+
+// =========================================================================
+// TODO: Service Placeholders
+// These are mock implementations. Replace with actual service logic.
+// =========================================================================
+
+const permissionsService = {
+  // TODO: Replace with actual implementation
+  deriveDirectoryBreadcrumbs: async (
+    _driveId: DriveID,
+    _userId: UserID,
+    _resource: { file?: FileID; folder?: FolderID }
+  ): Promise<FilePathBreadcrumb[]> => {
+    console.warn(
+      "TODO: permissionsService.deriveDirectoryBreadcrumbs is a mock"
+    );
+    return [];
+  },
+  // TODO: Replace with actual implementation
+  castFolderFE: async (
+    _driveId: DriveID,
+    _userId: UserID,
+    folder: FolderRecord
+  ): Promise<any> => {
+    console.warn("TODO: permissionsService.castFolderFE is a mock");
+    return {
+      ...folder,
+      clipped_directory_path: "mock/path",
+      permission_previews: [],
+    };
+  },
+  // TODO: Replace with actual implementation
+  castFileFE: async (
+    _driveId: DriveID,
+    _userId: UserID,
+    file: FileRecord
+  ): Promise<any> => {
+    console.warn("TODO: permissionsService.castFileFE is a mock");
+    return {
+      ...file,
+      clipped_directory_path: "mock/path",
+      permission_previews: [],
+    };
+  },
+};
+
+const diskService = {
+  // TODO: Replace with actual implementation
+  getDisk: async (
+    _driveId: DriveID,
+    diskId: DiskID
+  ): Promise<{ disk_type: DiskTypeEnum; root_folder_id: FolderID }> => {
+    console.warn("TODO: diskService.getDisk is a mock");
+    return {
+      disk_type: DiskTypeEnum.IcpCanister,
+      root_folder_id: `FolderID_root_${diskId}`,
+    };
+  },
+};
+
+// =========================================================================
 
 /**
  * Sanitizes a file path by replacing multiple slashes with a single one and removing trailing slashes.
@@ -24,11 +86,11 @@ import { diskService } from "../disk"; // TODO: Implement disk service
  * @returns The sanitized file path.
  */
 export function sanitizeFilePath(filePath: string): string {
-  const [storagePart, ...pathParts] = filePath.split("::");
-  if (!storagePart) {
-    return filePath;
-  }
-  const pathPart = pathParts.join("::");
+  const parts = filePath.split("::");
+  if (parts.length < 2) return filePath; // Invalid format, return as is
+
+  const storagePart = parts[0];
+  const pathPart = parts.slice(1).join("::");
 
   // Replace colons and multiple slashes
   const sanitized = pathPart.replace(/:/g, ";").replace(/\/+/g, "/");
@@ -39,33 +101,29 @@ export function sanitizeFilePath(filePath: string): string {
 
 /**
  * Splits a full path into its parent folder path and the final component (file/folder name).
- * @param fullPath - The full path string.
- * @returns A tuple containing the folder path and the file/folder name.
+ * @param fullPath - The full path string, e.g., "disk_id::/folder1/file.txt"
+ * @returns A tuple containing the folder path and the file/folder name. e.g., ["disk_id::/folder1/", "file.txt"]
  */
 export function splitPath(fullPath: string): [string, string] {
-  const parts = fullPath.rsplit("/", 1);
-  if (parts.length === 2) {
-    return [`${parts[0]}/`, parts[1]]; // [folder, filename]
+  const lastSlashIndex = fullPath.lastIndexOf("/");
+  if (lastSlashIndex === -1 || lastSlashIndex < fullPath.indexOf("::")) {
+    // Handles cases like "disk_id::file.txt"
+    const [storagePart, namePart] = fullPath.split("::");
+    return [`${storagePart}::/`, namePart || ""];
   }
-  // Handle root-level files/folders
-  const [storagePart, namePart] = fullPath.split("::");
-  if (storagePart && namePart) {
-    return [`${storagePart}::/`, namePart];
-  }
-  return ["", fullPath]; // Should not happen with valid paths
+
+  const folderPath = fullPath.substring(0, lastSlashIndex + 1);
+  const fileName = fullPath.substring(lastSlashIndex + 1);
+  return [folderPath, fileName];
 }
 
 /**
  * Translates a full directory path to a file or folder record.
- * @param driveId - The ID of the drive.
- * @param path - The full directory path.
- * @returns An object containing the folder or file record if found.
  */
 export async function translatePathToId(
   driveId: DriveID,
   path: DriveFullFilePath
 ): Promise<{ folder?: FolderRecord; file?: FileRecord }> {
-  // A path ending in '/' is always a folder
   const isFolderPath = path.endsWith("/");
 
   if (isFolderPath) {
@@ -74,7 +132,7 @@ export async function translatePathToId(
       "SELECT * FROM folders WHERE full_directory_path = ?",
       [path]
     );
-    // TODO: Hydrate labels, subfolder_uuids, file_uuids from other tables
+    // TODO: Hydrate labels, subfolder_uuids, file_uuids from other tables if needed for the caller
     return { folder: result[0] as FolderRecord };
   } else {
     const result = await db.queryDrive(
@@ -82,23 +140,17 @@ export async function translatePathToId(
       "SELECT * FROM files WHERE full_directory_path = ?",
       [path]
     );
-    // TODO: Hydrate labels from file_labels junction table
+    // TODO: Hydrate labels from file_labels junction table if needed
     return { file: result[0] as FileRecord };
   }
 }
 
 /**
  * Resolves naming conflicts based on the specified resolution strategy.
- * @param driveId - The ID of the drive.
- * @param basePath - The base path of the parent directory.
- * @param name - The original name of the item.
- * @param isFolder - True if the item is a folder.
- * @param resolution - The conflict resolution strategy.
- * @returns A tuple of the final name and final full path.
  */
 export async function resolveNamingConflict(
   driveId: DriveID,
-  basePath: string,
+  basePath: string, // e.g., "disk_id::/parent/folder/"
   name: string,
   isFolder: boolean,
   resolution: FileConflictResolutionEnum = FileConflictResolutionEnum.KEEP_BOTH
@@ -121,30 +173,37 @@ export async function resolveNamingConflict(
     resolution === FileConflictResolutionEnum.REPLACE ||
     resolution === FileConflictResolutionEnum.KEEP_NEWER
   ) {
-    // These strategies will overwrite, so the initial name is fine. The caller will handle deletion.
     return [finalName, finalPath];
   }
 
   if (resolution === FileConflictResolutionEnum.KEEP_ORIGINAL) {
-    // If a conflict exists, signal the caller to abort by returning empty strings.
     if (await checkConflict(finalPath)) {
-      return ["", ""];
+      return ["", ""]; // Signal to abort
     }
     return [finalName, finalPath];
   }
 
-  // Default to KEEP_BOTH
+  // Default: KEEP_BOTH
   let counter = 1;
-  while (await checkConflict(finalPath)) {
+  const pathConflict = await checkConflict(finalPath);
+  if (!pathConflict) {
+    return [finalName, finalPath];
+  }
+
+  while (true) {
     counter++;
-    const nameParts = name.rsplit(".", 1);
-    const hasExtension = !isFolder && nameParts.length === 2;
-    const baseName = hasExtension ? nameParts[0] : name;
-    const extension = hasExtension ? nameParts[1] : "";
+    const nameParts = name.split(".");
+    const hasExtension = !isFolder && nameParts.length > 1;
+    const baseName = hasExtension ? nameParts.slice(0, -1).join(".") : name;
+    const extension = hasExtension ? nameParts[nameParts.length - 1] : "";
 
     finalName = `${baseName} (${counter})${hasExtension ? `.${extension}` : ""}`;
     finalPath =
       `${basePath.replace(/\/$/, "")}/${finalName}` + (isFolder ? "/" : "");
+
+    if (!(await checkConflict(finalPath))) {
+      break; // Found a unique name
+    }
   }
 
   return [finalName, finalPath];
@@ -152,82 +211,70 @@ export async function resolveNamingConflict(
 
 /**
  * Ensures the root and .trash folders exist for a given disk.
- * @param driveId - The ID of the drive.
- * @param diskId - The ID of the disk.
- * @param userId - The ID of the user creating the folders.
- * @returns The FolderID of the root folder.
  */
 export async function ensureRootFolder(
   driveId: DriveID,
   diskId: DiskID,
   userId: UserID
 ): Promise<FolderID> {
-  const disk = await diskService.getDisk(driveId, diskId); // Assumes a diskService
+  const disk = await diskService.getDisk(driveId, diskId);
   const rootPath = `${diskId}::/`;
   const trashPath = `${diskId}::/.trash/`;
 
-  return db.transaction("drive", driveId, async (tx) => {
-    // Check for root folder
-    let rootFolderResult = await tx
+  return dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    let rootFolder: FolderRecord = tx
       .prepare("SELECT * FROM folders WHERE full_directory_path = ?")
-      .all(rootPath);
-    let rootFolder: FolderRecord = rootFolderResult[0] as FolderRecord;
+      .get(rootPath) as FolderRecord;
 
     if (!rootFolder) {
       const rootFolderId = GenerateID.Folder();
       const now = Date.now();
-      await tx
-        .prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          rootFolderId,
-          "", // Root folder name is empty
-          null,
-          rootPath,
-          userId,
-          now,
-          now,
-          userId,
-          diskId,
-          disk.disk_type,
-          driveId,
-          -1
-        );
-      rootFolderResult = await tx
+      tx.prepare(
+        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        rootFolderId,
+        "",
+        null,
+        rootPath,
+        userId,
+        now,
+        now,
+        userId,
+        diskId,
+        disk.disk_type,
+        driveId,
+        -1
+      );
+      rootFolder = tx
         .prepare("SELECT * FROM folders WHERE id = ?")
-        .all(rootFolderId);
-      rootFolder = rootFolderResult[0] as FolderRecord;
+        .get(rootFolderId) as FolderRecord;
     }
 
-    // Check for trash folder
-    const trashFolderResult = await tx
+    const trashFolderResult = tx
       .prepare("SELECT id FROM folders WHERE full_directory_path = ?")
-      .all(trashPath);
-    if (trashFolderResult.length === 0) {
+      .get(trashPath);
+    if (!trashFolderResult) {
       const trashFolderId = GenerateID.Folder();
       const now = Date.now();
-      await tx
-        .prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          trashFolderId,
-          ".trash",
-          rootFolder.id,
-          trashPath,
-          userId,
-          now,
-          now,
-          userId,
-          diskId,
-          disk.disk_type,
-          driveId,
-          -1,
-          1 // has_sovereign_permissions = true
-        );
+      tx.prepare(
+        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        trashFolderId,
+        ".trash",
+        rootFolder.id,
+        trashPath,
+        userId,
+        now,
+        now,
+        userId,
+        diskId,
+        disk.disk_type,
+        driveId,
+        -1,
+        1
+      );
     }
     return rootFolder.id;
   });
@@ -235,11 +282,10 @@ export async function ensureRootFolder(
 
 /**
  * Creates a nested folder structure if it doesn't already exist.
- * @returns The FolderID of the final folder in the path.
  */
 export async function ensureFolderStructure(
   driveId: DriveID,
-  fullPath: string,
+  fullPath: string, // e.g., disk_id::/path/to/folder/
   diskId: DiskID,
   userId: UserID,
   hasSovereignPermissions: boolean = false,
@@ -258,7 +304,8 @@ export async function ensureFolderStructure(
       .filter((p) => p.length > 0) ?? [];
   let currentPath = `${diskId}::/`;
 
-  for (const segment of pathSegments) {
+  for (let i = 0; i < pathSegments.length; i++) {
+    const segment = pathSegments[i];
     currentPath += `${segment}/`;
     const result = await db.queryDrive(
       driveId,
@@ -272,6 +319,8 @@ export async function ensureFolderStructure(
     } else {
       const newFolderId = GenerateID.Folder();
       const now = Date.now();
+      const isFinalFolder = i === pathSegments.length - 1;
+
       await db.queryDrive(
         driveId,
         `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
@@ -289,11 +338,11 @@ export async function ensureFolderStructure(
           disk.disk_type,
           driveId,
           -1,
-          hasSovereignPermissions ? 1 : 0,
-          shortcutTo,
-          notes,
-          externalId,
-          externalPayload,
+          isFinalFolder && hasSovereignPermissions ? 1 : 0,
+          isFinalFolder ? shortcutTo : undefined,
+          isFinalFolder ? notes : undefined,
+          isFinalFolder ? externalId : undefined,
+          isFinalFolder ? externalPayload : undefined,
         ]
       );
       parentFolderId = newFolderId;
@@ -311,63 +360,58 @@ export async function updateSubfolderPaths(
   oldPath: string,
   newPath: string
 ): Promise<void> {
-  return db.transaction("drive", driveId, async (tx) => {
-    const { files = [], subfolder_uuids = [] } =
-      ((await tx
-        .prepare("SELECT file_uuids, subfolder_uuids FROM folders WHERE id = ?")
-        .get(folderId)) as any) ?? {};
+  return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
+    const folder = tx
+      .prepare("SELECT * FROM folders WHERE id = ?")
+      .get(folderId) as FolderRecord | undefined;
+    if (!folder) return;
 
-    // Update child files
-    for (const fileId of files) {
-      const file = (await tx
-        .prepare("SELECT * FROM files WHERE id = ?")
-        .get(fileId)) as FileRecord;
-      if (file) {
-        const newFilePath = file.full_directory_path.replace(oldPath, newPath);
-        await tx
-          .prepare("UPDATE files SET full_directory_path = ? WHERE id = ?")
-          .run(newFilePath, fileId);
-      }
+    // Note: The schema doesn't store subfolder_uuids and file_uuids directly in the `folders` table.
+    // This was a misinterpretation of the Rust code. We need to query for children.
+    const childFiles = tx
+      .prepare("SELECT * FROM files WHERE parent_folder_id = ?")
+      .all(folderId) as FileRecord[];
+    const childFolders = tx
+      .prepare("SELECT * FROM folders WHERE parent_folder_id = ?")
+      .all(folderId) as FolderRecord[];
+
+    for (const file of childFiles) {
+      const newFilePath = file.full_directory_path.replace(oldPath, newPath);
+      tx.prepare("UPDATE files SET full_directory_path = ? WHERE id = ?").run(
+        newFilePath,
+        file.id
+      );
     }
 
-    // Recursively update child folders
-    for (const subfolderId of subfolder_uuids) {
-      const subfolder = (await tx
-        .prepare("SELECT * FROM folders WHERE id = ?")
-        .get(subfolderId)) as FolderRecord;
-      if (subfolder) {
-        const newSubfolderPath = subfolder.full_directory_path.replace(
-          oldPath,
-          newPath
-        );
-        await tx
-          .prepare("UPDATE folders SET full_directory_path = ? WHERE id = ?")
-          .run(newSubfolderPath, subfolderId);
-        // Recursive call
-        await updateSubfolderPaths(
-          driveId,
-          subfolderId,
-          subfolder.full_directory_path,
-          newSubfolderPath
-        );
-      }
+    for (const subfolder of childFolders) {
+      const newSubfolderPath = subfolder.full_directory_path.replace(
+        oldPath,
+        newPath
+      );
+      tx.prepare("UPDATE folders SET full_directory_path = ? WHERE id = ?").run(
+        newSubfolderPath,
+        subfolder.id
+      );
+      // Recursive call needs to be outside the transaction or handled carefully.
+      // For simplicity here, we'll call it, but a better pattern might be needed for deep recursion.
+      await updateSubfolderPaths(
+        driveId,
+        subfolder.id,
+        subfolder.full_directory_path,
+        newSubfolderPath
+      );
     }
   });
 }
 
 /**
  * Generates the publicly accessible URL for a file asset.
- * @param driveId - The ID of the drive.
- * @param fileId - The ID of the file.
- * @param extension - The file extension.
- * @returns The formatted URL string.
  */
 export function formatFileAssetPath(
   driveId: DriveID,
   fileId: FileID,
   extension: string
 ): string {
-  // TODO: This should be configured via environment variables
   const baseUrl = process.env.BASE_URL || "http://localhost:3000";
   return `${baseUrl}/v1/drives/${driveId}/directory/asset/${fileId}.${extension}`;
 }

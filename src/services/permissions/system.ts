@@ -8,7 +8,7 @@ import {
   SystemPermissionType,
   IDPrefixEnum,
   SystemResourceID,
-  SystemTableEnum,
+  SystemTableValueEnum,
   SystemRecordIDEnum,
   PermissionMetadata,
   PermissionMetadataTypeEnum,
@@ -22,6 +22,12 @@ import {
   IRequestListSystemPermissions,
   IRequestRedeemSystemPermission,
   IRequestUpdateSystemPermission,
+  GroupID,
+  DriveID,
+  DiskID,
+  ApiKeyID,
+  WebhookID,
+  LabelID,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../services/database";
 import { authenticateRequest } from "../../services/auth";
@@ -79,10 +85,10 @@ function mapDbRowToSystemPermission(row: any): SystemPermission {
       const parsedContent = JSON.parse(row.metadata_content);
 
       switch (row.metadata_type) {
-        case PermissionMetadataTypeEnum.Labels:
+        case PermissionMetadataTypeEnum.LABELS:
           content = { Labels: parsedContent }; // Assuming Labels content is a string value directly
           break;
-        case PermissionMetadataTypeEnum.DirectoryPassword:
+        case PermissionMetadataTypeEnum.DIRECTORY_PASSWORD:
           content = { DirectoryPassword: parsedContent }; // Assuming DirectoryPassword content is a string value directly
           break;
         default:
@@ -110,38 +116,35 @@ function mapDbRowToSystemPermission(row: any): SystemPermission {
   if (prefix === "TABLE") {
     switch (idPart) {
       case "DRIVES":
-        resourceId = { type: "Table", value: SystemTableEnum.DRIVES };
+        resourceId = `Table_${SystemTableValueEnum.DRIVES}`;
         break;
       case "DISKS":
-        resourceId = { type: "Table", value: SystemTableEnum.DISKS };
+        resourceId = `Table_${SystemTableValueEnum.DISKS}`;
         break;
       case "CONTACTS":
-        resourceId = { type: "Table", value: SystemTableEnum.CONTACTS };
+        resourceId = `Table_${SystemTableValueEnum.CONTACTS}`;
         break;
       case "GROUPS":
-        resourceId = { type: "Table", value: SystemTableEnum.GROUPS };
+        resourceId = `Table_${SystemTableValueEnum.GROUPS}`;
         break;
       case "API_KEYS":
-        resourceId = { type: "Table", value: SystemTableEnum.API_KEYS };
+        resourceId = `Table_${SystemTableValueEnum.API_KEYS}`;
         break;
       case "PERMISSIONS":
-        resourceId = { type: "Table", value: SystemTableEnum.PERMISSIONS };
+        resourceId = `Table_${SystemTableValueEnum.PERMISSIONS}`;
         break;
       case "WEBHOOKS":
-        resourceId = { type: "Table", value: SystemTableEnum.WEBHOOKS };
+        resourceId = `Table_${SystemTableValueEnum.WEBHOOKS}`;
         break;
       case "LABELS":
-        resourceId = { type: "Table", value: SystemTableEnum.LABELS };
+        resourceId = `Table_${SystemTableValueEnum.LABELS}`;
         break;
       case "INBOX":
-        resourceId = { type: "Table", value: SystemTableEnum.INBOX };
+        resourceId = `Table_${SystemTableValueEnum.INBOX}`;
         break;
       default:
-        resourceId = {
-          type: "Record",
-          value: { type: "Unknown", value: row.resource_identifier },
-        };
-        break; // Fallback to unknown record
+        resourceId = `Record_${row.resource_identifier}`;
+        break;
     }
   } else {
     let recordType: SystemRecordIDEnum["type"] = "Unknown";
@@ -216,64 +219,64 @@ async function castToSystemPermissionFE(
   const isOwner = (await getOwnerId(orgId)) === currentUserId;
 
   let resourceName: string | undefined;
-  if (permission.resource_id.type === "Table") {
-    resourceName = `${permission.resource_id.value} Table`;
-  } else if (permission.resource_id.type === "Record") {
-    switch (permission.resource_id.value.type) {
+  if (permission.resource_id.startsWith("TABLE_")) {
+    resourceName = `${permission.resource_id} Table`;
+  } else if (permission.resource_id.startsWith("RECORD_")) {
+    switch (permission.resource_id.substring("RECORD_".length)) {
       case "User":
         const contact = await getContactById(
           orgId,
-          permission.resource_id.value.value as UserID
+          permission.resource_id.substring("RECORD_".length) as UserID
         );
         resourceName = contact?.name;
         break;
       case "Group":
         const group = await getGroupById(
           orgId,
-          permission.resource_id.value.value
+          permission.resource_id.substring("RECORD_".length) as GroupID
         );
         resourceName = group?.name;
         break;
       case "Drive":
         const drive = await getDriveById(
           orgId,
-          permission.resource_id.value.value
+          permission.resource_id.substring("RECORD_".length) as DriveID
         );
         resourceName = drive?.name;
         break;
       case "Disk":
         const disk = await getDiskById(
           orgId,
-          permission.resource_id.value.value
+          permission.resource_id.substring("RECORD_".length) as DiskID
         );
         resourceName = disk?.name;
         break;
       case "ApiKey":
         const apiKey = await getApiKeyById(
           orgId,
-          permission.resource_id.value.value
+          permission.resource_id.substring("RECORD_".length) as ApiKeyID
         );
         resourceName = apiKey?.name;
         break;
       case "Webhook":
         const webhook = await getWebhookById(
           orgId,
-          permission.resource_id.value.value
+          permission.resource_id.substring("RECORD_".length) as WebhookID
         );
         resourceName = webhook?.name;
         break;
       case "Label":
         const label = await getLabelById(
           orgId,
-          permission.resource_id.value.value
+          permission.resource_id.substring("RECORD_".length) as LabelID
         );
         resourceName = label?.value;
         break;
       case "Permission":
-        resourceName = `Permission ${permission.resource_id.value.value}`;
+        resourceName = `Permission ${permission.resource_id.substring("RECORD_".length)}`;
         break;
       default:
-        resourceName = permission.resource_id.value.value;
+        resourceName = permission.resource_id.substring("RECORD_".length);
     }
   }
 
@@ -327,10 +330,7 @@ async function castToSystemPermissionFE(
 
   const castedPermission: SystemPermissionFE = {
     id: permission.id,
-    resource_id:
-      permission.resource_id.type === "Table"
-        ? `TABLE_${permission.resource_id.value}`
-        : permission.resource_id.value.value,
+    resource_id: permission.resource_id,
     granted_to:
       typeof permission.granted_to === "string"
         ? permission.granted_to
@@ -518,10 +518,10 @@ async function checkSystemResourcePermissions(
   let granteeType: string;
   let granteeIdValue: string | null = null;
 
-  if (resourceId.type === "Table") {
-    resourceIdentifier = `TABLE_${resourceId.value}`;
+  if (resourceId.startsWith("TABLE_")) {
+    resourceIdentifier = resourceId;
   } else {
-    resourceIdentifier = resourceId.value.value;
+    resourceIdentifier = resourceId;
   }
 
   if (granteeId === "Public") {
@@ -612,7 +612,7 @@ export async function checkPermissionsTableAccess(
   }
 
   const permissions = await checkSystemPermissions(
-    { type: "Table", value: SystemTableEnum.PERMISSIONS },
+    { type: "Table", value: SystemTableValueEnum.PERMISSIONS },
     userId,
     orgId
   );
@@ -629,10 +629,10 @@ export async function checkSystemResourcePermissionsByLabels(
   const currentTime = getCurrentTimeMs();
 
   let resourceIdentifier: string;
-  if (resourceId.type === "Table") {
-    resourceIdentifier = `TABLE_${resourceId.value}`;
+  if (resourceId.startsWith("TABLE_")) {
+    resourceIdentifier = resourceId;
   } else {
-    resourceIdentifier = resourceId.value.value;
+    resourceIdentifier = resourceId;
   }
 
   // This query is more complex as it needs to filter by metadata content (label prefix)
@@ -734,7 +734,7 @@ export async function checkSystemResourcePermissionsByLabels(
     let labelMatch = true;
     if (permission.metadata) {
       if (
-        permission.metadata.metadata_type === PermissionMetadataTypeEnum.Labels
+        permission.metadata.metadata_type === PermissionMetadataTypeEnum.LABELS
       ) {
         if (
           typeof permission.metadata.content === "object" &&

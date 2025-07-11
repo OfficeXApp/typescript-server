@@ -23,14 +23,20 @@ import {
   IResponseRedeemSystemPermission,
   IResponseCheckSystemPermissions,
   DirectoryPermissionType,
+  IRequestDeleteSystemPermission,
+  IRequestCreateSystemPermission,
 } from "@officexapp/types";
 import { authenticateRequest } from "../../../../services/auth";
-import { createApiResponse } from "../../../../services/utils"; // Assuming a utils service file exists
+
 import {
   getDirectoryPermissionById,
   listDirectoryPermissionsForResource,
 } from "../../../../services/permissions/directory";
-import { OrgIdParams } from "../../types";
+import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
+import {
+  checkPermissionsTableAccess,
+  checkSystemPermissions,
+} from "../../../../services/permissions/system";
 
 // Define route-specific param types
 interface GetDirectoryPermissionParams extends OrgIdParams {
@@ -212,7 +218,7 @@ export async function createDirectoryPermissionsHandler(
     }
 
     // 3. Authorize the action
-    const ownerId = await getOwnerId(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterId === ownerId;
     const requesterPermissions = await checkDirectoryPermissions(
       org_id,
@@ -314,7 +320,7 @@ export async function updateDirectoryPermissionsHandler(
     }
 
     // 3. Authorize the update action
-    const ownerId = await getOwnerId(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterId === ownerId;
     const isGranter =
       (existingPermission as unknown as DirectoryPermission).granted_by ===
@@ -407,7 +413,7 @@ export async function deleteDirectoryPermissionsHandler(
     }
 
     // 3. Authorize deletion
-    const ownerId = await getOwnerId(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterId === ownerId;
     const isGranter =
       (permission as unknown as DirectoryPermission).granted_by === requesterId;
@@ -476,7 +482,7 @@ export async function checkDirectoryPermissionsHandler(
     const requesterId = requesterApiKey.user_id;
 
     // 2. Authorize the check
-    const ownerId = await getOwnerId(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterId === ownerId;
     const isCheckingOwnPermissions = grantee_id === requesterId;
     const canManageResource = await hasDirectoryManagePermission(
@@ -758,7 +764,7 @@ export async function createSystemPermissionsHandler(
     }
 
     // 3. Authorize the action
-    const isOwner = (await getOwnerId(org_id)) === requesterId;
+    const isOwner = (await getDriveOwnerId(org_id)) === requesterId;
     const hasTablePerms = await checkPermissionsTableAccess(
       org_id,
       requesterId,
@@ -852,7 +858,7 @@ export async function updateSystemPermissionsHandler(
     }
 
     // 3. Authorize the update
-    const isOwner = (await getOwnerId(org_id)) === requesterId;
+    const isOwner = (await getDriveOwnerId(org_id)) === requesterId;
     const hasTablePerms = await checkPermissionsTableAccess(
       org_id,
       requesterId,
@@ -946,7 +952,7 @@ export async function deleteSystemPermissionsHandler(
     }
 
     // 3. Authorize deletion
-    const isOwner = (await getOwnerId(org_id)) === requesterId;
+    const isOwner = (await getDriveOwnerId(org_id)) === requesterId;
     const isGranter = permission.granted_by === requesterId;
     const hasTablePerms = await checkPermissionsTableAccess(
       org_id,
@@ -1023,7 +1029,7 @@ export async function checkSystemPermissionsHandler(
     const requesterId = requesterApiKey.user_id;
 
     // 2. Authorize the check action itself
-    const isOwner = (await getOwnerId(org_id)) === requesterId;
+    const isOwner = (await getDriveOwnerId(org_id)) === requesterId;
     const isCheckingOwn = grantee_id === requesterId;
     const hasTableViewPerms = await checkPermissionsTableAccess(
       org_id,

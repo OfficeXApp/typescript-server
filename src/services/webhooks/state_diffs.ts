@@ -5,9 +5,9 @@ import {
   DriveID,
   StateDiffRecord,
   DriveStateDiffID,
+  IDPrefixEnum,
 } from "@officexapp/types";
 import { v4 as uuidv4 } from "uuid";
-import { IDPrefixEnum } from "@officexapp/types/primitives";
 
 /**
  * Get all active webhooks for state diff events
@@ -23,7 +23,7 @@ export async function get_active_state_diff_webhooks(
       `SELECT * FROM webhooks 
              WHERE event = ? AND is_active = 1
              ORDER BY created_at DESC`,
-      [WebhookEventLabel.DriveStateDiffs]
+      [WebhookEventLabel.DRIVE_STATE_DIFFS]
     );
 
     return webhooks as Webhook[];
@@ -82,7 +82,7 @@ export async function fire_state_diff_webhooks(
     for (const webhook of webhooks) {
       try {
         const payload = {
-          event: WebhookEventLabel.DriveStateDiffs,
+          event: WebhookEventLabel.DRIVE_STATE_DIFFS,
           timestamp_ms: timestampMs,
           nonce: timestampMs,
           notes: notes || undefined,

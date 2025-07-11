@@ -28,13 +28,14 @@ import {
   DirectoryPermissionID,
   SystemPermissionType,
   SystemResourceID,
-  SystemRecordIDEnum,
   PermissionMetadata,
   PermissionMetadataTypeEnum,
   PermissionMetadataContent,
   DriveFullFilePath,
   DriveClippedFilePath,
   LabelValue,
+  GroupID,
+  FilePathBreadcrumb,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../services/database"; // Assuming this path
 import { authenticateRequest } from "../../services/auth"; // Assuming this path
@@ -84,9 +85,9 @@ function parseDirectoryResourceID(
   idStr: string
 ): DirectoryResourceID | undefined {
   if (idStr.startsWith(IDPrefixEnum.File)) {
-    return idStr as FileID;
+    return idStr as DirectoryResourceID;
   } else if (idStr.startsWith(IDPrefixEnum.Folder)) {
-    return idStr as FolderID;
+    return idStr as DirectoryResourceID;
   }
   return undefined;
 }
@@ -194,11 +195,11 @@ async function castToDirectoryPermissionFE(
     // Handle discriminated union if it were properly typed
     if ("User" in permission.granted_to) {
       // TODO: Fetch user name and avatar from contacts table
-      granteeName = "User: " + permission.granted_to.User;
+      granteeName = "User: " + permission.granted_to;
       granteeAvatar = undefined;
     } else if ("Group" in permission.granted_to) {
       // TODO: Fetch group name and avatar from groups table
-      granteeName = "Group: " + permission.granted_to.Group;
+      granteeName = "Group: " + permission.granted_to;
       granteeAvatar = undefined;
     }
   }
@@ -268,7 +269,7 @@ function redactDirectoryPermissionFE(
   const redacted = { ...permissionFe };
 
   const hasEditPermissions = redacted.permission_previews.includes(
-    SystemPermissionType.Edit
+    SystemPermissionType.EDIT
   );
 
   if (!isOwner) {
