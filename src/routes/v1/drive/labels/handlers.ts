@@ -287,49 +287,6 @@ function parseLabelResourceID(idStr: string): {
   }
 }
 
-// Helper to convert Label to LabelFE (simplified for now)
-async function castLabelToLabelFE(
-  label: Label,
-  requesterUserId: UserID,
-  orgId: DriveID
-): Promise<LabelFE> {
-  const permissionPreviews: SystemPermissionType[] = []; // Placeholder for actual permissions
-
-  const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
-
-  let privateNote: string | null | undefined = label.private_note;
-  let resources: any[] = label.resources;
-  let labels: LabelValue[] = label.labels; // Labels applied to this label
-
-  if (!isOwner) {
-    resources = []; // Non-owners don't see what resources a label is applied to.
-
-    // Check for EDIT permission on the label itself to show private_note
-    const hasEditPermission = (
-      await checkSystemPermissions(
-        orgId,
-        `${IDPrefixEnum.LabelID}${label.id.split("_")[1]}`,
-        requesterUserId
-      )
-    ).includes(SystemPermissionType.EDIT);
-    if (!hasEditPermission) {
-      privateNote = undefined;
-    }
-
-    // Filter nested labels based on user's permissions
-    // TODO: Implement actual `redactLabelValue` logic, which would recursively call permission checks.
-    labels = labels.filter((l) => true); // Placeholder: for now, all nested labels are visible
-  }
-
-  return {
-    ...label,
-    private_note: privateNote,
-    resources: resources,
-    labels: labels,
-    permission_previews: permissionPreviews, // TODO: Populate with actual permissions
-  };
-}
-
 // TODO: Implement placeholder for `update_external_id_mapping`
 async function updateExternalIdMapping(
   oldExternalId: string | null | undefined,
@@ -1828,4 +1785,152 @@ export async function labelResourceHandler(
       })
     );
   }
+}
+
+// New helper function: `redactLabelValue`
+export async function redactLabelValue(
+  orgId: DriveID,
+  labelValue: LabelValue,
+  requesterUserId: UserID
+): Promise<LabelValue | null> {
+  // 1. Get the LabelID from the value. In Rust, this is `LABELS_BY_VALUE_HASHTABLE`.
+  // In SQLite, we need a DB lookup.
+  const labelResult = await db.queryDrive(
+    orgId,
+    "SELECT id FROM labels WHERE value = ?",
+    [labelValue]
+  );
+
+  if (labelResult.length === 0) {
+    return null; // Label not found, effectively redacted
+  }
+  const labelId: LabelID = labelResult[0].id;
+
+  // 2. Check if the user is the owner (Owner bypass)
+  const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
+  if (isOwner) {
+    return labelValue; // Owner sees everything
+  }
+
+  // 3. Check permissions for this specific label and the Labels table
+  // Rust uses `check_system_resource_permissions_labels` which handles label prefixes.
+  // Your `checkSystemPermissions` mock needs to correctly replicate this.
+  const recordPermissions = await checkSystemPermissions(
+    orgId,
+    `${IDPrefixEnum.LabelID}${labelId.split("_")[1]}`, // Reconstruct SystemResourceID for label record
+    requesterUserId,
+    labelValue // Pass labelValue for label-prefixed permission checks
+  );
+
+  const tablePermissions = await checkSystemPermissions(
+    orgId,
+    `LABELS`, // SystemTableEnum::Labels in Rust
+    requesterUserId,
+    labelValue // Pass labelValue for label-prefixed permission checks
+  );
+
+  // If the user has View permission either at the table level or for this specific label
+  if (
+    recordPermissions.includes(SystemPermissionType.VIEW) ||
+    tablePermissions.includes(SystemPermissionType.VIEW)
+  ) {
+    return labelValue;
+  }
+
+  // If we get here, the user doesn't have permission to see this label
+  return null;
+}
+
+// Update `castLabelToLabelFE` to use `redactLabelValue`
+async function castLabelToLabelFE(
+  label: Label,
+  requesterUserId: UserID,
+  orgId: DriveID
+): Promise<LabelFE> {
+  const permissionPreviews: SystemPermissionType[] = []; // TODO: Populate with actual permissions (similar to getLabelHandler)
+
+  const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
+
+  let privateNote: string | null | undefined = label.private_note;
+  let resources: any[] = label.resources;
+  let labels: LabelValue[] = label.labels; // Labels applied to this label
+
+  if (!isOwner) {
+    resources = []; // Non-owners don't see what resources a label is applied to.
+
+    // Check for EDIT permission on the label itself to show private_note
+    const hasEditPermission = (
+      await checkSystemPermissions(
+        orgId,
+        `${IDPrefixEnum.LabelID}${label.id.split("_")[1]}`,
+        requesterUserId,
+        label.value // Pass label value for prefix permissions
+      )
+    ).includes(SystemPermissionType.EDIT);
+    if (!hasEditPermission) {
+      privateNote = undefined;
+    }
+
+    // Filter nested labels based on user's permissions using redactLabelValue
+    const redactedNestedLabels: LabelValue[] = [];
+    for (const nestedLabelValue of label.labels) {
+      const redacted = await redactLabelValue(
+        orgId,
+        nestedLabelValue,
+        requesterUserId
+      );
+      if (redacted !== null) {
+        redactedNestedLabels.push(redacted);
+      }
+    }
+    labels = redactedNestedLabels;
+  }
+
+  // --- Populate permission_previews based on existing logic in getLabelHandler ---
+  const tablePermissions = await checkSystemPermissions(
+    orgId,
+    `LABELS`, // SystemTableEnum::Labels in Rust
+    requesterUserId,
+    label.value // For label-prefixed permissions
+  );
+
+  const resourcePermissions = await checkSystemPermissions(
+    orgId,
+    `${IDPrefixEnum.LabelID}${label.id.split("_")[1]}`, // SystemRecordIDEnum::Label in Rust
+    requesterUserId,
+    label.value
+  );
+
+  // Combine and deduplicate permissions
+  const combinedPermissions = [
+    ...new Set([...tablePermissions, ...resourcePermissions]),
+  ];
+  // Ensure 'permission_previews' contains only VIEW if no other permissions are explicitly granted and not owner
+  // Rust's `Label::cast_fe` combines record and table permissions, then passes them to `redacted(user_id)`
+  // which implies permission_previews are calculated *before* redaction for the main label fields.
+  // The specific fields like `private_note`, `resources`, `labels` are then redacted by `redacted(user_id)`
+  // based on these permissions.
+  // For simplicity, we'll populate `permission_previews` here with what the user *has* for this label.
+  if (isOwner) {
+    permissionPreviews.push(
+      SystemPermissionType.CREATE,
+      SystemPermissionType.EDIT,
+      SystemPermissionType.DELETE,
+      SystemPermissionType.VIEW,
+      SystemPermissionType.INVITE
+    );
+  } else {
+    // If not owner, only show permissions relevant to non-owners, which is what they actually have.
+    // This is already what `combinedPermissions` holds.
+    permissionPreviews.push(...combinedPermissions);
+  }
+  // --- End permission_previews population ---
+
+  return {
+    ...label,
+    private_note: privateNote,
+    resources: resources,
+    labels: labels,
+    permission_previews: permissionPreviews,
+  };
 }

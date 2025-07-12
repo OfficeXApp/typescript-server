@@ -14,11 +14,7 @@ import {
 } from "@officexapp/types";
 import { db } from "../../services/database";
 import { getDriveOwnerId } from "../../routes/v1/types";
-import {
-  isUserInGroup,
-  getGroupById,
-  isUserOnLocalGroup,
-} from "../../services/groups";
+import { isUserInGroup } from "../groups";
 import {
   parsePermissionGranteeIDString, // Use the shared parser from directory.ts
   PUBLIC_GRANTEE_ID_STRING,

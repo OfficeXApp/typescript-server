@@ -21,13 +21,15 @@ import {
   FilePathBreadcrumb,
   SystemTableValueEnum,
   BreadcrumbVisibilityPreviewEnum,
+  DriveID,
 } from "@officexapp/types";
 import { db } from "../../services/database";
 import { isUserInGroup } from "../groups";
-import { getFolderMetadata, getFileMetadata } from "../directory";
+import { getFolderMetadata, getFileMetadata } from "../directory/drive";
 import { checkSystemPermissions } from "./system";
-import { redactLabel } from "../../services/labels";
+
 import { getDriveOwnerId } from "../../routes/v1/types";
+import { redactLabelValue } from "../../routes/v1/drive/labels/handlers";
 
 // Constants
 export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
@@ -37,13 +39,13 @@ export const PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX =
   "PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_";
 
 // Helper to parse DirectoryResourceID from string
-function parseDirectoryResourceIDString(
+export function parseDirectoryResourceIDString(
   idStr: string
 ): DirectoryResourceID | undefined {
   if (idStr.startsWith("FILE_") && idStr.length > "FILE_".length) {
-    return idStr.substring("FILE_".length) as FileID; // Assuming FileID is just the UUID part
+    return idStr.substring("FILE_".length) as DirectoryResourceID; // Assuming FileID is just the UUID part
   } else if (idStr.startsWith("FOLDER_") && idStr.length > "FOLDER_".length) {
-    return idStr.substring("FOLDER_".length) as FolderID; // Assuming FolderID is just the UUID part
+    return idStr.substring("FOLDER_".length) as DirectoryResourceID; // Assuming FolderID is just the UUID part
   }
   return undefined;
 }
@@ -69,7 +71,7 @@ export function parsePermissionGranteeIDString(idStr: string): GranteeID {
 }
 
 // Utility to convert raw DB row to DirectoryPermission
-function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
+export function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
   let grantedTo: GranteeID;
   switch (row.grantee_type) {
     case "Public":
@@ -143,7 +145,7 @@ function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
 }
 
 // Utility to convert DirectoryPermission to DirectoryPermissionFE
-async function castToDirectoryPermissionFE(
+export async function castToDirectoryPermissionFE(
   permission: DirectoryPermission,
   currentUserId: UserID,
   orgId: string
@@ -276,15 +278,21 @@ async function castToDirectoryPermissionFE(
     permission_previews: permissionPreviews,
   };
 
-  return redactDirectoryPermissionFE(castedPermission, currentUserId, isOwner);
+  return redactDirectoryPermissionFE(
+    castedPermission,
+    currentUserId,
+    isOwner,
+    orgId
+  );
 }
 
 // Function to redact DirectoryPermissionFE
-function redactDirectoryPermissionFE(
+export async function redactDirectoryPermissionFE(
   permissionFe: DirectoryPermissionFE,
   userId: UserID,
-  isOwner: boolean
-): DirectoryPermissionFE {
+  isOwner: boolean,
+  orgId: DriveID
+): Promise<DirectoryPermissionFE> {
   const redacted = { ...permissionFe };
 
   const hasEditPermissions = redacted.permission_previews.includes(
@@ -303,15 +311,19 @@ function redactDirectoryPermissionFE(
   }
 
   // Filter labels based on user permissions
-  redacted.labels = redacted.labels
-    .map((label) => redactLabel(label, userId)) // Assuming redactLabel returns null for redacted labels
-    .filter((label): label is LabelValue => label !== null);
+  redacted.labels = (
+    await Promise.all(
+      redacted.labels.map(
+        async (label) => await redactLabelValue(orgId, label, userId)
+      )
+    )
+  ).filter((label): label is LabelValue => label !== null);
 
   return redacted;
 }
 
 // Function to check if a user can access a directory permission record
-async function canUserAccessDirectoryPermission(
+export async function canUserAccessDirectoryPermission(
   requesterUserId: UserID,
   permission: DirectoryPermission,
   isOwner: boolean,
@@ -360,7 +372,7 @@ async function canUserAccessDirectoryPermission(
 }
 
 // Function to get the list of inherited resources (parents in the directory hierarchy)
-async function getInheritedResourcesList(
+export async function getInheritedResourcesList(
   resourceId: DirectoryResourceID,
   orgId: string
 ): Promise<DirectoryResourceID[]> {
@@ -419,7 +431,7 @@ async function getInheritedResourcesList(
 }
 
 // Checks permissions directly applied to a single directory resource for a specific grantee.
-async function checkDirectoryResourcePermissions(
+export async function checkDirectoryResourcePermissions(
   resourceId: DirectoryResourceID,
   granteeId: GranteeID,
   isParentForInheritance: boolean, // Corresponds to `is_parent_for_inheritance`
@@ -810,7 +822,7 @@ export async function deriveBreadcrumbVisibilityPreviews(
     }
   }
 
-  const results: string[] = [];
+  const results: BreadcrumbVisibilityPreviewEnum[] = [];
   // Prioritize modify over view, and public over private
   if (publicCanModify) {
     results.push(BreadcrumbVisibilityPreviewEnum.PUBLIC_MODIFY);

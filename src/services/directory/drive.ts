@@ -518,3 +518,194 @@ export async function restoreFromTrash(
     return response;
   });
 }
+
+/**
+ * Retrieves metadata for a specific folder.
+ *
+ * @param orgId The organization ID (also used as driveId for database access).
+ * @param folderId The ID of the folder to retrieve.
+ * @returns A promise that resolves to the folder's metadata, or null if not found.
+ */
+export async function getFolderMetadata(
+  orgId: string,
+  folderId: FolderID
+): Promise<{
+  id: FolderID;
+  name: string;
+  parent_folder_uuid: FolderID | undefined;
+  full_directory_path: string;
+  created_by_user_id: string;
+  created_at: number;
+  last_updated_at: number;
+  last_updated_by_user_id: string;
+  disk_id: string;
+  disk_type: string;
+  is_deleted: boolean;
+  expires_at: number;
+  drive_id: string;
+  restore_trash_prior_folder_id: FolderID | undefined;
+  has_sovereign_permissions: boolean;
+  shortcut_to_folder_id: FolderID | undefined;
+  notes: string | undefined;
+  external_id: string | undefined;
+  external_payload: string | undefined;
+} | null> {
+  const rows = await db.queryDrive(
+    orgId,
+    `SELECT
+      id,
+      name,
+      parent_folder_id,
+      full_directory_path,
+      created_by_user_id,
+      created_at,
+      last_updated_at,
+      last_updated_by_user_id,
+      disk_id,
+      disk_type,
+      is_deleted,
+      expires_at,
+      drive_id,
+      restore_trash_prior_folder_id,
+      has_sovereign_permissions,
+      shortcut_to_folder_id,
+      notes,
+      external_id,
+      external_payload
+    FROM folders
+    WHERE id = ?`,
+    [folderId]
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const row = rows[0];
+  return {
+    id: row.id as FolderID,
+    name: row.name,
+    parent_folder_uuid: row.parent_folder_id as FolderID | undefined,
+    full_directory_path: row.full_directory_path,
+    created_by_user_id: row.created_by_user_id,
+    created_at: row.created_at,
+    last_updated_at: row.last_updated_at,
+    last_updated_by_user_id: row.last_updated_by_user_id,
+    disk_id: row.disk_id,
+    disk_type: row.disk_type,
+    is_deleted: row.is_deleted === 1,
+    expires_at: row.expires_at,
+    drive_id: row.drive_id,
+    restore_trash_prior_folder_id: row.restore_trash_prior_folder_id as
+      | FolderID
+      | undefined,
+    has_sovereign_permissions: row.has_sovereign_permissions === 1,
+    shortcut_to_folder_id: row.shortcut_to_folder_id as FolderID | undefined,
+    notes: row.notes,
+    external_id: row.external_id,
+    external_payload: row.external_payload,
+  };
+}
+
+/**
+ * Retrieves metadata for a specific file.
+ *
+ * @param orgId The organization ID (also used as driveId for database access).
+ * @param fileId The ID of the file to retrieve.
+ * @returns A promise that resolves to the file's metadata, or null if not found.
+ */
+export async function getFileMetadata(
+  orgId: string,
+  fileId: FileID
+): Promise<{
+  id: FileID;
+  name: string;
+  parent_folder_uuid: FolderID;
+  version_id: string;
+  extension: string;
+  full_directory_path: string;
+  created_by_user_id: string;
+  created_at: number;
+  disk_id: string;
+  disk_type: string;
+  file_size: number;
+  raw_url: string;
+  last_updated_at: number;
+  last_updated_by_user_id: string;
+  is_deleted: boolean;
+  drive_id: string;
+  upload_status: string;
+  expires_at: number;
+  restore_trash_prior_folder_id: FolderID | undefined;
+  has_sovereign_permissions: boolean;
+  shortcut_to_file_id: FileID | undefined;
+  notes: string | undefined;
+  external_id: string | undefined;
+  external_payload: string | undefined;
+} | null> {
+  const rows = await db.queryDrive(
+    orgId,
+    `SELECT
+      id,
+      name,
+      parent_folder_id,
+      version_id,
+      extension,
+      full_directory_path,
+      created_by_user_id,
+      created_at,
+      disk_id,
+      disk_type,
+      file_size,
+      raw_url,
+      last_updated_at,
+      last_updated_by_user_id,
+      is_deleted,
+      drive_id,
+      upload_status,
+      expires_at,
+      restore_trash_prior_folder_id,
+      has_sovereign_permissions,
+      shortcut_to_file_id,
+      notes,
+      external_id,
+      external_payload
+    FROM files
+    WHERE id = ?`,
+    [fileId]
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const row = rows[0];
+  return {
+    id: row.id as FileID,
+    name: row.name,
+    parent_folder_uuid: row.parent_folder_id as FolderID,
+    version_id: row.version_id,
+    extension: row.extension,
+    full_directory_path: row.full_directory_path,
+    created_by_user_id: row.created_by_user_id,
+    created_at: row.created_at,
+    disk_id: row.disk_id,
+    disk_type: row.disk_type,
+    file_size: row.file_size,
+    raw_url: row.raw_url,
+    last_updated_at: row.last_updated_at,
+    last_updated_by_user_id: row.last_updated_by_user_id,
+    is_deleted: row.is_deleted === 1,
+    drive_id: row.drive_id,
+    upload_status: row.upload_status,
+    expires_at: row.expires_at,
+    restore_trash_prior_folder_id: row.restore_trash_prior_folder_id as
+      | FolderID
+      | undefined,
+    has_sovereign_permissions: row.has_sovereign_permissions === 1,
+    shortcut_to_file_id: row.shortcut_to_file_id as FileID | undefined,
+    notes: row.notes,
+    external_id: row.external_id,
+    external_payload: row.external_payload,
+  };
+}
