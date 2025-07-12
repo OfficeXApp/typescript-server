@@ -21,28 +21,9 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { createApiResponse, OrgIdParams } from "../../types";
+import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 
-// TODO: Implement getOwnerId() to retrieve the owner_id for permission checks.
-// This will likely involve querying the `about_drive` table in the drive's database.
-async function getOwnerId(driveId: DriveID): Promise<UserID> {
-  try {
-    const result = await db.queryDrive(
-      driveId,
-      "SELECT owner_id FROM about_drive LIMIT 1"
-    );
-    if (result && result.length > 0) {
-      return result[0].owner_id as UserID;
-    }
-    // Fallback or throw an error if owner_id cannot be determined
-    return "UserID_UNKNOWN"; // TODO: Replace with a more robust error handling
-  } catch (error) {
-    console.error(`Error getting owner ID for drive ${driveId}:`, error);
-    throw new Error(`Unable to determine drive owner for ${driveId}`);
-  }
-}
-
-// TODO: Implement checkSystemPermissions equivalent.
+// TODO: PERMIT Implement checkSystemPermissions equivalent.
 // This function will check permissions against the system_permissions table.
 // It should return an array of SystemPermissionType that the user has for the given resource.
 async function checkSystemPermissions(
@@ -54,7 +35,7 @@ async function checkSystemPermissions(
   // In a real scenario, this would involve complex database queries joining permissions_system and potentially groups/contacts tables.
 
   // Check if the grantee is the owner of the drive
-  const ownerId = await getOwnerId(driveId);
+  const ownerId = await getDriveOwnerId(driveId);
   if (granteeId === ownerId) {
     return [
       SystemPermissionType.CREATE,
@@ -65,7 +46,7 @@ async function checkSystemPermissions(
     ];
   }
 
-  // TODO: Implement actual database logic to query permissions_system table
+  // TODO: PERMIT Implement actual database logic to query permissions_system table
   // Example query structure (highly simplified, needs to handle resource_type, grantee_type, expiry, etc.):
   const permissionsFromDb = await db.queryDrive(
     driveId,
@@ -86,7 +67,7 @@ async function checkSystemPermissions(
   );
 }
 
-// TODO: Implement redactLabel equivalent.
+// TODO: REDACT Implement redactLabel equivalent.
 // This function should filter labels based on user permissions, similar to the Rust implementation.
 function redactLabel(
   labelValue: string,
@@ -107,7 +88,7 @@ interface DriveFEWithRedaction extends Drive {
 // Helper to cast Drive to DriveFE and apply redaction logic
 function castDriveToFE(drive: Drive, userId: UserID): DriveFEWithRedaction {
   const isOwner = drive.icp_principal === userId.replace("UserID_", ""); // Crude check, refine if needed
-  // TODO: Replace with actual permission check using checkSystemPermissions
+  // TODO: PERMIT Replace with actual permission check using checkSystemPermissions
   const permissionPreviews = isOwner
     ? [
         SystemPermissionType.CREATE,
@@ -161,7 +142,7 @@ export async function getDriveHandler(
     const requestedDriveId = request.params.drive_id as DriveID;
     const orgId = request.params.org_id as DriveID; // The tenant's drive ID
 
-    const isOwner = requesterApiKey.user_id === (await getOwnerId(orgId));
+    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(orgId));
 
     let drive: Drive | null = null;
     try {
@@ -203,7 +184,7 @@ export async function getDriveHandler(
     );
     const hasRecordPermission = await checkSystemPermissions(
       orgId,
-      `DriveID_${requestedDriveId}`, // TODO: Adjust resource ID format if different in DB
+      `DriveID_${requestedDriveId}`, // TODO: PERMIT Adjust resource ID format if different in DB
       requesterApiKey.user_id
     );
 
@@ -253,7 +234,7 @@ export async function listDrivesHandler(
     }
 
     const orgId = request.params.org_id as DriveID;
-    const isOwner = requesterApiKey.user_id === (await getOwnerId(orgId));
+    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(orgId));
 
     const hasTablePermission = await checkSystemPermissions(
       orgId,
@@ -307,7 +288,7 @@ export async function listDrivesHandler(
     const whereClauses: string[] = [];
 
     if (filters) {
-      // TODO: Implement more sophisticated filtering logic based on the Rust `filters` implementation.
+      // TODO: REDACT Implement more sophisticated filtering logic based on the Rust `filters` implementation.
       // For now, a basic name filter.
       whereClauses.push("name LIKE ?");
       params.push(`%${filters}%`);
@@ -399,7 +380,7 @@ export async function createDriveHandler(
     }
 
     const orgId = request.params.org_id as DriveID;
-    const isOwner = requesterApiKey.user_id === (await getOwnerId(orgId));
+    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(orgId));
 
     const hasPermission = await checkSystemPermissions(
       orgId,
@@ -427,7 +408,7 @@ export async function createDriveHandler(
     } = request.body;
 
     // Validate request body
-    // TODO: Check if valid icp principal
+    // TODO: VALIDATE Check if valid icp principal
     if (id && !id.startsWith(IDPrefixEnum.Drive)) {
       // Basic UUID check
       return reply.status(400).send(
@@ -453,7 +434,7 @@ export async function createDriveHandler(
         })
       );
     }
-    // TODO: Add more specific validation for icp_principal format if needed
+    // TODO: VALIDATE Add more specific validation for icp_principal format if needed
     if (public_note && public_note.length > 8192) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -533,7 +514,7 @@ export async function createDriveHandler(
         newDrive.external_payload
       );
 
-      // TODO: Update external ID mapping in about_drive table (Rust's `update_external_id_mapping`)
+      // TODO: DRIVE Update external ID mapping in about_drive table (Rust's `update_external_id_mapping`)
       // This part assumes that `EXTERNAL_ID_MAPPINGS` in Rust is a separate stable structure.
       // In SQLite, this would typically be handled as part of the `drives` table or a separate `external_id_mappings` table.
       // For now, we'll assume `external_id` is stored directly in the `drives` table.
@@ -572,7 +553,7 @@ export async function updateDriveHandler(
     }
 
     const orgId = request.params.org_id as DriveID;
-    const isOwner = requesterApiKey.user_id === (await getOwnerId(orgId));
+    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(orgId));
 
     const {
       id,
@@ -662,7 +643,7 @@ export async function updateDriveHandler(
     // Permission check for updating
     const hasPermission = await checkSystemPermissions(
       orgId,
-      `DriveID_${id}`, // TODO: Adjust resource ID format if different in DB
+      `DriveID_${id}`, // TODO: PERMIT Adjust resource ID format if different in DB
       requesterApiKey.user_id
     );
 
@@ -722,7 +703,7 @@ export async function updateDriveHandler(
       );
       stmt.run(...values);
 
-      // TODO: Handle update to external ID mapping, similar to Rust's `update_external_id_mapping`
+      // TODO: DRIVE Handle update to external ID mapping, similar to Rust's `update_external_id_mapping`
       // This would involve updating a separate `external_id_mappings` table if one exists.
       // If `external_id` is just a field on `drives` table, the update query above handles it.
       // If the old_external_id was present and new one is different or null, you might need to remove old entries from a mapping table.
@@ -768,7 +749,7 @@ export async function deleteDriveHandler(
     }
 
     const orgId = request.params.org_id as DriveID;
-    const isOwner = requesterApiKey.user_id === (await getOwnerId(orgId));
+    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(orgId));
 
     const { id } = request.body;
 
@@ -802,7 +783,7 @@ export async function deleteDriveHandler(
     // Permission check for deleting
     const hasPermission = await checkSystemPermissions(
       orgId,
-      `DriveID_${id}`, // TODO: Adjust resource ID format if different in DB
+      `DriveID_${id}`, // TODO: PERMIT Adjust resource ID format if different in DB
       requesterApiKey.user_id
     );
 
@@ -818,7 +799,7 @@ export async function deleteDriveHandler(
       const stmt = database.prepare("DELETE FROM drives WHERE id = ?");
       stmt.run(id);
 
-      // TODO: Handle deletion from external ID mapping if a separate table exists
+      // TODO: DRIVE Handle deletion from external ID mapping if a separate table exists
       // If `external_id` was stored in a separate mapping table, delete corresponding entries here.
     });
 

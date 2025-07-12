@@ -142,7 +142,7 @@ export async function getWebhookHandler(
 
     const webhook = webhooks[0] as Webhook;
 
-    // TODO: Add permission checks similar to Rust implementation
+    // TODO: PERMIT Add permission checks similar to Rust implementation
     // For now, we'll assume the requester has permission if they're authenticated
 
     return reply.status(200).send(createApiResponse(webhook));
@@ -208,7 +208,7 @@ export async function listWebhooksHandler(
     }
 
     if (cursor) {
-      // TODO: Implement cursor-based pagination
+      // TODO: REDACT Implement cursor-based pagination
       // This is a simplified version - you'll need to adjust based on your actual pagination needs
       sql += " AND created_at > ?";
       params.push(cursor);
@@ -220,9 +220,9 @@ export async function listWebhooksHandler(
     const response = {
       items: webhooks as Webhook[],
       page_size: webhooks.length,
-      total: webhooks.length, // TODO: Get total count from separate query for accurate pagination
+      total: webhooks.length, // TODO: REDACT Get total count from separate query for accurate pagination
       direction,
-      cursor: null, // TODO: Implement cursor for next page
+      cursor: null, // TODO: REDACT Implement cursor for next page
     };
 
     return reply.status(200).send(createApiResponse(response));

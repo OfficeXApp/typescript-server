@@ -47,7 +47,7 @@ import path from "path";
 
 // #region Service Placeholders
 // =========================================================================
-// TODO: The following services need to be implemented.
+// TODO: PERMIT The following services need to be implemented.
 // They are placeholders to allow the core logic to be migrated.
 // =========================================================================
 
@@ -60,7 +60,7 @@ async function checkDirectoryPermissions(
   _userId: UserID,
   _driveId: DriveID
 ): Promise<DirectoryPermissionType[]> {
-  // TODO: Implement actual permission checking logic against the permissions_directory table.
+  // TODO: PERMIT Implement actual permission checking logic against the permissions_directory table.
   // This will involve checking permissions for the user, their groups, and public.
   return Promise.resolve([
     DirectoryPermissionType.VIEW,
@@ -81,7 +81,7 @@ async function fireDirectoryWebhook(
   _after: any,
   _notes: string
 ): Promise<void> {
-  // TODO: Implement webhook firing logic.
+  // TODO: WEBHOOK Implement webhook firing logic.
   console.log(`[TODO] Firing webhook for event: ${_event}`);
   return Promise.resolve();
 }
@@ -90,7 +90,7 @@ async function fireDirectoryWebhook(
  * Placeholder for generating a share tracking hash.
  */
 function generateShareTrackHash(_userId: UserID): { id: string; hash: string } {
-  // TODO: Implement actual share track hash generation.
+  // TODO: PERMIT Implement actual share track hash generation.
   return { id: "ShareTrackID_mock", hash: "mock_share_track_hash" };
 }
 
@@ -98,7 +98,7 @@ function generateShareTrackHash(_userId: UserID): { id: string; hash: string } {
  * Placeholder for decoding a share tracking hash.
  */
 function decodeShareTrackHash(_hash: string): { id: string; userId: UserID } {
-  // TODO: Implement actual share track hash decoding.
+  // TODO: PERMIT Implement actual share track hash decoding.
   return { id: "ShareTrackID_mock_decoded", userId: "UserID_mock_decoded" };
 }
 
@@ -217,7 +217,7 @@ async function getFileById(
     prior_version: data.prior_version_id,
     extension: data.extension,
     full_directory_path: data.full_directory_path,
-    labels: [], // TODO: Query and join labels
+    labels: [], // TODO: REDACT Query and join labels
     created_by: data.created_by_user_id,
     created_at: data.created_at,
     disk_id: data.disk_id,
@@ -273,7 +273,7 @@ async function getFolderById(
     subfolder_uuids: subfolders.map((r: any) => r.id),
     file_uuids: files.map((r: any) => r.id),
     full_directory_path: data.full_directory_path,
-    labels: [], // TODO: Query and join labels from folder_labels table
+    labels: [], // TODO: REDACT Query and join labels from folder_labels table
     created_by: data.created_by_user_id,
     created_at: data.created_at,
     last_updated_date_ms: data.last_updated_at,
@@ -334,7 +334,7 @@ async function deriveDirectoryBreadcrumbs(
       breadcrumbs.unshift({
         resource_id: record.id,
         resource_name: record.name || "Root", // Root folder name is empty
-        // TODO: Implement visibility preview logic by checking permissions.
+        // TODO: REDACT Implement visibility preview logic by checking permissions.
         visibility_preview: [],
       });
       currentId = record.parent_folder_id;
@@ -361,9 +361,9 @@ export async function pipeAction(
   action: DirectoryAction,
   userId: UserID,
   driveId: DriveID
-  // TODO: Add isOwner check similar to Rust's `OWNER_ID` check
+  // TODO: PERMIT Add isOwner check similar to Rust's `OWNER_ID` check
 ) {
-  // TODO: Add robust validation for each payload type, similar to `validate_body` in Rust.
+  // TODO: VALIDATE Add robust validation for each payload type, similar to `validate_body` in Rust.
 
   switch (action.action) {
     // =========================================================================
@@ -388,10 +388,10 @@ export async function pipeAction(
         );
       }
 
-      // TODO: Implement webhook logic from Rust
+      // TODO: WEBHOOK Implement webhook logic from Rust
       // fireDirectoryWebhook(...)
 
-      // TODO: Implement share tracking logic from Rust
+      // TODO: PERMIT Implement share tracking logic from Rust
       // decodeShareTrackHash(...)
       // generateShareTrackHash(...)
 
@@ -431,7 +431,7 @@ export async function pipeAction(
         );
       }
 
-      // TODO: Implement webhook and share tracking logic...
+      // TODO: WEBHOOK Implement webhook and share tracking logic...
 
       const breadcrumbs = await deriveDirectoryBreadcrumbs(
         `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
@@ -452,7 +452,7 @@ export async function pipeAction(
     // =========================================================================
     case DirectoryActionEnum.CREATE_FILE: {
       const payload = action.payload as CreateFilePayload;
-      // TODO: Permission check on parent folder for UPLOAD/EDIT/MANAGE
+      // TODO: PERMIT Permission check on parent folder for UPLOAD/EDIT/MANAGE
 
       const now = Date.now();
       const fileId = payload.id || GenerateID.File();
@@ -469,8 +469,8 @@ export async function pipeAction(
         payload.name
       );
 
-      // TODO: Implement resolve_naming_conflict logic
-      // TODO: Implement ensure_folder_structure logic
+      // TODO: DRIVE Implement resolve_naming_conflict logic
+      // TODO: DRIVE Implement ensure_folder_structure logic
 
       const newFile: Omit<
         FileRecord,
@@ -485,10 +485,10 @@ export async function pipeAction(
         created_by: userId,
         created_at: now,
         disk_id: payload.disk_id,
-        // TODO: Get disk_type from the disk record
+        // TODO: DRIVE Get disk_type from the disk record
         disk_type: DiskTypeEnum.IcpCanister,
         file_size: payload.file_size,
-        // TODO: Generate raw_url based on endpoint
+        // TODO: DRIVE Generate raw_url based on endpoint
         raw_url: payload.raw_url || `http://localhost:3000/asset/${fileId}`,
         last_updated_date_ms: now,
         last_updated_by: userId,
@@ -565,7 +565,7 @@ export async function pipeAction(
       return {
         CreateFile: {
           file: await castFileToFE(finalFile, userId, driveId),
-          // TODO: Implement upload response generation (e.g. presigned URLs for S3)
+          // TODO: DRIVE Implement upload response generation (e.g. presigned URLs for S3)
           upload: { url: "", fields: {} },
           notes: "File created successfully",
         },
@@ -577,7 +577,7 @@ export async function pipeAction(
     // =========================================================================
     case DirectoryActionEnum.CREATE_FOLDER: {
       const payload = action.payload as CreateFolderPayload;
-      // TODO: Permission check on parent folder
+      // TODO: PERMIT Permission check on parent folder
 
       const now = Date.now();
       const folderId = payload.id || GenerateID.Folder();
@@ -603,7 +603,7 @@ export async function pipeAction(
         last_updated_at: now,
         last_updated_by_user_id: userId,
         disk_id: payload.disk_id,
-        // TODO: Get disk_type from disk record
+        // TODO: DRIVE Get disk_type from disk record
         disk_type: DiskTypeEnum.IcpCanister,
         is_deleted: 0,
         expires_at: payload.expires_at ?? -1,
@@ -643,9 +643,9 @@ export async function pipeAction(
     // =========================================================================
     case DirectoryActionEnum.UPDATE_FILE: {
       const payload = action.payload as UpdateFilePayload;
-      // TODO: Permission checks
-      // TODO: Handle rename (path updates) separately and carefully
-      // TODO: Update versioning records if necessary
+      // TODO: PERMIT Permission checks
+      // TODO: DRIVE Handle rename (path updates) separately and carefully
+      // TODO: DRIVE Update versioning records if necessary
       const { id, ...updates } = payload;
       const updateEntries = Object.entries(updates).filter(
         ([_, v]) => v !== undefined
@@ -674,8 +674,8 @@ export async function pipeAction(
 
     case DirectoryActionEnum.UPDATE_FOLDER: {
       const payload = action.payload as UpdateFolderPayload;
-      // TODO: Permission checks
-      // TODO: Handle rename (path updates for folder AND all children) carefully
+      // TODO: PERMIT Permission checks
+      // TODO: DRIVE Handle rename (path updates for folder AND all children) carefully
       const { id, ...updates } = payload;
       const updateEntries = Object.entries(updates).filter(
         ([_, v]) => v !== undefined
@@ -711,7 +711,7 @@ export async function pipeAction(
       const payload = action.payload as DeleteFilePayload;
       const file = await getFileById(payload.id, driveId);
       if (!file) throw new DirectoryActionError(404, "File not found");
-      // TODO: Full permission check logic
+      // TODO: PERMIT Full permission check logic
 
       if (payload.permanent) {
         await db.queryDrive(driveId, "DELETE FROM files WHERE id = ?", [
@@ -719,7 +719,7 @@ export async function pipeAction(
         ]);
       } else {
         // Soft delete: move to trash
-        // TODO: Implement "trash" folder logic. For now, we just set the deleted flag.
+        // TODO: DRIVE Implement "trash" folder logic. For now, we just set the deleted flag.
         await db.queryDrive(
           driveId,
           `UPDATE files SET is_deleted = 1, restore_trash_prior_folder_id = parent_folder_id, parent_folder_id = (SELECT trash_folder_id FROM disks WHERE id = ?) WHERE id = ?`,
@@ -731,8 +731,8 @@ export async function pipeAction(
 
     case DirectoryActionEnum.DELETE_FOLDER: {
       const payload = action.payload as DeleteFolderPayload;
-      // TODO: Permission checks
-      // TODO: Implement RECURSIVE deletion for permanent delete. This is critical.
+      // TODO: PERMIT Permission checks
+      // TODO: DRIVE Implement RECURSIVE deletion for permanent delete. This is critical.
       if (payload.permanent) {
         // This is a placeholder. A real implementation needs a recursive CTE or iterative logic.
         await db.queryDrive(driveId, "DELETE FROM folders WHERE id = ?", [
@@ -759,8 +759,8 @@ export async function pipeAction(
     // COPY / MOVE / RESTORE
     // =========================================================================
     case DirectoryActionEnum.COPY_FILE: {
-      // TODO: Proper implementation for CopyFile
-      console.warn("TODO: COPY_FILE is not fully implemented.");
+      // TODO: DRIVE Proper implementation for CopyFile
+      console.warn("TODO: DRIVE COPY_FILE is not fully implemented.");
       const payload = action.payload as CopyFilePayload;
       const file = await getFileById(payload.id, driveId);
       if (!file) throw new DirectoryActionError(404, "File not found");
@@ -768,8 +768,8 @@ export async function pipeAction(
     }
 
     case DirectoryActionEnum.COPY_FOLDER: {
-      // TODO: Proper implementation for CopyFolder
-      console.warn("TODO: COPY_FOLDER is not fully implemented.");
+      // TODO: DRIVE Proper implementation for CopyFolder
+      console.warn("TODO: DRIVE COPY_FOLDER is not fully implemented.");
       const payload = action.payload as CopyFolderPayload;
       const folder = await getFolderById(payload.id, driveId);
       if (!folder) throw new DirectoryActionError(404, "Folder not found");
@@ -777,8 +777,8 @@ export async function pipeAction(
     }
 
     case DirectoryActionEnum.MOVE_FILE: {
-      // TODO: Proper implementation for MoveFile
-      console.warn("TODO: MOVE_FILE is not fully implemented.");
+      // TODO: DRIVE Proper implementation for MoveFile
+      console.warn("TODO: DRIVE MOVE_FILE is not fully implemented.");
       const payload = action.payload as MoveFilePayload;
       const file = await getFileById(payload.id, driveId);
       if (!file) throw new DirectoryActionError(404, "File not found");
@@ -786,8 +786,8 @@ export async function pipeAction(
     }
 
     case DirectoryActionEnum.MOVE_FOLDER: {
-      // TODO: Proper implementation for MoveFolder
-      console.warn("TODO: MOVE_FOLDER is not fully implemented.");
+      // TODO: DRIVE Proper implementation for MoveFolder
+      console.warn("TODO: DRIVE MOVE_FOLDER is not fully implemented.");
       const payload = action.payload as MoveFolderPayload;
       const folder = await getFolderById(payload.id, driveId);
       if (!folder) throw new DirectoryActionError(404, "Folder not found");
@@ -795,8 +795,8 @@ export async function pipeAction(
     }
 
     case DirectoryActionEnum.RESTORE_TRASH: {
-      // TODO: Proper implementation for RestoreTrash
-      console.warn("TODO: RESTORE_TRASH is not fully implemented.");
+      // TODO: DRIVE Proper implementation for RestoreTrash
+      console.warn("TODO: DRIVE RESTORE_TRASH is not fully implemented.");
       const payload = action.payload as RestoreTrashPayload;
       await db.queryDrive(
         driveId,

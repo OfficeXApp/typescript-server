@@ -20,42 +20,37 @@ import { FolderRecord, FileRecord } from "@officexapp/types";
 import type { Database } from "better-sqlite3";
 
 // =========================================================================
-// TODO: Service Placeholders
+// TODO: DRIVE Service Placeholders
 // These are mock implementations. Replace with actual service logic.
 // =========================================================================
 
 const permissionsService = {
-  // TODO: Replace with actual implementation
+  // TODO: DRIVE Replace with actual implementation
   deriveDirectoryBreadcrumbs: async (
     _driveId: DriveID,
     _userId: UserID,
     _resource: { file?: FileID; folder?: FolderID }
   ): Promise<FilePathBreadcrumb[]> => {
-    console.warn(
-      "TODO: permissionsService.deriveDirectoryBreadcrumbs is a mock"
-    );
     return [];
   },
-  // TODO: Replace with actual implementation
+  // TODO: DRIVE Replace with actual implementation
   castFolderFE: async (
     _driveId: DriveID,
     _userId: UserID,
     folder: FolderRecord
   ): Promise<any> => {
-    console.warn("TODO: permissionsService.castFolderFE is a mock");
     return {
       ...folder,
       clipped_directory_path: "mock/path",
       permission_previews: [],
     };
   },
-  // TODO: Replace with actual implementation
+  // TODO: DRIVE Replace with actual implementation
   castFileFE: async (
     _driveId: DriveID,
     _userId: UserID,
     file: FileRecord
   ): Promise<any> => {
-    console.warn("TODO: permissionsService.castFileFE is a mock");
     return {
       ...file,
       clipped_directory_path: "mock/path",
@@ -65,12 +60,12 @@ const permissionsService = {
 };
 
 const diskService = {
-  // TODO: Replace with actual implementation
+  // TODO: DRIVE Replace with actual implementation
   getDisk: async (
     _driveId: DriveID,
     diskId: DiskID
   ): Promise<{ disk_type: DiskTypeEnum; root_folder_id: FolderID }> => {
-    console.warn("TODO: diskService.getDisk is a mock");
+    console.warn("TODO: DRIVE diskService.getDisk is a mock");
     return {
       disk_type: DiskTypeEnum.IcpCanister,
       root_folder_id: `FolderID_root_${diskId}`,
@@ -132,7 +127,7 @@ export async function translatePathToId(
       "SELECT * FROM folders WHERE full_directory_path = ?",
       [path]
     );
-    // TODO: Hydrate labels, subfolder_uuids, file_uuids from other tables if needed for the caller
+    // TODO: DRIVE Hydrate labels, subfolder_uuids, file_uuids from other tables if needed for the caller
     return { folder: result[0] as FolderRecord };
   } else {
     const result = await db.queryDrive(
@@ -140,7 +135,7 @@ export async function translatePathToId(
       "SELECT * FROM files WHERE full_directory_path = ?",
       [path]
     );
-    // TODO: Hydrate labels from file_labels junction table if needed
+    // TODO: DRIVE Hydrate labels from file_labels junction table if needed
     return { file: result[0] as FileRecord };
   }
 }

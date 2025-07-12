@@ -17,7 +17,7 @@ export async function get_active_group_invite_webhooks(
   try {
     // Get all webhooks for this group's alt_index
     const webhooks = await db.queryDrive(
-      // TODO: Need to determine drive ID from group ID - this may require a service we don't have yet
+      // TODO: GROUP Need to determine drive ID from group ID - this may require a service we don't have yet
       // For now, we'll assume the webhooks table is in the factory DB
       "factory",
       `SELECT * FROM webhooks 
@@ -43,8 +43,8 @@ export async function get_active_group_invite_webhooks(
 export async function fire_group_invite_webhook(
   event: WebhookEventLabel,
   webhooks: Webhook[],
-  beforeSnap?: any, // TODO: Replace with proper GroupInviteWebhookData type
-  afterSnap?: any, // TODO: Replace with proper GroupInviteWebhookData type
+  beforeSnap?: any, // TODO: WEBHOOK Replace with proper GroupInviteWebhookData type
+  afterSnap?: any, // TODO: WEBHOOK Replace with proper GroupInviteWebhookData type
   notes?: string
 ): Promise<void> {
   const timestampMs = Date.now();

@@ -30,7 +30,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth"; // Removed generateApiKey as it's not used in this file
-import { OrgIdParams } from "../../types";
+import { getDriveOwnerId, OrgIdParams } from "../../types";
 
 interface GetLabelParams extends OrgIdParams {
   label_id: string; // Can be LabelID or LabelValue
@@ -61,25 +61,7 @@ function createApiResponse<T>(
   }
 }
 
-// TODO: Replace with actual database lookup for drive owner
-async function getDriveOwnerId(orgId: DriveID): Promise<UserID> {
-  // In Rust, this came from OWNER_ID.with(|owner_id| ...).
-  // In SQLite, this would typically be stored in the 'about_drive' table.
-  try {
-    const result = await db.queryDrive(
-      orgId,
-      "SELECT owner_id FROM about_drive LIMIT 1"
-    );
-    if (result.length > 0) {
-      return result[0].owner_id as UserID;
-    }
-  } catch (error) {
-    console.error("Error fetching drive owner ID:", error);
-  }
-  return "UserID_mock_owner"; // Sensible placeholder if DB lookup fails
-}
-
-// TODO: Implement actual permission checking logic based on permissions_system and permissions_directory tables
+// TODO: PERMIT Implement actual permission checking logic based on permissions_system and permissions_directory tables
 // This is a complex piece of logic from Rust's `check_system_permissions` and `check_system_resource_permissions_labels`
 // For now, providing a simplified mock.
 async function checkSystemPermissions(
@@ -100,7 +82,7 @@ async function checkSystemPermissions(
     ];
   }
 
-  // TODO: Implement actual logic to query 'permissions_system' table.
+  // TODO: PERMIT Implement actual logic to query 'permissions_system' table.
   // This mock grants VIEW for 'LABELS' table and any specific Label record by default for non-owners.
   // It also grants EDIT for 'LABELS' table.
   let permissions: SystemPermissionType[] = [];
@@ -287,7 +269,7 @@ function parseLabelResourceID(idStr: string): {
   }
 }
 
-// TODO: Implement placeholder for `update_external_id_mapping`
+// TODO: DRIVE Implement placeholder for `update_external_id_mapping`
 async function updateExternalIdMapping(
   oldExternalId: string | null | undefined,
   newExternalId: string | null | undefined,
@@ -299,11 +281,11 @@ async function updateExternalIdMapping(
   // or store external_id directly on the main record and ensure uniqueness via unique index.
   // For now, this is a no-op placeholder.
   console.log(
-    `TODO: Implement updateExternalIdMapping for org ${orgId}: old=${oldExternalId}, new=${newExternalId}, internal=${internalId}`
+    `TODO: DRIVE Implement updateExternalIdMapping for org ${orgId}: old=${oldExternalId}, new=${newExternalId}, internal=${internalId}`
   );
 }
 
-// TODO: Implement placeholder for webhook firing logic
+// TODO: WEBHOOK Implement placeholder for webhook firing logic
 async function fireLabelWebhook(
   event: WebhookEventLabel,
   webhooks: any[], // TODO: Define Webhook type from Rust
@@ -313,14 +295,14 @@ async function fireLabelWebhook(
   orgId: DriveID
 ): Promise<void> {
   console.log(
-    `TODO: Implement fireLabelWebhook for org ${orgId}: event=${event}, notes=${notes}`
+    `TODO: WEBHOOK Implement fireLabelWebhook for org ${orgId}: event=${event}, notes=${notes}`
   );
   // This would involve fetching active webhooks from the 'webhooks' table,
   // filtering them by event and potentially by label,
   // then making HTTP requests to the webhook URLs.
 }
 
-// TODO: Implement placeholder for getting active webhooks (Rust: `get_active_label_webhooks`)
+// TODO: WEBHOOK Implement placeholder for getting active webhooks (Rust: `get_active_label_webhooks`)
 async function getActiveLabelWebhooks(
   labelId: LabelID,
   event: WebhookEventLabel,
@@ -328,7 +310,7 @@ async function getActiveLabelWebhooks(
 ): Promise<any[]> {
   // Returns list of Webhook objects
   console.log(
-    `TODO: Implement getActiveLabelWebhooks for org ${orgId}: labelId=${labelId}, event=${event}`
+    `TODO: WEBHOOK Implement getActiveLabelWebhooks for org ${orgId}: labelId=${labelId}, event=${event}`
   );
   // This would query the 'webhooks' table, filter by event, and potentially by associated labels.
   return []; // Mock empty array
@@ -943,7 +925,7 @@ export async function createLabelHandler(
       request.log.debug(`Created label ${newLabel.id}`);
     });
 
-    // TODO: update_external_id_mapping (Rust had this)
+    // TODO: DRIVE update_external_id_mapping (Rust had this)
     await updateExternalIdMapping(
       null,
       newLabel.external_id,
@@ -1346,7 +1328,7 @@ export async function deleteLabelHandler(
       request.log.debug(`Deleted label ${labelId} from labels table.`);
     });
 
-    // TODO: Update external ID mapping (Rust had this as `update_external_id_mapping(old_external_id, None, old_internal_id)`)
+    // TODO: DRIVE Update external ID mapping (Rust had this as `update_external_id_mapping(old_external_id, None, old_internal_id)`)
     await updateExternalIdMapping(oldExternalId, null, oldInternalId, org_id);
 
     return reply.status(200).send(
@@ -1847,7 +1829,7 @@ async function castLabelToLabelFE(
   requesterUserId: UserID,
   orgId: DriveID
 ): Promise<LabelFE> {
-  const permissionPreviews: SystemPermissionType[] = []; // TODO: Populate with actual permissions (similar to getLabelHandler)
+  const permissionPreviews: SystemPermissionType[] = []; // TODO: PERMIT Populate with actual permissions (similar to getLabelHandler)
 
   const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
 

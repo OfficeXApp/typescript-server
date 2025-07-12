@@ -151,7 +151,7 @@ export async function getGroupHandler(
 
     const group = groups[0] as Group;
 
-    // TODO: Check permissions - for now just check if user is owner or member
+    // TODO: PERMIT Check permissions - for now just check if user is owner or member
     const isOwner = requesterApiKey.user_id === group.owner;
 
     // Check if user is a member of the group
@@ -193,7 +193,7 @@ export async function getGroupHandler(
         invite_id: m.invite_id || "",
         last_online_ms: m.last_online_ms || 0,
       })),
-      permission_previews: [], // TODO: Implement permission previews
+      permission_previews: [], // TODO: REDACT Implement permission previews
     };
 
     return reply.status(200).send(createApiResponse(groupFE));
@@ -289,7 +289,7 @@ export async function listGroupsHandler(
             invite_id: m.invite_id || "",
             last_online_ms: m.last_online_ms || 0,
           })),
-          permission_previews: [], // TODO: Implement permission previews
+          permission_previews: [], // TODO: REDACT Implement permission previews
         };
       })
     );
@@ -350,7 +350,7 @@ export async function createGroupHandler(
       );
     }
 
-    // TODO: Check create permissions
+    // TODO: PERMIT Check create permissions
 
     const now = Date.now();
     const groupId = body.id || `${IDPrefixEnum.Group}${uuidv4()}`;
@@ -380,7 +380,7 @@ export async function createGroupHandler(
       member_invites: [],
     };
 
-    // TODO: Refactor this to include the groupinvite in admins []
+    // TODO: GROUP Refactor this to include the groupinvite in admins []
     // Insert group using transaction
     await dbHelpers.transaction("drive", request.params.org_id, (database) => {
       const stmt = database.prepare(
@@ -417,7 +417,7 @@ export async function createGroupHandler(
       member_previews: [
         {
           user_id: requesterApiKey.user_id as UserID,
-          name: "", // TODO: Get from contacts
+          name: "", // TODO: REDACT Get from contacts
           avatar: undefined,
           note: "Owner",
           group_id: groupId as GroupID,

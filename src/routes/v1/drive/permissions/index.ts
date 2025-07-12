@@ -1,8 +1,8 @@
 // /src/routes/v1/drive/permissions/index.ts
 import { FastifyPluginAsync } from "fastify";
 import {
-  getDirectoryPermissionsHandler,
-  listDirectoryPermissionsHandler,
+  getDirectoryPermissionById,
+  listDirectoryPermissionsForResource,
   createDirectoryPermissionsHandler,
   updateDirectoryPermissionsHandler,
   deleteDirectoryPermissionsHandler,
@@ -15,6 +15,8 @@ import {
   deleteSystemPermissionsHandler,
   checkSystemPermissionsHandler,
   redeemSystemPermissionsHandler,
+  listDirectoryPermissionsHandler,
+  getDirectoryPermissionsHandler,
 } from "./handlers";
 
 const permissionRoutes: FastifyPluginAsync = async (

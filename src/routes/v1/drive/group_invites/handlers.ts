@@ -168,7 +168,7 @@ export async function getGroupInviteHandler(
       group_avatar: groupInfo[0]?.avatar,
       invitee_name: inviteeName,
       invitee_avatar: inviteeAvatar,
-      permission_previews: [], // TODO: Implement permission previews
+      permission_previews: [], // TODO: PERMIT Implement permission previews
     };
 
     return reply.status(200).send(createApiResponse(inviteFE));
@@ -376,7 +376,7 @@ export async function createGroupInviteHandler(
     const group = groups[0];
     const isOwner = requesterApiKey.user_id === group.owner_user_id;
 
-    // TODO: Check if requester is admin
+    // TODO: PERMIT Check if requester is admin
     if (!isOwner) {
       return reply
         .status(403)

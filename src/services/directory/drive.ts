@@ -26,7 +26,7 @@ import { db, dbHelpers } from "../database";
 import * as internals from "./internals";
 import type { Database } from "better-sqlite3";
 
-// TODO: These should be real services. Using mocks for now.
+// TODO: PERMIT These should be real services. Using mocks for now.
 const permissionsService = {
   castFileFE: async (
     driveId: DriveID,
@@ -99,8 +99,10 @@ export async function listDirectory(
     );
     targetFolder = translation.folder;
   } else {
-    // TODO: Implement fetch_root_shortcuts_of_user logic for disk_id based listing
-    console.warn("TODO: listDirectory for root shortcuts is not implemented.");
+    // TODO: DRIVE Implement fetch_root_shortcuts_of_user logic for disk_id based listing
+    console.warn(
+      "TODO: DRIVE listDirectory for root shortcuts is not implemented."
+    );
     return {
       ok: {
         data: {
@@ -119,7 +121,7 @@ export async function listDirectory(
     throw new Error("Folder not found");
   }
 
-  // TODO: Add permission check for targetFolder and userId
+  // TODO: PERMIT Add permission check for targetFolder and userId
   const offset = cursor ? parseInt(cursor, 10) : 0;
 
   const foldersResult = await db.queryDrive(
@@ -234,7 +236,7 @@ export async function createFile(
     next_version: undefined,
     extension: extension,
     full_directory_path: finalPath,
-    labels: [], // TODO: Handle labels insertion
+    labels: [], // TODO: REDACT Handle labels insertion
     created_by: userId,
     created_at: now,
     disk_id: disk_id,
@@ -301,7 +303,7 @@ export async function createFile(
     );
   });
 
-  // TODO: Generate a real upload response from a disk/storage service
+  // TODO: DRIVE Generate a real upload response from a disk/storage service
   const uploadResponse: DiskUploadResponse = { url: "", fields: {} };
 
   return [fileRecord, uploadResponse];
@@ -365,7 +367,7 @@ export async function deleteResource(
   resourceId: FileID | FolderID,
   permanent: boolean
 ): Promise<void> {
-  // TODO: This is a highly simplified version. The Rust code has complex recursive logic.
+  // TODO: DRIVE This is a highly simplified version. The Rust code has complex recursive logic.
   // A full implementation would require a recursive function to handle folder contents.
   return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
     if (permanent) {
@@ -375,7 +377,9 @@ export async function deleteResource(
         );
         tx.prepare("DELETE FROM files WHERE id = ?").run(resourceId);
       } else {
-        console.warn("TODO: Recursive folder deletion is not implemented.");
+        console.warn(
+          "TODO: DRIVE Recursive folder deletion is not implemented."
+        );
         tx.prepare("DELETE FROM folders WHERE id = ?").run(resourceId);
       }
     } else {
@@ -424,7 +428,7 @@ export async function moveFile(
 
     // This is a synchronous call inside a transaction, so we can't use the async version.
     // For a full migration, resolveNamingConflict might need a synchronous version or this logic must be moved.
-    // TODO: Properly implement resolveNamingConflict logic here synchronously.
+    // TODO: DRIVE Properly implement resolveNamingConflict logic here synchronously.
     const finalName = file.name;
     const finalPath = `${destFolder.full_directory_path.replace(/\/$/, "")}/${finalName}`;
 
@@ -459,8 +463,8 @@ export async function moveFolder(
     if (folder.disk_id !== destFolder.disk_id)
       throw new Error("Cannot move between disks.");
 
-    // TODO: Add circular reference check from Rust logic
-    // TODO: Synchronous version of resolveNamingConflict needed for transactions
+    // TODO: DRIVE Add circular reference check from Rust logic
+    // TODO: DRIVE Synchronous version of resolveNamingConflict needed for transactions
     const finalName = folder.name;
     const finalPath = `${destFolder.full_directory_path.replace(/\/$/, "")}/${finalName}/`;
 
@@ -504,7 +508,7 @@ export async function restoreFromTrash(
       );
     }
 
-    // TODO: Full implementation should use moveFile/moveFolder to handle conflicts.
+    // TODO: DRIVE Full implementation should use moveFile/moveFolder to handle conflicts.
     // This simplified version just puts it back.
     tx.prepare(
       `UPDATE ${tableName} SET is_deleted = 0, restore_trash_prior_folder_id = NULL, parent_folder_id = ? WHERE id = ?`

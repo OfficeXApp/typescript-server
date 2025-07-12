@@ -19,16 +19,16 @@ import {
 } from "@officexapp/types";
 import { authenticateRequest } from "../../../../services/auth";
 import { db } from "../../../../services/database";
-import { OrgIdParams } from "../../types";
+import { getDriveOwnerId, OrgIdParams } from "../../types";
 
-// TODO: Implement a proper permission checking service
+// TODO: PERMIT Implement a proper permission checking service
 async function checkDirectoryPermissions(
   driveId: string,
   resourceId: DirectoryResourceID,
   userId: UserID
 ): Promise<DirectoryPermissionType[]> {
   console.log(
-    `TODO: Checking permissions for ${userId} on ${resourceId} in drive ${driveId}`
+    `TODO: PERMIT Checking permissions for ${userId} on ${resourceId} in drive ${driveId}`
   );
   // Placeholder: Return full permissions for now
   return [
@@ -39,14 +39,6 @@ async function checkDirectoryPermissions(
     DirectoryPermissionType.MANAGE,
     DirectoryPermissionType.UPLOAD,
   ];
-}
-
-// TODO: Implement owner check
-async function isOwner(driveId: string, userId: UserID): Promise<boolean> {
-  // Placeholder: In a real scenario, you'd query the 'about_drive' table
-  // and compare the owner_id with the provided userId.
-  console.log(`TODO: Checking if ${userId} is owner of drive ${driveId}`);
-  return true; // Assume true for now
 }
 
 /**
@@ -73,7 +65,7 @@ async function castFolderToFE(
   userId: UserID
 ): Promise<FolderRecordFE> {
   const resourceId: DirectoryResourceID = `FolderID_${folder.id}`;
-  // TODO: Implement actual permission fetching
+  // TODO: PERMIT Implement actual permission fetching
   const permission_previews = await checkDirectoryPermissions(
     driveId,
     resourceId,
@@ -96,7 +88,7 @@ async function castFileToFE(
   userId: UserID
 ): Promise<FileRecordFE> {
   const resourceId: DirectoryResourceID = `FileID_${file.id}`;
-  // TODO: Implement actual permission fetching
+  // TODO: PERMIT Implement actual permission fetching
   const permission_previews = await checkDirectoryPermissions(
     driveId,
     resourceId,
@@ -138,7 +130,7 @@ async function deriveDirectoryBreadcrumbs(
       parent_folder_id: string | null;
     };
 
-    // TODO: Implement real visibility preview logic
+    // TODO: PERMIT Implement real visibility preview logic
     breadcrumbs.unshift({
       resource_id: folder.id,
       resource_name: folder.name || "Root", // Root folder might have empty name
@@ -193,9 +185,9 @@ export async function listDirectoryHandler(
 
     // Special case for fetching "Shared with me" items at a disk's root
     if (listRequest.disk_id && !targetFolderId) {
-      // TODO: Implement the logic for fetching root shortcuts (`fetch_root_shortcuts_of_user`).
+      // TODO: DRIVE Implement the logic for fetching root shortcuts (`fetch_root_shortcuts_of_user`).
       // This likely involves complex permission queries.
-      console.log("TODO: Implement fetch_root_shortcuts_of_user");
+      console.log("TODO: DRIVE Implement fetch_root_shortcuts_of_user");
       const emptyResponse: IResponseListDirectory = {
         ok: {
           data: {
@@ -223,7 +215,7 @@ export async function listDirectoryHandler(
       `FolderID_${targetFolderId}`,
       userApiKey.user_id
     );
-    const owner = await isOwner(driveId, userApiKey.user_id);
+    const owner = await getDriveOwnerId(driveId);
     if (!owner && !permissions.includes(DirectoryPermissionType.VIEW)) {
       return reply.status(403).send({
         err: {
@@ -341,30 +333,33 @@ export async function directoryActionHandler(
   const outcomes = [];
   for (const action of actions) {
     try {
-      // TODO: Implement the full logic for each action type from `pipe_action`.
+      // TODO: DRIVE Implement the full logic for each action type from `pipe_action`.
       // This is a placeholder that demonstrates the structure.
-      console.log(`TODO: Executing action ${action.action}`, action.payload);
+      console.log(
+        `TODO: DRIVE Executing action ${action.action}`,
+        action.payload
+      );
 
       let result: any;
       switch (action.action) {
         case DirectoryActionEnum.GET_FILE:
         case DirectoryActionEnum.GET_FOLDER:
-          // TODO: Implement GET actions
+          // TODO: DRIVE Implement GET actions
           result = { notes: "Action not fully implemented yet." };
           break;
         case DirectoryActionEnum.CREATE_FILE:
         case DirectoryActionEnum.CREATE_FOLDER:
-          // TODO: Implement CREATE actions with permission checks and DB inserts.
+          // TODO: DRIVE Implement CREATE actions with permission checks and DB inserts.
           result = { notes: "Action not fully implemented yet." };
           break;
         case DirectoryActionEnum.UPDATE_FILE:
         case DirectoryActionEnum.UPDATE_FOLDER:
-          // TODO: Implement UPDATE actions with permission checks and DB updates.
+          // TODO: DRIVE Implement UPDATE actions with permission checks and DB updates.
           result = { notes: "Action not fully implemented yet." };
           break;
         case DirectoryActionEnum.DELETE_FILE:
         case DirectoryActionEnum.DELETE_FOLDER:
-          // TODO: Implement DELETE actions, handling `permanent` flag and trash logic.
+          // TODO: DRIVE Implement DELETE actions, handling `permanent` flag and trash logic.
           result = { notes: "Action not fully implemented yet." };
           break;
         // ... other cases

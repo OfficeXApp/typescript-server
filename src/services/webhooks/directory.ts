@@ -270,7 +270,7 @@ export async function fireDirectoryWebhook(
           `Failed to fire webhook ${webhook.id} to ${webhook.url}:`,
           error
         );
-        // TODO: Consider retry logic or logging failed webhook deliveries
+        // TODO: WEBHOOK Consider retry logic or logging failed webhook deliveries
       }
     })
   );

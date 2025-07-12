@@ -40,7 +40,7 @@ import {
   validateUrl,
   validateUserId,
 } from "../../../../services/validation";
-import { createApiResponse, OrgIdParams } from "../../types";
+import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {
@@ -51,7 +51,7 @@ interface GetContactParams extends OrgIdParams {
 
 // This should ideally be a method on the Contact object if we were building a full ORM.
 // For now, it's a standalone function mimicking the Rust `redacted` behavior.
-// TODO: Refactor into a class method or a separate service for Contact if possible within TS structure.
+// TODO: REDACT Refactor into a class method or a separate service for Contact if possible within TS structure.
 async function redactContact(
   contact: Contact,
   requesterUserId: UserID,
@@ -59,14 +59,12 @@ async function redactContact(
 ): Promise<ContactFE> {
   const redactedContact = { ...contact } as ContactFE;
 
-  // Placeholder for OWNER_ID equivalent in TS. In a multi-tenant setup, this would come from `about_drive` table for the specific org.
-  // TODO: Implement getOwnerId from the 'about_drive' table in the drive DB.
-  const ownerId = await getOwnerIdFromDrive(orgId);
+  const ownerId = await getDriveOwnerId(orgId);
   const isOwner = requesterUserId === ownerId;
   const isOwned = requesterUserId === contact.id;
 
   // Simulate `check_system_permissions`
-  // TODO: Implement actual permission checks based on your SQLite schema and data.
+  // TODO: PERMIT Implement actual permission checks based on your SQLite schema and data.
   // For now, return a mock set of permissions.
   const permissionPreviews: SystemPermissionType[] = [];
   if (isOwner || isOwned) {
@@ -80,11 +78,11 @@ async function redactContact(
   redactedContact.permission_previews = permissionPreviews;
 
   // Filter labels (mocking redact_label behavior)
-  // TODO: Implement actual label redaction logic based on permissions/ownership.
+  // TODO: REDACT Implement actual label redaction logic based on permissions/ownership.
   redactedContact.labels = contact.labels;
 
   // Filter group previews (mocking redact_group_previews behavior)
-  // TODO: Fetch real group data and filter based on permissions.
+  // TODO: GROUP Fetch real group data and filter based on permissions.
   redactedContact.group_previews = []; // Sensible placeholder
 
   // 2nd most sensitive: redeem_code, private_note
@@ -105,20 +103,6 @@ async function redactContact(
 
   return redactedContact;
 }
-
-// TODO: Implement this to fetch the actual owner_id from the `about_drive` table for the given driveId.
-// This is a placeholder that returns a dummy owner ID.
-async function getOwnerIdFromDrive(driveId: string): Promise<UserID> {
-  const result = await db.queryDrive(
-    driveId,
-    `SELECT owner_id FROM about_drive LIMIT 1`
-  );
-  if (result.length > 0) {
-    return result[0].owner_id as UserID;
-  }
-  throw new Error("Owner ID not found for drive");
-}
-
 // --- Handlers ---
 
 export async function getContactHandler(
@@ -155,18 +139,18 @@ export async function getContactHandler(
     }
 
     const contact = contacts[0] as Contact;
-    const ownerId = await getOwnerIdFromDrive(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    // TODO: Implement actual permission checks based on `permissions_system` table.
+    // TODO:  PERMIT Implement actual permission checks based on `permissions_system` table.
     // For now, simulate the Rust logic: if not owner, check for 'View' permission.
     let hasPermission = isOwner;
     if (!isOwner) {
       // Simulate check_system_permissions logic for a specific contact or the entire contacts table
       // In a real scenario, this would involve complex DB queries joining permissions_system and contacts.
       // For now, we'll assume a simplified check.
-      const canViewRecord = true; // TODO: Query permissions_system table for SystemPermissionType.View on this specific contact_id
-      const canViewTable = true; // TODO: Query permissions_system table for SystemPermissionType.View on 'CONTACTS' table
+      const canViewRecord = true; // TODO: PERMIT Query permissions_system table for SystemPermissionType.View on this specific contact_id
+      const canViewTable = true; // TODO: PERMIT Query permissions_system table for SystemPermissionType.View on 'CONTACTS' table
       hasPermission = canViewRecord || canViewTable;
     }
 
@@ -315,7 +299,7 @@ export async function listContactsHandler(
     // Apply redaction and permission checks to each contact
     const processedContacts: ContactFE[] = [];
     for (const contact of rawContacts) {
-      // TODO: In a real scenario, implement `check_system_permissions` to determine if `requesterApiKey.user_id`
+      // TODO: PERMIT In a real scenario, implement `check_system_permissions` to determine if `requesterApiKey.user_id`
       // has VIEW permission for this specific contact record OR the overall 'contacts' table.
       // For now, we'll assume everyone can view if they pass the initial auth.
       const canView = true; // Placeholder for actual permission check.
@@ -399,7 +383,7 @@ export async function createContactHandler(
         })
       );
     }
-    // TODO: Add more robust ICP principal validation (e.g., using @dfinity/principal)
+    // TODO: VALIDATE  Add more robust ICP principal validation (e.g., using @dfinity/principal)
     if (!validateIdString(createReq.name)) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -524,12 +508,12 @@ export async function createContactHandler(
       }
     }
 
-    const ownerId = await getOwnerIdFromDrive(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
     // Check create permission if not owner
     if (!isOwner) {
-      // TODO: Implement actual permission check for SystemTableEnum.Contacts with SystemPermissionType.Create
+      // TODO: PERMIT Implement actual permission check for SystemTableEnum.Contacts with SystemPermissionType.Create
       const hasCreatePermission = true; // Placeholder for actual permission check
       if (!hasCreatePermission) {
         return reply
@@ -570,8 +554,7 @@ export async function createContactHandler(
       evm_public_address: createReq.evm_public_address || "",
       icp_principal: createReq.icp_principal,
       seed_phrase: createReq.seed_phrase || "",
-      groups: [], // Handled by a separate table/process
-      labels: [], // Handled by a separate table/process
+      labels: [],
       from_placeholder_user_id: createReq.is_placeholder
         ? contactId
         : undefined,
@@ -606,7 +589,7 @@ export async function createContactHandler(
         newContact.external_payload
       );
 
-      // TODO: Add the contact to the default "Everyone" group if it exists (requires a service to handle group memberships)
+      // TODO: GROUP Add the contact to the default "Everyone" group if it exists (requires a service to handle group memberships)
       // This would involve inserting into the `contact_groups` table and potentially updating `groups` and `group_invites` tables.
     });
 
@@ -763,12 +746,12 @@ export async function updateContactHandler(
     }
 
     const existingContact = contacts[0] as Contact;
-    const ownerId = await getOwnerIdFromDrive(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
     // Check update permission if not owner
     if (!isOwner) {
-      // TODO: Implement actual permission checks for SystemTableEnum.Contacts or specific contact record with SystemPermissionType.Edit
+      // TODO: PERMIT Implement actual permission checks for SystemTableEnum.Contacts or specific contact record with SystemPermissionType.Edit
       const hasEditPermission = true; // Placeholder for actual permission check
       if (!hasEditPermission) {
         return reply
@@ -912,12 +895,12 @@ export async function deleteContactHandler(
     }
 
     const existingContact = contacts[0] as Contact;
-    const ownerId = await getOwnerIdFromDrive(org_id);
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
     // Check delete permission if not owner
     if (!isOwner) {
-      // TODO: Implement actual permission checks for SystemTableEnum.Contacts or specific contact record with SystemPermissionType.Delete
+      // TODO: PERMIT Implement actual permission checks for SystemTableEnum.Contacts or specific contact record with SystemPermissionType.Delete
       const hasDeletePermission = true; // Placeholder for actual permission check
       if (!hasDeletePermission) {
         return reply
@@ -933,7 +916,7 @@ export async function deleteContactHandler(
       const stmt = database.prepare("DELETE FROM contacts WHERE id = ?");
       stmt.run(deleteReq.id);
 
-      // TODO: Clean up related entries in `contact_groups` and `group_invites` tables.
+      // TODO: GROUP Clean up related entries in `contact_groups` and `group_invites` tables.
       // This would involve more complex SQL or a dedicated service to manage these relationships.
       // Example:
       // database.prepare("DELETE FROM contact_groups WHERE user_id = ?").run(deleteReq.id);
@@ -1034,7 +1017,7 @@ export async function redeemContactHandler(
     // across all relevant tables (contacts.past_user_ids, api_keys.user_id, folders.created_by_user_id,
     // files.created_by_user_id, groups.owner_user_id, group_invites.inviter_user_id, etc.).
     // This cannot be done with a simple single SQL query and requires a dedicated service.
-    // TODO: Implement the `superswapUserId` function that updates all relevant tables.
+    // TODO: PERMIT Implement the `superswapUserId` function that updates all relevant tables.
     let updateCount = 0; // Placeholder for actual records updated
     try {
       // Example of what `superswapUserId` would do (simplified):
@@ -1174,7 +1157,7 @@ export async function redeemContactHandler(
       }
     }
 
-    // TODO: Fire a webhook for superswap user
+    // TODO: WEBHOOK Fire a webhook for superswap user
     // `fire_superswap_user_webhook` function is missing, would involve external HTTP calls.
     // await fire_superswap_user_webhook(
     //   WebhookEventLabel.OrganizationSuperswapUser,

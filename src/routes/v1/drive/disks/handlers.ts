@@ -35,7 +35,7 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
   valid: boolean;
   error?: string;
 } {
-  // TODO: Implement more comprehensive validation based on Rust's `CreateDiskRequestBody::validate_body`
+  // TODO: VALIDATE Implement more comprehensive validation based on Rust's `CreateDiskRequestBody::validate_body`
   // Placeholder for now
   if (!body.name || body.name.length === 0 || body.name.length > 256) {
     return {
@@ -58,7 +58,7 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
         error: `Disk ID must start with '${IDPrefixEnum.Disk}'.`,
       };
     }
-    // TODO: Implement `validate_unclaimed_uuid` equivalent (check if ID already exists in DB)
+    // TODO: VALIDATE Implement `validate_unclaimed_uuid` equivalent (check if ID already exists in DB)
   }
 
   // Validate notes
@@ -92,7 +92,7 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
       error: "Auth JSON must be 8,192 characters or less.",
     };
   }
-  // TODO: Further parse and validate `auth_json` content based on `AwsBucketAuth` structure for AWS and Storj
+  // TODO: DRIVE Further parse and validate `auth_json` content based on `AwsBucketAuth` structure for AWS and Storj
   // For example, if DiskTypeEnum.AwsBucket, check if auth_json is valid JSON and contains expected fields.
   if (body.disk_type === DiskTypeEnum.AwsBucket && body.auth_json) {
     try {
@@ -115,7 +115,7 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
     }
   }
 
-  // TODO: validate `external_id`, `external_payload`, `endpoint` based on Rust's `validate_external_id`, `validate_external_payload`, `validate_url`
+  // TODO: VALIDATE validate `external_id`, `external_payload`, `endpoint` based on Rust's `validate_external_id`, `validate_external_payload`, `validate_url`
 
   return { valid: true };
 }
@@ -125,7 +125,7 @@ function validateUpdateDiskRequest(body: IRequestUpdateDisk): {
   valid: boolean;
   error?: string;
 } {
-  // TODO: Implement comprehensive validation based on Rust's `UpdateDiskRequestBody::validate_body`
+  // TODO: VALIDATE Implement comprehensive validation based on Rust's `UpdateDiskRequestBody::validate_body`
   if (!body.id || !body.id.startsWith(IDPrefixEnum.Disk)) {
     return {
       valid: false,
@@ -156,11 +156,11 @@ function validateUpdateDiskRequest(body: IRequestUpdateDisk): {
     };
   }
 
-  // TODO: Re-validate auth_json structure if provided, similar to create. Requires fetching existing disk type.
+  // TODO: VALIDATE Re-validate auth_json structure if provided, similar to create. Requires fetching existing disk type.
   // This will need to fetch the existing disk to know its `disk_type`.
   // For now, assume it's structurally valid if present.
 
-  // TODO: validate `external_id`, `external_payload`, `endpoint`
+  // TODO: VALIDATE validate `external_id`, `external_payload`, `endpoint`
 
   return { valid: true };
 }
@@ -170,7 +170,7 @@ function validateDeleteDiskRequest(body: IRequestDeleteDisk): {
   valid: boolean;
   error?: string;
 } {
-  // TODO: Implement comprehensive validation based on Rust's `DeleteDiskRequest::validate_body`
+  // TODO: VALIDATE Implement comprehensive validation based on Rust's `DeleteDiskRequest::validate_body`
   if (!body.id || !body.id.startsWith(IDPrefixEnum.Disk)) {
     return {
       valid: false,
@@ -193,7 +193,7 @@ function createApiResponse<T>(
   };
 }
 
-// TODO: Implement `check_system_permissions` equivalent in TypeScript.
+// TODO: PERMIT Implement `check_system_permissions` equivalent in TypeScript.
 // This would involve querying the `permissions_system` table for the given resource and grantee.
 // For now, this is a mock implementation.
 async function checkSystemPermissions(
@@ -201,7 +201,7 @@ async function checkSystemPermissions(
   resourceId: string, // Corresponds to SystemResourceID in Rust
   granteeId: UserID // Corresponds to PermissionGranteeID::User in Rust
 ): Promise<Array<SystemPermissionType>> {
-  // TODO: Implement actual database query to check permissions for the given resource and grantee.
+  // TODO: PERMIT Implement actual database query to check permissions for the given resource and grantee.
   // For now, return a mock based on the `isOwner` logic.
   const ownerId = await getDriveOwnerId(orgId);
   if (granteeId === ownerId) {
@@ -220,7 +220,7 @@ async function checkSystemPermissions(
   return [];
 }
 
-// TODO: Implement `ensure_disk_root_and_trash_folder` equivalent
+// TODO: DRIVE Implement `ensure_disk_root_and_trash_folder` equivalent
 // This function would ensure that the root and trash folders for a disk exist in the `folders` table.
 // It should interact with the database to create these records if they don't exist.
 async function ensureDiskRootAndTrashFolder(
@@ -229,7 +229,7 @@ async function ensureDiskRootAndTrashFolder(
   ownerId: UserID,
   diskType: DiskTypeEnum
 ): Promise<{ rootFolderId: string; trashFolderId: string }> {
-  // TODO: Implement actual logic to check/create folders in `folders` table in the drive DB.
+  // TODO: DRIVE Implement actual logic to check/create folders in `folders` table in the drive DB.
   // This will require functions to insert/query the 'folders' table.
   // The folder IDs will need to follow the `FolderID_` prefix convention.
 
@@ -316,7 +316,7 @@ async function ensureDiskRootAndTrashFolder(
   return { rootFolderId, trashFolderId };
 }
 
-// TODO: Implement `update_external_id_mapping` equivalent
+// TODO: DRIVE Implement `update_external_id_mapping` equivalent
 // This function would manage a mapping of external IDs to internal IDs.
 // It's likely updating a separate table for external ID lookups.
 async function updateExternalIdMapping(
@@ -325,23 +325,23 @@ async function updateExternalIdMapping(
   newExternalId: string | null | undefined,
   internalId: string
 ): Promise<void> {
-  // TODO: Implement actual database interaction for external ID mapping.
+  // TODO: DRIVE Implement actual database interaction for external ID mapping.
   // This might involve a dedicated `external_id_mappings` table.
   console.log(
     `[TODO] Simulating external ID mapping update for org ${orgId}: ${oldExternalId} -> ${newExternalId} for internal ID ${internalId}`
   );
 }
 
-// TODO: Implement `mark_claimed_uuid` equivalent
+// TODO: VALIDATE Implement `mark_claimed_uuid` equivalent
 // This function would mark a generated UUID as "claimed" to prevent reuse.
 async function markClaimedUuid(orgId: DriveID, uuid: string): Promise<void> {
-  // TODO: Implement logic to store claimed UUIDs, possibly in a dedicated table or a set.
+  // TODO: VALIDATE Implement logic to store claimed UUIDs, possibly in a dedicated table or a set.
   console.log(
     `[TODO] Simulating marking UUID as claimed for org ${orgId}: ${uuid}`
   );
 }
 
-// TODO: Implement `snapshot_prestate` and `snapshot_poststate` equivalent
+// TODO: WEBHOOK Implement `snapshot_prestate` and `snapshot_poststate` equivalent
 // These are likely for state diffing/auditing. In a Fastify server, this might be
 // less about canister state snapshots and more about database transaction logging or
 // event sourcing if such a system is in place. For now, they are mocks.
@@ -453,7 +453,7 @@ export async function getDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: Implement label redaction logic (requiring `redact_label` equivalent)
+    // TODO: REDACT Implement label redaction logic (requiring `redact_label` equivalent)
     diskFE.labels = []; // Placeholder for labels after redaction
 
     return reply.status(200).send(createApiResponse(diskFE));
@@ -530,7 +530,7 @@ export async function listDisksHandler(
       }
     }
 
-    // TODO: Implement filtering based on `body.filters`. This requires parsing the filter string.
+    // TODO: REDACT Implement filtering based on `body.filters`. This requires parsing the filter string.
     // For now, assuming no filters are applied to the SQL directly.
     if (body.filters && body.filters.length > 0) {
       // This is a placeholder. Real filtering logic would be complex.
@@ -607,7 +607,7 @@ export async function listDisksHandler(
           diskFE.auth_json = undefined;
           diskFE.private_note = undefined;
         }
-        diskFE.labels = []; // TODO: Implement label redaction
+        diskFE.labels = []; // TODO: REDACT Implement label redaction
         return diskFE;
       })
     );
@@ -896,7 +896,7 @@ export async function updateDiskHandler(
       values.push(body.private_note);
     }
     if (body.auth_json !== undefined) {
-      // TODO: Re-validate auth_json based on `existingDisk.disk_type`
+      // TODO: VALIDATE Re-validate auth_json based on `existingDisk.disk_type`
       updates.push("auth_json = ?");
       values.push(body.auth_json);
     }
