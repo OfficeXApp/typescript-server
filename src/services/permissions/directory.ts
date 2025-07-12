@@ -1,123 +1,132 @@
 // src/services/permissions/directory.ts
 
-import { FastifyRequest, FastifyReply } from "fastify";
-import { v4 as uuidv4 } from "uuid";
 import {
   DirectoryPermission,
   DirectoryPermissionFE,
   DirectoryPermissionType,
   IDPrefixEnum,
   DirectoryResourceID,
-  IRequestCheckDirectoryPermissions,
-  IRequestCreateDirectoryPermission,
-  IRequestDeleteDirectoryPermission,
-  IRequestListDirectoryPermissions,
-  IRequestRedeemDirectoryPermission,
-  IRequestUpdateDirectoryPermission,
-  IPaginatedResponse,
-  IResponseCheckDirectoryPermissions,
-  IResponseCreateDirectoryPermission,
-  IResponseDeleteDirectoryPermission,
-  IResponseListDirectoryPermissions,
-  IResponseRedeemDirectoryPermission,
-  IResponseUpdateDirectoryPermission,
   UserID,
-  GranteeID,
+  GranteeID, // This type needs to be updated to reflect the string format
   FolderID,
   FileID,
-  DirectoryPermissionID,
-  SystemPermissionType,
-  SystemResourceID,
+  SystemPermissionType, // Used for permission_previews
+  SystemResourceID as RustLikeSystemResourceID, // Renamed to avoid conflict with local SystemResourceID in parseSystemResourceId
   PermissionMetadata,
   PermissionMetadataTypeEnum,
   PermissionMetadataContent,
-  DriveFullFilePath,
   DriveClippedFilePath,
   LabelValue,
   GroupID,
   FilePathBreadcrumb,
+  SystemTableValueEnum,
+  BreadcrumbVisibilityPreviewEnum,
 } from "@officexapp/types";
-import { db, dbHelpers } from "../../services/database"; // Assuming this path
-import { authenticateRequest } from "../../services/auth"; // Assuming this path
-import { isUserInGroup, isGroupAdmin } from "../../services/groups"; // Assuming a new groups service
-import { getFolderMetadata, getFileMetadata } from "../../services/directory"; // Assuming a new directory service
-import {
-  createApiResponse,
-  ErrorResponse,
-  OrgIdParams,
-  validateIdString,
-  validateDescription,
-  validateExternalId,
-  validateExternalPayload,
-} from "../utils"; // Assuming this utility file exists
-import { checkSystemPermissions } from "./system"; // Import checkSystemPermissions from system service
-import { redactLabel } from "../../services/labels"; // Assuming a labels service for redaction
+import { db } from "../../services/database";
+import { isUserInGroup } from "../groups";
+import { getFolderMetadata, getFileMetadata } from "../directory";
+import { checkSystemPermissions } from "./system";
+import { redactLabel } from "../../services/labels";
+import { getDriveOwnerId } from "../../routes/v1/types";
 
 // Constants
-const PUBLIC_GRANTEE_ID = "PUBLIC";
+export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
+export const USER_ID_PREFIX = "USER_";
+export const GROUP_ID_PREFIX = "GROUP_";
+export const PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX =
+  "PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_";
 
-// Helper function to get current time in milliseconds
-function getCurrentTimeMs(): number {
-  return Date.now();
-}
-
-// TODO: Replace with actual owner ID retrieval from drive context or config
-async function getOwnerId(orgId: string): Promise<UserID> {
-  // This is a placeholder. In a real scenario, the drive owner ID should be
-  // fetched from the `about_drive` table for the given `orgId`.
-  // For now, returning a mock owner.
-  try {
-    const result = await db.queryDrive(
-      orgId,
-      `SELECT owner_id FROM about_drive LIMIT 1`
-    );
-    if (result.length > 0) {
-      return result[0].owner_id as UserID;
-    }
-  } catch (error) {
-    console.error(`Error fetching owner_id for drive ${orgId}:`, error);
-  }
-  return "UserID_mock_owner"; // sensible placeholder
-}
-
-// Helper to parse DirectoryResourceID
-function parseDirectoryResourceID(
+// Helper to parse DirectoryResourceID from string
+function parseDirectoryResourceIDString(
   idStr: string
 ): DirectoryResourceID | undefined {
-  if (idStr.startsWith(IDPrefixEnum.File)) {
-    return idStr as DirectoryResourceID;
-  } else if (idStr.startsWith(IDPrefixEnum.Folder)) {
-    return idStr as DirectoryResourceID;
+  if (idStr.startsWith("FILE_") && idStr.length > "FILE_".length) {
+    return idStr.substring("FILE_".length) as FileID; // Assuming FileID is just the UUID part
+  } else if (idStr.startsWith("FOLDER_") && idStr.length > "FOLDER_".length) {
+    return idStr.substring("FOLDER_".length) as FolderID; // Assuming FolderID is just the UUID part
   }
   return undefined;
 }
 
-// Helper to parse PermissionGranteeID
-export function parsePermissionGranteeID(idStr: string): GranteeID | undefined {
-  if (idStr === PUBLIC_GRANTEE_ID) {
-    return "Public";
-  } else if (idStr.startsWith(IDPrefixEnum.User)) {
-    return idStr as UserID;
-  } else if (idStr.startsWith(IDPrefixEnum.Group)) {
-    return idStr as GroupID;
-  } else if (idStr.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee)) {
-    return `PlaceholderDirectoryPermissionGrantee_${idStr.substring(IDPrefixEnum.PlaceholderPermissionGrantee.length)}`;
+// Helper to parse PermissionGranteeID from string
+export function parsePermissionGranteeIDString(idStr: string): GranteeID {
+  // Direct match for PUBLIC
+  if (idStr === PUBLIC_GRANTEE_ID_STRING) {
+    return PUBLIC_GRANTEE_ID_STRING;
   }
-  return undefined;
+  // Check for prefixes
+  if (idStr.startsWith(USER_ID_PREFIX)) {
+    return idStr as UserID; // The type is just the string itself now.
+  }
+  if (idStr.startsWith(GROUP_ID_PREFIX)) {
+    return idStr as GroupID; // The type is just the string itself now.
+  }
+  if (idStr.startsWith(PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX)) {
+    return idStr as `PlaceholderPermissionGranteeID_${string}`; // Cast directly as it's the full string
+  }
+  // Fallback for invalid formats if necessary, or throw an error
+  throw new Error(`Invalid GranteeID format: ${idStr}`);
 }
 
 // Utility to convert raw DB row to DirectoryPermission
 function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
+  let grantedTo: GranteeID;
+  switch (row.grantee_type) {
+    case "Public":
+      grantedTo = PUBLIC_GRANTEE_ID_STRING;
+      break;
+    case "User":
+      grantedTo = `${USER_ID_PREFIX}${row.grantee_id}`;
+      break;
+    case "Group":
+      grantedTo = `${GROUP_ID_PREFIX}${row.grantee_id}`;
+      break;
+    case "Placeholder":
+      grantedTo = `${PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX}${row.grantee_id}`;
+      break;
+    default:
+      // Handle unexpected grantee_type, maybe default to public or throw error
+      console.warn(
+        `Unknown grantee_type: ${row.grantee_type}. Defaulting to Public.`
+      );
+      grantedTo = PUBLIC_GRANTEE_ID_STRING;
+      break;
+  }
+
+  // Reconstruct metadata if present
+  let metadata: PermissionMetadata | undefined;
+  if (row.metadata_type && row.metadata_content) {
+    let content: PermissionMetadataContent;
+    switch (row.metadata_type) {
+      case PermissionMetadataTypeEnum.LABELS:
+        content = { Labels: row.metadata_content }; // Labels content is plain string
+        break;
+      case PermissionMetadataTypeEnum.DIRECTORY_PASSWORD:
+        content = { DirectoryPassword: row.metadata_content }; // DirectoryPassword content is plain string
+        break;
+      default:
+        console.warn(
+          `Unknown metadata_type: ${row.metadata_type}. Skipping metadata.`
+        );
+        content = { Labels: "" }; // Fallback to a default or handle error
+        break;
+    }
+    metadata = {
+      metadata_type: row.metadata_type as PermissionMetadataTypeEnum,
+      content: content,
+    };
+  }
+
   return {
     id: row.id,
-    resource_id: row.resource_id,
+    resource_id: row.resource_id, // This should already be in the format 'FILE_...' or 'FOLDER_...' from DB
     resource_path: row.resource_path,
-    granted_to:
-      parsePermissionGranteeID(
-        row.grantee_type === "Public" ? PUBLIC_GRANTEE_ID : row.grantee_id
-      ) || "Public", // TODO: Handle actual grantee_id for User/Group/Placeholder
+    granted_to: grantedTo,
     granted_by: row.granted_by_user_id,
-    permission_types: JSON.parse(row.permission_types_json), // Assuming permission_types are stored as JSON string
+    permission_types: (row.permission_types_list || "")
+      .split(",")
+      .filter(Boolean) // Filter out empty strings from split
+      .map((typeStr: string) => typeStr.trim() as DirectoryPermissionType),
     begin_date_ms: row.begin_date_ms,
     expiry_date_ms: row.expiry_date_ms,
     inheritable: row.inheritable === 1,
@@ -126,14 +135,8 @@ function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
     last_modified_at: row.last_modified_at,
     redeem_code: row.redeem_code,
     from_placeholder_grantee: row.from_placeholder_grantee,
-    metadata:
-      row.metadata_type && row.metadata_content
-        ? {
-            metadata_type: row.metadata_type as PermissionMetadataTypeEnum,
-            content: JSON.parse(row.metadata_content), // Assuming JSON string
-          }
-        : undefined,
-    labels: JSON.parse(row.labels_json || "[]"), // Assuming labels are stored as JSON string
+    metadata: metadata,
+    labels: (row.labels_list || "").split(",").filter(Boolean),
     external_id: row.external_id,
     external_payload: row.external_payload,
   };
@@ -145,24 +148,19 @@ async function castToDirectoryPermissionFE(
   currentUserId: UserID,
   orgId: string
 ): Promise<DirectoryPermissionFE> {
-  // TODO: Implement actual logic for resource_name, grantee_name, grantee_avatar, granter_name
-  // These would typically involve lookups in other tables (e.g., files, folders, contacts, groups)
-  // For now, providing placeholders or basic derivations.
-
-  const isOwner = (await getOwnerId(orgId)) === currentUserId;
+  const isOwner = (await getDriveOwnerId(orgId)) === currentUserId;
 
   // Get resource_name
   let resourceName: string | undefined;
-  if (permission.resource_id.startsWith(IDPrefixEnum.File)) {
-    const fileMetadata = await getFileMetadata(
-      orgId,
-      permission.resource_id as FileID
-    );
+  const rawResourceId =
+    permission.resource_id.split("_")[1] || permission.resource_id; // Extract UUID part
+  if (permission.resource_id.startsWith("FILE_")) {
+    const fileMetadata = await getFileMetadata(orgId, rawResourceId as FileID);
     resourceName = fileMetadata?.name;
-  } else if (permission.resource_id.startsWith(IDPrefixEnum.Folder)) {
+  } else if (permission.resource_id.startsWith("FOLDER_")) {
     const folderMetadata = await getFolderMetadata(
       orgId,
-      permission.resource_id as FolderID
+      rawResourceId as FolderID
     );
     resourceName = folderMetadata?.name;
   }
@@ -170,55 +168,63 @@ async function castToDirectoryPermissionFE(
   // Get grantee_name and grantee_avatar
   let granteeName: string | undefined;
   let granteeAvatar: string | undefined;
-  if (typeof permission.granted_to === "string") {
-    // Public case or unparsed placeholder
-    if (permission.granted_to === PUBLIC_GRANTEE_ID) {
-      granteeName = "PUBLIC";
-    } else if (
-      permission.granted_to.startsWith("PlaceholderDirectoryPermissionGrantee_")
-    ) {
-      granteeName = "Awaiting Anon";
+  if (permission.granted_to === PUBLIC_GRANTEE_ID_STRING) {
+    granteeName = "PUBLIC";
+  } else if (permission.granted_to.startsWith(USER_ID_PREFIX)) {
+    const contactId = permission.granted_to as UserID;
+    const contactRows = await db.queryDrive(
+      orgId,
+      "SELECT name, avatar FROM contacts WHERE id = ?",
+      [contactId]
+    );
+    if (contactRows.length > 0) {
+      granteeName = contactRows[0].name;
+      granteeAvatar = contactRows[0].avatar;
     } else {
-      // Attempt to fetch from Contacts or Groups if it's a UserID or GroupID string
-      // This is a simplified check, full implementation would query your contacts/groups service
-      if (permission.granted_to.startsWith(IDPrefixEnum.User)) {
-        // TODO: Fetch user name and avatar from contacts table
-        granteeName = "User: " + permission.granted_to;
-        granteeAvatar = undefined;
-      } else if (permission.granted_to.startsWith(IDPrefixEnum.Group)) {
-        // TODO: Fetch group name and avatar from groups table
-        granteeName = "Group: " + permission.granted_to;
-        granteeAvatar = undefined;
-      }
+      granteeName = `User: ${contactId}`; // Fallback if contact not found
     }
-  } else if (typeof permission.granted_to === "object") {
-    // Handle discriminated union if it were properly typed
-    if ("User" in permission.granted_to) {
-      // TODO: Fetch user name and avatar from contacts table
-      granteeName = "User: " + permission.granted_to;
-      granteeAvatar = undefined;
-    } else if ("Group" in permission.granted_to) {
-      // TODO: Fetch group name and avatar from groups table
-      granteeName = "Group: " + permission.granted_to;
-      granteeAvatar = undefined;
+  } else if (permission.granted_to.startsWith(GROUP_ID_PREFIX)) {
+    const groupId = permission.granted_to as GroupID;
+    const groupRows = await db.queryDrive(
+      orgId,
+      "SELECT name, avatar FROM groups WHERE id = ?",
+      [groupId]
+    );
+    if (groupRows.length > 0) {
+      granteeName = groupRows[0].name;
+      granteeAvatar = groupRows[0].avatar;
+    } else {
+      granteeName = `Group: ${groupId}`; // Fallback if group not found
     }
+  } else if (
+    permission.granted_to.startsWith(
+      PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
+    )
+  ) {
+    granteeName = "Awaiting Anon";
   }
 
   // Get granter_name
-  // TODO: Fetch granter name from contacts table
-  const granterName = "Granter: " + permission.granted_by;
+  const granterRows = await db.queryDrive(
+    orgId,
+    "SELECT name FROM contacts WHERE id = ?",
+    [permission.granted_by]
+  );
+  const granterName =
+    granterRows.length > 0
+      ? granterRows[0].name
+      : `Granter: ${permission.granted_by}`;
 
   // Get permission previews for the current user on this permission record
   const recordPermissions = await checkSystemPermissions(
-    {
-      type: "Record",
-      value: { type: "Permission", value: permission.id },
-    } as SystemResourceID, // TODO: Correctly type SystemResourceID
-    currentUserId, // Assuming checkSystemPermissions takes UserID as GranteeID for simplicity
+    // Construct SystemResourceID correctly
+    `RECORD_PERMISSION_${permission.id}` as RustLikeSystemResourceID,
+    currentUserId,
     orgId
   );
   const tablePermissions = await checkSystemPermissions(
-    { type: "Table", value: "PERMISSIONS" } as SystemResourceID, // TODO: Correctly type SystemResourceID
+    // Construct SystemResourceID correctly
+    `TABLE_${SystemTableValueEnum.PERMISSIONS}` as RustLikeSystemResourceID,
     currentUserId,
     orgId
   );
@@ -226,16 +232,29 @@ async function castToDirectoryPermissionFE(
     new Set([...recordPermissions, ...tablePermissions])
   );
 
+  // Clip resource_path
+  const fullPath = permission.resource_path;
+  let clippedPath: DriveClippedFilePath;
+  const pathParts = fullPath.split("::/"); // Split disk_id::path/to/file.txt
+  if (pathParts.length > 1) {
+    const diskId = pathParts[0];
+    const filePath = pathParts[1];
+    const fileFolderParts = filePath.split("/");
+    if (fileFolderParts.length > 1) {
+      clippedPath =
+        `${diskId}::../${fileFolderParts[fileFolderParts.length - 1]}` as DriveClippedFilePath;
+    } else {
+      clippedPath = `${diskId}::${filePath}` as DriveClippedFilePath;
+    }
+  } else {
+    clippedPath = fullPath as DriveClippedFilePath; // Should not happen if paths are well-formed
+  }
+
   const castedPermission: DirectoryPermissionFE = {
     id: permission.id,
     resource_id: permission.resource_id,
-    resource_path: permission.resource_path, // TODO: Implement clipping logic
-    granted_to:
-      typeof permission.granted_to === "string"
-        ? permission.granted_to
-        : (permission.granted_to as any).User ||
-          (permission.granted_to as any).Group ||
-          (permission.granted_to as any).PlaceholderDirectoryPermissionGrantee, // Simplify for FE representation
+    resource_path: clippedPath,
+    granted_to: permission.granted_to, // Keep as the full string representation
     granted_by: permission.granted_by,
     permission_types: permission.permission_types,
     begin_date_ms: permission.begin_date_ms,
@@ -245,7 +264,7 @@ async function castToDirectoryPermissionFE(
     created_at: permission.created_at,
     last_modified_at: permission.last_modified_at,
     from_placeholder_grantee: permission.from_placeholder_grantee,
-    labels: permission.labels, // TODO: Redact labels based on user permissions
+    labels: permission.labels,
     redeem_code: permission.redeem_code,
     metadata: permission.metadata,
     external_id: permission.external_id,
@@ -274,12 +293,13 @@ function redactDirectoryPermissionFE(
 
   if (!isOwner) {
     // Redact sensitive fields if not owner
-    redacted.resource_path = "" as DriveClippedFilePath; // Empty string for clipped path if not owner
+    // Rust only checks for `is_owner`, not `hasEditPermissions` for `resource_path` redaction.
+    redacted.resource_path = "" as DriveClippedFilePath;
 
-    if (!hasEditPermissions) {
-      // Further redaction if no edit permissions (e.g., private notes if they existed here)
-      // This part depends on what "private_note" would apply to a permission itself
-    }
+    // The rust code doesn't explicitly redact `metadata` or `redeem_code` based on permissions,
+    // but the `DirectoryPermission::cast_fe` method itself populates them.
+    // If you need to redact them further based on `hasEditPermissions`, this is where to do it.
+    // For now, mirroring the Rust's `redacted` method which primarily uses `redact_label`.
   }
 
   // Filter labels based on user permissions
@@ -307,44 +327,34 @@ async function canUserAccessDirectoryPermission(
     return true;
   }
 
-  const permissionGrantedTo = parsePermissionGranteeID(
-    (permission.granted_to as any).Public ||
-      (permission.granted_to as any).User ||
-      (permission.granted_to as any).Group ||
-      (permission.granted_to as any).PlaceholderDirectoryPermissionGrantee ||
-      ""
-  ); // Handle direct string 'Public' or other forms
-
-  if (!permissionGrantedTo) {
-    return false; // Invalid grantee ID
-  }
+  // Parse the `granted_to` string from the permission object
+  const permissionGrantedTo = permission.granted_to;
 
   // Check if user is the direct grantee
-  if (typeof permissionGrantedTo === "string") {
-    if (permissionGrantedTo === "Public") {
-      return true; // Everyone can see public permissions
-    } else if (permissionGrantedTo.startsWith(IDPrefixEnum.User)) {
-      if (permissionGrantedTo === requesterUserId) {
-        return true;
-      }
-    } else if (permissionGrantedTo.startsWith(IDPrefixEnum.Group)) {
-      if (
-        await isUserInGroup(
-          requesterUserId,
-          permissionGrantedTo as GroupID,
-          orgId
-        )
-      ) {
-        return true;
-      }
-    } else if (
-      permissionGrantedTo.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee)
-    ) {
-      // One-time links can only be accessed by the creator
-      return permission.granted_by === requesterUserId;
+  if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
+    return true; // Everyone can see public permissions
+  } else if (permissionGrantedTo.startsWith(USER_ID_PREFIX)) {
+    if (permissionGrantedTo === requesterUserId) {
+      return true;
     }
+  } else if (permissionGrantedTo.startsWith(GROUP_ID_PREFIX)) {
+    if (
+      await isUserInGroup(
+        requesterUserId,
+        permissionGrantedTo as GroupID,
+        orgId
+      )
+    ) {
+      return true;
+    }
+  } else if (
+    permissionGrantedTo.startsWith(
+      PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
+    )
+  ) {
+    // One-time links can only be accessed by the creator
+    return permission.granted_by === requesterUserId;
   }
-  // TODO: Handle structured PermissionGranteeID types if they are objects
 
   return false;
 }
@@ -357,32 +367,36 @@ async function getInheritedResourcesList(
   const resources: DirectoryResourceID[] = [];
   let currentFolderId: FolderID | undefined;
 
-  // Add the initial resource itself
+  // Add the initial resource itself (Rust adds it first, then reverses)
   resources.push(resourceId);
 
   // Determine the starting point for traversal based on resource type
+  // DirectoryResourceID is either FileID*... or FolderID*...
+  const actualResourceId = resourceId.split("*")[1] || resourceId; // Extract UUID part
   if (resourceId.startsWith(IDPrefixEnum.File)) {
-    const fileId = resourceId as FileID;
-    const fileMetadata = await getFileMetadata(orgId, fileId);
+    const fileMetadata = await getFileMetadata(
+      orgId,
+      actualResourceId as FileID
+    );
     if (!fileMetadata) return []; // File not found
 
     if (fileMetadata.has_sovereign_permissions) {
-      // If file has sovereign permissions, only itself is relevant for inheritance
-      return resources;
+      return resources; // If file has sovereign permissions, only itself is relevant
     }
     currentFolderId = fileMetadata.parent_folder_uuid;
   } else if (resourceId.startsWith(IDPrefixEnum.Folder)) {
-    const folderId = resourceId as FolderID;
-    const folderMetadata = await getFolderMetadata(orgId, folderId);
+    const folderMetadata = await getFolderMetadata(
+      orgId,
+      actualResourceId as FolderID
+    );
     if (!folderMetadata) return []; // Folder not found
 
     if (folderMetadata.has_sovereign_permissions) {
-      // If folder has sovereign permissions, only itself is relevant for inheritance
-      return resources;
+      return resources; // If folder has sovereign permissions, only itself is relevant
     }
     currentFolderId = folderMetadata.parent_folder_uuid;
   } else {
-    // Invalid resource ID format
+    // Invalid resource ID format, though type guards should prevent this normally
     return [];
   }
 
@@ -391,7 +405,9 @@ async function getInheritedResourcesList(
     const folderMetadata = await getFolderMetadata(orgId, currentFolderId);
     if (!folderMetadata) break; // Parent folder not found, stop traversal
 
-    resources.push(folderMetadata.id as DirectoryResourceID);
+    resources.push(
+      `${IDPrefixEnum.Folder}${folderMetadata.id}` as DirectoryResourceID
+    ); // Add with prefix
 
     if (folderMetadata.has_sovereign_permissions) {
       break; // Stop if a folder with sovereign permissions is encountered
@@ -406,59 +422,63 @@ async function getInheritedResourcesList(
 async function checkDirectoryResourcePermissions(
   resourceId: DirectoryResourceID,
   granteeId: GranteeID,
-  isParentForInheritance: boolean,
+  isParentForInheritance: boolean, // Corresponds to `is_parent_for_inheritance`
   orgId: string
 ): Promise<DirectoryPermissionType[]> {
   const permissionsSet = new Set<DirectoryPermissionType>();
-  const currentTime = getCurrentTimeMs();
+  const currentTime = Date.now();
 
-  // Fetch permissions for the resource from the database
-  // The SQL query joins permissions_directory with permissions_directory_types
-  // to get all permission types for each permission record.
+  // The Rust code's `check_directory_resource_permissions` directly takes
+  // `DirectoryResourceID` and `PermissionGranteeID` as references.
+  // It fetches permissions from `DIRECTORY_PERMISSIONS_BY_RESOURCE_HASHTABLE`
+  // and `DIRECTORY_PERMISSIONS_BY_ID_HASHTABLE`.
+
+  // The SQL query to fetch permissions for a specific resource ID
   const rows = await db.queryDrive(
     orgId,
-    `
-      SELECT
-          pd.id,
-          pd.resource_id,
-          pd.resource_path,
-          pd.grantee_type,
-          pd.grantee_id,
-          pd.granted_by_user_id,
-          GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
-          pd.begin_date_ms,
-          pd.expiry_date_ms,
-          pd.inheritable,
-          pd.note,
-          pd.created_at,
-          pd.last_modified_at,
-          pd.redeem_code,
-          pd.from_placeholder_grantee,
-          pd.metadata_type,
-          pd.metadata_content,
-          pd.external_id,
-          pd.external_payload,
-          (SELECT GROUP_CONCAT(label_id) FROM permission_directory_labels WHERE permission_id = pd.id) AS labels_list
+    `SELECT
+        pd.id,
+        pd.resource_id,
+        pd.resource_path,
+        pd.grantee_type,
+        pd.grantee_id,
+        pd.granted_by_user_id,
+        GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
+        pd.begin_date_ms,
+        pd.expiry_date_ms,
+        pd.inheritable,
+        pd.note,
+        pd.created_at,
+        pd.last_modified_at,
+        pd.redeem_code,
+        pd.from_placeholder_grantee,
+        pd.metadata_type,
+        pd.metadata_content,
+        pd.external_id,
+        pd.external_payload
       FROM permissions_directory pd
       JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
       WHERE pd.resource_id = ?
-      GROUP BY pd.id
-    `,
+      GROUP BY pd.id`,
     [resourceId]
   );
 
   for (const row of rows) {
+    // Reconstruct DirectoryPermission object from the row
     const permission: DirectoryPermission = {
       id: row.id,
       resource_id: row.resource_id,
       resource_path: row.resource_path,
-      // Reconstruct grantee_id and permission_types from DB data
+      // Reconstruct granted_to string
       granted_to:
-        row.grantee_type === "Public" ? "Public" : row.grantee_id || "", // Simplified
+        row.grantee_type === "Public"
+          ? PUBLIC_GRANTEE_ID_STRING
+          : `${row.grantee_type.toUpperCase()}_${row.grantee_id}`,
       granted_by: row.granted_by_user_id,
-      permission_types: row.permission_types_list
+      permission_types: (row.permission_types_list || "")
         .split(",")
-        .map((typeStr: string) => typeStr.trim() as DirectoryPermissionType), // Convert string list back to enum array
+        .filter(Boolean)
+        .map((typeStr: string) => typeStr.trim() as DirectoryPermissionType),
       begin_date_ms: row.begin_date_ms,
       expiry_date_ms: row.expiry_date_ms,
       inheritable: row.inheritable === 1,
@@ -471,15 +491,22 @@ async function checkDirectoryResourcePermissions(
         row.metadata_type && row.metadata_content
           ? {
               metadata_type: row.metadata_type,
-              content: JSON.parse(row.metadata_content), // Assuming content is JSON string
+              content:
+                row.metadata_type === PermissionMetadataTypeEnum.LABELS
+                  ? { Labels: row.metadata_content }
+                  : { DirectoryPassword: row.metadata_content },
             }
           : undefined,
-      labels: row.labels_list ? row.labels_list.split(",") : [],
+      labels: [], // Labels are handled via a separate join table in SQL, not directly in this query's row
       external_id: row.external_id,
       external_payload: row.external_payload,
     };
 
-    // Skip if permission is expired or not yet active
+    // Rust's `permission_granted_to` is `PermissionGranteeID` enum, which is then matched.
+    // In TS, `permission.granted_to` is already a string like "PUBLIC", "USER_...", "GROUP_...", etc.
+    const permissionGrantedTo = permission.granted_to;
+
+    // Check if permission is expired or not yet active
     if (
       permission.expiry_date_ms > 0 &&
       permission.expiry_date_ms <= currentTime
@@ -493,57 +520,46 @@ async function checkDirectoryResourcePermissions(
       continue;
     }
 
-    // Skip if permission lacks inheritance and is a parent being checked for inheritance
+    // Skip if permission lacks inheritance and is for a parent resource (Rust's `!permission.inheritable && is_parent_for_inheritance`)
     if (!permission.inheritable && isParentForInheritance) {
       continue;
     }
 
-    const permissionGrantedTo = parsePermissionGranteeID(
-      (permission.granted_to as any).Public ||
-        (permission.granted_to as any).User ||
-        (permission.granted_to as any).Group ||
-        (permission.granted_to as any).PlaceholderDirectoryPermissionGrantee ||
-        ""
-    );
-
     let applies = false;
-    if (permissionGrantedTo === "Public") {
+
+    // Directly compare the string representations
+    if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
       applies = true;
-    } else if (typeof permissionGrantedTo === "string") {
-      if (granteeId === "Public" && permissionGrantedTo === PUBLIC_GRANTEE_ID) {
-        applies = true;
-      } else if (
-        granteeId.startsWith(IDPrefixEnum.User) &&
-        permissionGrantedTo.startsWith(IDPrefixEnum.User) &&
-        granteeId === permissionGrantedTo
-      ) {
-        applies = true;
-      } else if (
-        granteeId.startsWith(IDPrefixEnum.Group) &&
-        permissionGrantedTo.startsWith(IDPrefixEnum.Group) &&
-        granteeId === permissionGrantedTo
-      ) {
-        applies = true;
-      } else if (
-        granteeId.startsWith(IDPrefixEnum.User) &&
-        permissionGrantedTo.startsWith(IDPrefixEnum.Group)
-      ) {
-        applies = await isUserInGroup(
-          granteeId as UserID,
-          permissionGrantedTo as GroupID,
-          orgId
-        );
-      } else if (
-        granteeId.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee) &&
-        permissionGrantedTo.startsWith(
-          IDPrefixEnum.PlaceholderPermissionGrantee
-        ) &&
-        granteeId === permissionGrantedTo
-      ) {
-        applies = true;
-      }
+    } else if (
+      granteeId.startsWith(USER_ID_PREFIX) &&
+      permissionGrantedTo.startsWith(USER_ID_PREFIX)
+    ) {
+      applies = granteeId === permissionGrantedTo;
+    } else if (
+      granteeId.startsWith(GROUP_ID_PREFIX) &&
+      permissionGrantedTo.startsWith(GROUP_ID_PREFIX)
+    ) {
+      applies = granteeId === permissionGrantedTo;
+    } else if (
+      granteeId.startsWith(USER_ID_PREFIX) &&
+      permissionGrantedTo.startsWith(GROUP_ID_PREFIX)
+    ) {
+      // Check if the user is a member of the group
+      applies = await isUserInGroup(
+        granteeId as UserID,
+        permissionGrantedTo as GroupID,
+        orgId
+      );
+    } else if (
+      granteeId.startsWith(
+        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
+      ) &&
+      permissionGrantedTo.startsWith(
+        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
+      )
+    ) {
+      applies = granteeId === permissionGrantedTo;
     }
-    // TODO: Handle structured PermissionGranteeID if necessary
 
     if (applies) {
       permission.permission_types.forEach((type) => permissionsSet.add(type));
@@ -553,17 +569,15 @@ async function checkDirectoryResourcePermissions(
   return Array.from(permissionsSet);
 }
 
-// check what kind of permission a specific user has on a specific resource
+// Function to check what kind of permission a specific user has on a specific resource
 export async function checkDirectoryPermissions(
   resourceId: DirectoryResourceID,
   granteeId: GranteeID,
   orgId: string
 ): Promise<DirectoryPermissionType[]> {
   const isOwner =
-    (await getOwnerId(orgId)) ===
-    (typeof granteeId === "string" && granteeId.startsWith(IDPrefixEnum.User)
-      ? granteeId
-      : "");
+    (await getDriveOwnerId(orgId)) ===
+    (granteeId.startsWith(USER_ID_PREFIX) ? granteeId : "");
 
   if (isOwner) {
     return [
@@ -582,10 +596,12 @@ export async function checkDirectoryPermissions(
   // Check permissions for each resource and combine them
   const allPermissions = new Set<DirectoryPermissionType>();
   for (const resource of resourcesToCheck) {
+    // Rust's `check_directory_resource_permissions` has `resource != resource_id` for `is_parent_for_inheritance`.
+    const isParent = resource !== resourceId;
     const resourcePermissions = await checkDirectoryResourcePermissions(
       resource,
       granteeId,
-      resource !== resourceId, // isParentForInheritance is true if it's a parent
+      isParent,
       orgId
     );
     resourcePermissions.forEach((p) => allPermissions.add(p));
@@ -605,7 +621,8 @@ export async function hasDirectoryManagePermission(
     userId,
     orgId
   );
-  return permissions.includes(DirectoryPermissionType.INVITE); // Rust uses Invite for Manage equivalent check
+  // Rust uses DirectoryPermissionType::Invite for has_directory_manage_permission
+  return permissions.includes(DirectoryPermissionType.INVITE);
 }
 
 // Add a helper function to get permissions for a resource
@@ -621,8 +638,7 @@ export async function previewDirectoryPermissions(
 
   const rows = await db.queryDrive(
     orgId,
-    `
-    SELECT
+    `SELECT
         pd.id,
         pd.resource_id,
         pd.resource_path,
@@ -641,17 +657,15 @@ export async function previewDirectoryPermissions(
         pd.metadata_type,
         pd.metadata_content,
         pd.external_id,
-        pd.external_payload,
-        (SELECT GROUP_CONCAT(label_id) FROM permission_directory_labels WHERE permission_id = pd.id) AS labels_list
-    FROM permissions_directory pd
-    JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
-    WHERE pd.resource_id = ?
-    GROUP BY pd.id
-    `,
+        pd.external_payload
+      FROM permissions_directory pd
+      JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
+      WHERE pd.resource_id = ?
+      GROUP BY pd.id`,
     [resourceId]
   );
 
-  const currentTime = getCurrentTimeMs();
+  const currentTime = Date.now();
 
   for (const row of rows) {
     const permission: DirectoryPermission = {
@@ -659,10 +673,13 @@ export async function previewDirectoryPermissions(
       resource_id: row.resource_id,
       resource_path: row.resource_path,
       granted_to:
-        row.grantee_type === "Public" ? "Public" : row.grantee_id || "",
+        row.grantee_type === "Public"
+          ? PUBLIC_GRANTEE_ID_STRING
+          : `${row.grantee_type.toUpperCase()}_${row.grantee_id}`,
       granted_by: row.granted_by_user_id,
-      permission_types: row.permission_types_list
+      permission_types: (row.permission_types_list || "")
         .split(",")
+        .filter(Boolean)
         .map((typeStr: string) => typeStr.trim() as DirectoryPermissionType),
       begin_date_ms: row.begin_date_ms,
       expiry_date_ms: row.expiry_date_ms,
@@ -676,10 +693,13 @@ export async function previewDirectoryPermissions(
         row.metadata_type && row.metadata_content
           ? {
               metadata_type: row.metadata_type,
-              content: JSON.parse(row.metadata_content),
+              content:
+                row.metadata_type === PermissionMetadataTypeEnum.LABELS
+                  ? { Labels: row.metadata_content }
+                  : { DirectoryPassword: row.metadata_content },
             }
           : undefined,
-      labels: row.labels_list ? row.labels_list.split(",") : [],
+      labels: [], // Not fetched by this query
       external_id: row.external_id,
       external_payload: row.external_payload,
     };
@@ -695,32 +715,22 @@ export async function previewDirectoryPermissions(
       continue; // Skip expired or not-yet-active permissions
     }
 
-    const permissionGrantedTo = parsePermissionGranteeID(
-      (permission.granted_to as any).Public ||
-        (permission.granted_to as any).User ||
-        (permission.granted_to as any).Group ||
-        (permission.granted_to as any).PlaceholderDirectoryPermissionGrantee ||
-        ""
-    );
+    const permissionGrantedTo = permission.granted_to;
 
     let applies = false;
-    if (permissionGrantedTo === "Public") {
+    if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
       applies = true;
-    } else if (typeof permissionGrantedTo === "string") {
-      if (
-        permissionGrantedTo.startsWith(IDPrefixEnum.User) &&
-        permissionGrantedTo === userId
-      ) {
-        applies = true;
-      } else if (permissionGrantedTo.startsWith(IDPrefixEnum.Group)) {
-        applies = await isUserInGroup(
-          userId,
-          permissionGrantedTo as GroupID,
-          orgId
-        );
-      }
+    } else if (permissionGrantedTo.startsWith(USER_ID_PREFIX)) {
+      applies = permissionGrantedTo === userId;
+    } else if (permissionGrantedTo.startsWith(GROUP_ID_PREFIX)) {
+      applies = await isUserInGroup(
+        userId,
+        permissionGrantedTo as GroupID,
+        orgId
+      );
     }
-    // TODO: Handle structured PermissionGranteeID if necessary
+    // No specific handling for PlaceholderDirectoryPermissionGrantee in preview,
+    // as it's typically for one-time redemption.
 
     if (applies) {
       for (const grantType of permission.permission_types) {
@@ -738,124 +748,80 @@ export async function previewDirectoryPermissions(
 export async function deriveBreadcrumbVisibilityPreviews(
   resourceId: DirectoryResourceID,
   orgId: string
-): Promise<string[]> {
+): Promise<BreadcrumbVisibilityPreviewEnum[]> {
   let publicCanView = false;
   let publicCanModify = false;
   let privateCanView = false;
   let privateCanModify = false;
 
-  const currentTimeMs = getCurrentTimeMs();
+  const currentTimeMs = Date.now();
 
   const rows = await db.queryDrive(
     orgId,
-    `
-    SELECT
+    `SELECT
         pd.id,
         pd.resource_id,
         pd.resource_path,
         pd.grantee_type,
         pd.grantee_id,
-        pd.granted_by_user_id,
         GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
         pd.begin_date_ms,
-        pd.expiry_date_ms,
-        pd.inheritable,
-        pd.note,
-        pd.created_at,
-        pd.last_modified_at,
-        pd.redeem_code,
-        pd.from_placeholder_grantee,
-        pd.metadata_type,
-        pd.metadata_content,
-        pd.external_id,
-        pd.external_payload,
-        (SELECT GROUP_CONCAT(label_id) FROM permission_directory_labels WHERE permission_id = pd.id) AS labels_list
-    FROM permissions_directory pd
-    JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
-    WHERE pd.resource_id = ?
-    GROUP BY pd.id
-    `,
+        pd.expiry_date_ms
+      FROM permissions_directory pd
+      JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
+      WHERE pd.resource_id = ?
+      GROUP BY pd.id`,
     [resourceId]
   );
 
   for (const row of rows) {
-    const permission: DirectoryPermission = {
-      id: row.id,
-      resource_id: row.resource_id,
-      resource_path: row.resource_path,
-      granted_to:
-        row.grantee_type === "Public" ? "Public" : row.grantee_id || "",
-      granted_by: row.granted_by_user_id,
-      permission_types: row.permission_types_list
-        .split(",")
-        .map((typeStr: string) => typeStr.trim() as DirectoryPermissionType),
-      begin_date_ms: row.begin_date_ms,
-      expiry_date_ms: row.expiry_date_ms,
-      inheritable: row.inheritable === 1,
-      note: row.note,
-      created_at: row.created_at,
-      last_modified_at: row.last_modified_at,
-      redeem_code: row.redeem_code,
-      from_placeholder_grantee: row.from_placeholder_grantee,
-      metadata:
-        row.metadata_type && row.metadata_content
-          ? {
-              metadata_type: row.metadata_type,
-              content: JSON.parse(row.metadata_content),
-            }
-          : undefined,
-      labels: row.labels_list ? row.labels_list.split(",") : [],
-      external_id: row.external_id,
-      external_payload: row.external_payload,
-    };
+    // Reconstruct minimal permission object for checks
+    const permissionGrantedTo =
+      row.grantee_type === "Public"
+        ? PUBLIC_GRANTEE_ID_STRING
+        : `${row.grantee_type.toUpperCase()}_${row.grantee_id}`;
+    const permissionTypes = (row.permission_types_list || "")
+      .split(",")
+      .filter(Boolean)
+      .map((typeStr: string) => typeStr.trim() as DirectoryPermissionType);
 
     const isActive =
-      (permission.begin_date_ms <= 0 ||
-        permission.begin_date_ms <= currentTimeMs) &&
-      (permission.expiry_date_ms < 0 ||
-        permission.expiry_date_ms > currentTimeMs);
+      (row.begin_date_ms <= 0 || row.begin_date_ms <= currentTimeMs) &&
+      (row.expiry_date_ms < 0 || row.expiry_date_ms > currentTimeMs);
 
     if (!isActive) {
       continue;
     }
 
-    const hasView = permission.permission_types.includes(
-      DirectoryPermissionType.VIEW
-    );
+    const hasView = permissionTypes.includes(DirectoryPermissionType.VIEW);
     const hasModify =
-      permission.permission_types.includes(DirectoryPermissionType.UPLOAD) ||
-      permission.permission_types.includes(DirectoryPermissionType.EDIT) ||
-      permission.permission_types.includes(DirectoryPermissionType.DELETE) ||
-      permission.permission_types.includes(DirectoryPermissionType.MANAGE);
+      permissionTypes.includes(DirectoryPermissionType.UPLOAD) ||
+      permissionTypes.includes(DirectoryPermissionType.EDIT) ||
+      permissionTypes.includes(DirectoryPermissionType.DELETE) ||
+      permissionTypes.includes(DirectoryPermissionType.MANAGE);
 
-    const permissionGrantedTo = parsePermissionGranteeID(
-      (permission.granted_to as any).Public ||
-        (permission.granted_to as any).User ||
-        (permission.granted_to as any).Group ||
-        (permission.granted_to as any).PlaceholderDirectoryPermissionGrantee ||
-        ""
-    );
-
-    if (permissionGrantedTo === "Public") {
+    if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
       if (hasView) publicCanView = true;
       if (hasModify) publicCanModify = true;
     } else {
+      // Any other grantee type (User, Group, Placeholder) makes it "private"
       if (hasView) privateCanView = true;
       if (hasModify) privateCanModify = true;
     }
   }
 
   const results: string[] = [];
+  // Prioritize modify over view, and public over private
   if (publicCanModify) {
-    results.push("PUBLIC_MODIFY");
+    results.push(BreadcrumbVisibilityPreviewEnum.PUBLIC_MODIFY);
   } else if (publicCanView) {
-    results.push("PUBLIC_VIEW");
+    results.push(BreadcrumbVisibilityPreviewEnum.PUBLIC_VIEW);
   }
 
   if (privateCanModify) {
-    results.push("PRIVATE_MODIFY");
+    results.push(BreadcrumbVisibilityPreviewEnum.PRIVATE_MODIFY);
   } else if (privateCanView) {
-    results.push("PRIVATE_VIEW");
+    results.push(BreadcrumbVisibilityPreviewEnum.PRIVATE_VIEW);
   }
 
   return results;
@@ -867,49 +833,57 @@ export async function deriveDirectoryBreadcrumbs(
   orgId: string
 ): Promise<FilePathBreadcrumb[]> {
   const breadcrumbs: FilePathBreadcrumb[] = [];
-  const isOwner = (await getOwnerId(orgId)) === userId;
+  const isOwner = (await getDriveOwnerId(orgId)) === userId;
   let currentResourceId: DirectoryResourceID | undefined = resourceId;
+
+  // Use a temporary array to build breadcrumbs in reverse, then unshift them
+  const tempBreadcrumbs: FilePathBreadcrumb[] = [];
 
   while (currentResourceId) {
     let resourceName: string | undefined;
     let parentFolderId: FolderID | undefined;
     let hasSovereignPermissions = false;
+    let originalResourceIdString: DirectoryResourceID; // Store the original string to pass to deriveBreadcrumbVisibilityPreviews
+
+    const rawResourceId = currentResourceId.split("_")[1] || currentResourceId;
 
     if (currentResourceId.startsWith(IDPrefixEnum.File)) {
       const fileMetadata = await getFileMetadata(
         orgId,
-        currentResourceId as FileID
+        rawResourceId as FileID
       );
       if (!fileMetadata) break;
 
       resourceName = fileMetadata.name;
       parentFolderId = fileMetadata.parent_folder_uuid;
       hasSovereignPermissions = fileMetadata.has_sovereign_permissions;
+      originalResourceIdString = currentResourceId; // Already in correct format
     } else if (currentResourceId.startsWith(IDPrefixEnum.Folder)) {
       const folderMetadata = await getFolderMetadata(
         orgId,
-        currentResourceId as FolderID
+        rawResourceId as FolderID
       );
       if (!folderMetadata) break;
 
       resourceName = folderMetadata.name;
       parentFolderId = folderMetadata.parent_folder_uuid;
       hasSovereignPermissions = folderMetadata.has_sovereign_permissions;
+      originalResourceIdString = currentResourceId; // Already in correct format
 
       // Special handling for root folder (disk itself)
+      // Rust's condition: `folder_metadata.full_directory_path == DriveFullFilePath(format!("{}::/", folder_metadata.disk_id.to_string()))`
       if (
         folderMetadata.full_directory_path === `${folderMetadata.disk_id}::/`
       ) {
-        // TODO: Fetch disk name from disks table
-        const disk = (
-          await db.queryDrive(orgId, "SELECT name FROM disks WHERE id = ?", [
-            folderMetadata.disk_id,
-          ])
-        )[0];
-        if (disk) {
-          resourceName = disk.name;
+        const diskRows = await db.queryDrive(
+          orgId,
+          "SELECT name FROM disks WHERE id = ?",
+          [folderMetadata.disk_id]
+        );
+        if (diskRows.length > 0) {
+          resourceName = diskRows[0].name;
         } else {
-          resourceName = `Disk: ${folderMetadata.disk_id}`;
+          resourceName = `Disk: ${folderMetadata.disk_id}`; // Fallback if disk not found
         }
       }
     } else {
@@ -926,11 +900,11 @@ export async function deriveDirectoryBreadcrumbs(
       break; // User doesn't have permission to view this resource or its ancestors
     }
 
-    breadcrumbs.unshift({
-      resource_id: currentResourceId,
+    tempBreadcrumbs.push({
+      resource_id: originalResourceIdString,
       resource_name: resourceName || "Unknown",
       visibility_preview: await deriveBreadcrumbVisibilityPreviews(
-        currentResourceId,
+        originalResourceIdString,
         orgId
       ),
     });
@@ -939,8 +913,12 @@ export async function deriveDirectoryBreadcrumbs(
       break; // Stop if sovereign permissions are encountered
     }
 
-    currentResourceId = parentFolderId;
+    // Move up to the parent folder
+    currentResourceId = parentFolderId
+      ? (`${IDPrefixEnum.Folder}${parentFolderId}` as DirectoryResourceID)
+      : undefined;
   }
 
-  return breadcrumbs;
+  // Reverse the temporary array to get the correct order
+  return tempBreadcrumbs.reverse();
 }

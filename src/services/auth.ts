@@ -1,3 +1,5 @@
+// src/services/auth.ts
+
 import { Principal } from "@dfinity/principal";
 import { sign, verify, getPublicKey } from "@noble/ed25519";
 import { mnemonicToSeed, validateMnemonic } from "bip39";
@@ -252,7 +254,7 @@ export async function authenticateRequest(
         value: `signature_auth_${computedPrincipal}`,
         user_id: format_user_id(computedPrincipal),
         name: `Signature Authenticated User ${computedPrincipal}`,
-        private_note: null,
+        private_note: undefined,
         created_at: now,
         begins_at: 0,
         expires_at: -1,
