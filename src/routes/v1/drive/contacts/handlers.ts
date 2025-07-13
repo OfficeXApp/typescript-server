@@ -1449,7 +1449,7 @@ export async function redeemContactHandler(
       throw new Error("Redeemed contact not found after superswap.");
     }
 
-    // TODO: WEBHOOK Fire a webhook for superswap user
+    // TODO: SUPERSWAP Fire a webhook for superswap user
 
     const newApiKeyId = `${IDPrefixEnum.ApiKey}${uuidv4()}` as ApiKeyID;
     const newApiKeyValue = await generateApiKey();

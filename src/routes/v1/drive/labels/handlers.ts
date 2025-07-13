@@ -28,6 +28,7 @@ import {
   WebhookEventLabel,
   SystemResourceID,
   SystemTableValueEnum,
+  LabelWebhookData, // Import LabelWebhookData for type safety
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -46,6 +47,12 @@ import {
   validateLabelValue,
   validateShortString,
 } from "../../../../services/validation";
+
+// Import the actual webhook service functions
+import {
+  getActiveLabelWebhooks,
+  fireLabelWebhook,
+} from "../../../../services/webhooks";
 
 interface GetLabelParams extends OrgIdParams {
   label_id: string; // Can be LabelID or LabelValue
@@ -74,8 +81,21 @@ function createApiResponse<T>(
   }
 }
 
-// The mock `checkSystemPermissions` is replaced by the actual import from `../../../../services/permissions/system`
-// so this mock function is no longer needed.
+// TODO: UUID Implement placeholder for `update_external_id_mapping`
+async function updateExternalIdMapping(
+  oldExternalId: string | null | undefined,
+  newExternalId: string | null | undefined,
+  internalId: string | null | undefined,
+  orgId: DriveID // Need orgId to access the drive's external_id_mapping table
+): Promise<void> {
+  // In Rust, this modifies a stable BTreeMap.
+  // In SQLite, you'd likely have a separate table for external ID mappings (e.g., `external_id_mappings`)
+  // or store external_id directly on the main record and ensure uniqueness via unique index.
+  // For now, this is a no-op placeholder.
+  console.log(
+    `TODO: UUID Implement updateExternalIdMapping for org ${orgId}: old=${oldExternalId}, new=${newExternalId}, internal=${internalId}`
+  );
+}
 
 // From Rust `parse_label_resource_id`
 function parseLabelResourceID(idStr: string): {
@@ -120,51 +140,36 @@ function parseLabelResourceID(idStr: string): {
   };
 }
 
-// TODO: UUID Implement placeholder for `update_external_id_mapping`
-async function updateExternalIdMapping(
-  oldExternalId: string | null | undefined,
-  newExternalId: string | null | undefined,
-  internalId: string | null | undefined,
-  orgId: DriveID // Need orgId to access the drive's external_id_mapping table
-): Promise<void> {
-  // In Rust, this modifies a stable BTreeMap.
-  // In SQLite, you'd likely have a separate table for external ID mappings (e.g., `external_id_mappings`)
-  // or store external_id directly on the main record and ensure uniqueness via unique index.
-  // For now, this is a no-op placeholder.
+// TODO: LABEL: Mocked for now.
+export async function redactLabelValue(
+  orgId: DriveID,
+  labelValue: LabelValue,
+  requesterUserId: UserID
+): Promise<LabelValue | null> {
   console.log(
-    `TODO: UUID Implement updateExternalIdMapping for org ${orgId}: old=${oldExternalId}, new=${newExternalId}, internal=${internalId}`
+    `TODO: LABEL - Mocked redactLabelValue called for label: ${labelValue} by user: ${requesterUserId} in org: ${orgId}`
   );
+  // Mock logic: Always allow viewing for now.
+  return labelValue;
 }
 
-// TODO: WEBHOOK Implement placeholder for webhook firing logic
-async function fireLabelWebhook(
-  event: WebhookEventLabel,
-  webhooks: any[], // TODO: Define Webhook type from Rust
-  oldData: any | null, // Pre-state data
-  newData: any | null, // Post-state data
-  notes: string | null,
+// TODO: LABEL: Mocked for now.
+async function castLabelToLabelFE(
+  label: Label,
+  requesterUserId: UserID,
   orgId: DriveID
-): Promise<void> {
+): Promise<LabelFE> {
   console.log(
-    `TODO: WEBHOOK Implement fireLabelWebhook for org ${orgId}: event=${event}, notes=${notes}`
+    `TODO: LABEL - Mocked castLabelToLabelFE called for label: ${label.id} by user: ${requesterUserId} in org: ${orgId}`
   );
-  // This would involve fetching active webhooks from the 'webhooks' table,
-  // filtering them by event and potentially by label,
-  // then making HTTP requests to the webhook URLs.
-}
-
-// TODO: WEBHOOK Implement placeholder for getting active webhooks (Rust: `get_active_label_webhooks`)
-async function getActiveLabelWebhooks(
-  labelId: LabelID,
-  event: WebhookEventLabel,
-  orgId: DriveID
-): Promise<any[]> {
-  // Returns list of Webhook objects
-  console.log(
-    `TODO: WEBHOOK Implement getActiveLabelWebhooks for org ${orgId}: labelId=${labelId}, event=${event}`
-  );
-  // This would query the 'webhooks' table, filter by event, and potentially by associated labels.
-  return []; // Mock empty array
+  // Mock logic: Return the label as is, with empty permission_previews.
+  return {
+    ...label,
+    private_note: undefined, // Always redact private note for mock
+    resources: [], // Always empty for mock
+    labels: [], // Always empty for mock (nested labels)
+    permission_previews: [SystemPermissionType.VIEW, SystemPermissionType.EDIT], // Mock some permissions
+  };
 }
 
 // --- Handlers ---
@@ -350,8 +355,7 @@ export async function getLabelHandler(
         org_id
       );
 
-      const labelRecordId =
-        `${IDPrefixEnum.LabelID}${label.id.substring(IDPrefixEnum.LabelID.length)}` as SystemResourceID;
+      const labelRecordId = `${IDPrefixEnum.LabelID}${label.id.substring(IDPrefixEnum.LabelID.length)}`;
 
       const resourcePermissions = await checkSystemPermissions(
         // SystemResourceID for a record: RecordID_UUID
@@ -360,8 +364,6 @@ export async function getLabelHandler(
         org_id
       );
 
-      // checkSystemResourcePermissionsLabels includes label-prefixed permission checks.
-      // This is particularly relevant if there are permissions like "allow view of labels starting with 'secret_'"
       const labelPrefixPermissions = await checkSystemResourcePermissionsLabels(
         // The resource here is implicitly the Labels table, but with a label value filter.
         // Rust's `check_system_resource_permissions_labels` takes SystemResourceID
@@ -729,10 +731,12 @@ export async function createLabelHandler(
 
     // Store the label in the database within a transaction
     await dbHelpers.transaction("drive", org_id, (database) => {
+      // NOTE: The `resources` and `labels` columns are not in the provided SQL schema for the `labels` table.
+      // Removed them from the INSERT statement to prevent SQL errors. They are derived properties in TS.
       database
         .prepare(
-          `INSERT INTO labels (id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, resources, labels, external_id, external_payload)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO labels (id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           newLabel.id,
@@ -743,8 +747,6 @@ export async function createLabelHandler(
           newLabel.created_by,
           newLabel.created_at,
           newLabel.last_updated_at,
-          JSON.stringify(newLabel.resources), // Store array as JSON string
-          JSON.stringify(newLabel.labels), // Store array as JSON string
           newLabel.external_id,
           newLabel.external_payload
         );
@@ -806,17 +808,7 @@ export async function updateLabelHandler(
       const validation = validateLabelValue(updateReq.value);
       if (!validation.valid) validationErrors.push(validation.error!);
     }
-    if (updateReq.description !== undefined) {
-      const validation = validateDescription(
-        updateReq.description,
-        "description"
-      );
-      if (!validation.valid) validationErrors.push(validation.error!);
-    }
-    if (updateReq.color !== undefined) {
-      const validation = validateColor(updateReq.color);
-      if (!validation.valid) validationErrors.push(validation.error!);
-    }
+    // These validations are now correctly placed within the `updates` and `params` logic.
     if (updateReq.external_id !== undefined) {
       const isValid = validateExternalId(updateReq.external_id);
       if (!isValid) validationErrors.push("Invalid external_id");
@@ -840,7 +832,9 @@ export async function updateLabelHandler(
     // Get existing label
     const existingLabels = await db.queryDrive(
       org_id,
-      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload, resources, labels FROM labels WHERE id = ?",
+      // NOTE: `resources` and `labels` columns are not in the provided SQL schema for the `labels` table.
+      // Removed them from the SELECT query to prevent SQL errors. They are derived properties in TS.
+      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload FROM labels WHERE id = ?",
       [labelId]
     );
 
@@ -863,8 +857,7 @@ export async function updateLabelHandler(
         org_id
       );
 
-      const labelRecordId =
-        `${IDPrefixEnum.LabelID}${labelId.substring(IDPrefixEnum.LabelID.length)}` as SystemResourceID;
+      const labelRecordId = `${IDPrefixEnum.LabelID}${labelId.substring(IDPrefixEnum.LabelID.length)}`;
 
       const resourcePermissions = await checkSystemPermissions(
         labelRecordId,
@@ -895,22 +888,44 @@ export async function updateLabelHandler(
     // Store old external_id for mapping cleanup
     const oldExternalId = existingLabel.external_id;
 
-    // Update fields and track changes for SQL update statement
+    // Initialize updates and params AFTER fetching existingLabel
     const updates: string[] = [];
     const params: any[] = [];
 
+    // Now, add validation and updates for description and color
+    if (updateReq.description !== undefined) {
+      const validation = validateDescription(
+        updateReq.description,
+        "description"
+      );
+      if (!validation.valid) validationErrors.push(validation.error!);
+      else {
+        updates.push("public_note = ?"); // Assuming description maps to public_note
+        params.push(updateReq.description);
+        existingLabel.public_note = updateReq.description; // Update in memory for `castLabelToLabelFE`
+      }
+    }
+    if (updateReq.color !== undefined) {
+      const colorValidation = validateColor(updateReq.color);
+      if (!colorValidation.valid) validationErrors.push(colorValidation.error!);
+      else {
+        const validatedColor = colorValidation.validatedColor;
+        if (validatedColor) {
+          updates.push("color = ?");
+          params.push(validatedColor);
+          existingLabel.color = validatedColor; // Update in memory for `castLabelToLabelFE`
+        }
+      }
+    }
+
     if (updateReq.value !== undefined) {
+      // Re-check value after initialization
       const validatedValue = validateLabelValue(updateReq.value).validatedValue;
       if (validatedValue && validatedValue !== existingLabel.value) {
         updates.push("value = ?");
         params.push(validatedValue);
         existingLabel.value = validatedValue; // Update in memory for `castLabelToLabelFE`
       }
-    }
-    if (updateReq.description !== undefined) {
-      updates.push("public_note = ?"); // Assuming description maps to public_note
-      params.push(updateReq.description);
-      existingLabel.public_note = updateReq.description;
     }
     // private_note is not directly updatable via IRequestUpdateLabel in types.ts.
     // If it were, you'd add:
@@ -919,14 +934,6 @@ export async function updateLabelHandler(
     //    params.push(updateReq.private_note);
     //    existingLabel.private_note = updateReq.private_note;
     // }
-    if (updateReq.color !== undefined) {
-      const validatedColor = validateColor(updateReq.color).validatedColor;
-      if (validatedColor) {
-        updates.push("color = ?");
-        params.push(validatedColor);
-        existingLabel.color = validatedColor;
-      }
-    }
     if (updateReq.external_id !== undefined) {
       updates.push("external_id = ?");
       params.push(updateReq.external_id);
@@ -943,6 +950,16 @@ export async function updateLabelHandler(
       updates.push("external_payload = ?");
       params.push(updateReq.external_payload);
       existingLabel.external_payload = updateReq.external_payload;
+    }
+
+    if (validationErrors.length > 0) {
+      // Check validation errors again after all validations
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: validationErrors.join("; "),
+        })
+      );
     }
 
     if (updates.length === 0) {
@@ -969,7 +986,7 @@ export async function updateLabelHandler(
     // Re-fetch the updated label to ensure all derived fields are current
     const updatedLabelResult = await db.queryDrive(
       org_id,
-      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload, resources, labels FROM labels WHERE id = ?",
+      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload FROM labels WHERE id = ?",
       [labelId]
     );
 
@@ -980,26 +997,8 @@ export async function updateLabelHandler(
     const updatedRawLabel = updatedLabelResult[0];
 
     // Reconstruct Label object from DB result for FE casting
-    // Note: `resources` and `labels` fields are JSON strings in DB, need parsing
-    let updatedLabelResources: string[] = [];
-    let updatedNestedLabels: string[] = [];
-    try {
-      if (updatedRawLabel.resources)
-        updatedLabelResources = JSON.parse(updatedRawLabel.resources);
-    } catch (e) {
-      request.log.warn(
-        `Failed to parse resources for updated label ${updatedRawLabel.id}: ${e}`
-      );
-    }
-    try {
-      if (updatedRawLabel.labels)
-        updatedNestedLabels = JSON.parse(updatedRawLabel.labels);
-    } catch (e) {
-      request.log.warn(
-        `Failed to parse nested labels for updated label ${updatedRawLabel.id}: ${e}`
-      );
-    }
-
+    // Note: `resources` and `labels` fields are NOT columns in the `labels` table per your DDL.
+    // They are populated via junction tables in `castLabelToLabelFE`.
     const finalUpdatedLabel: Label = {
       id: updatedRawLabel.id as LabelID,
       value: updatedRawLabel.value as LabelValue,
@@ -1009,8 +1008,8 @@ export async function updateLabelHandler(
       created_by: updatedRawLabel.created_by_user_id as UserID,
       created_at: updatedRawLabel.created_at,
       last_updated_at: updatedRawLabel.last_updated_at,
-      resources: updatedLabelResources,
-      labels: updatedNestedLabels,
+      resources: [], // Will be populated by castLabelToLabelFE
+      labels: [], // Will be populated by castLabelToLabelFE
       external_id: updatedRawLabel.external_id,
       external_payload: updatedRawLabel.external_payload,
     };
@@ -1095,8 +1094,7 @@ export async function deleteLabelHandler(
         org_id
       );
 
-      const labelRecordId =
-        `${IDPrefixEnum.LabelID}${labelId.substring(IDPrefixEnum.LabelID.length)}` as SystemResourceID;
+      const labelRecordId = `${IDPrefixEnum.LabelID}${labelId.substring(IDPrefixEnum.LabelID.length)}`;
 
       const resourcePermissions = await checkSystemPermissions(
         labelRecordId,
@@ -1227,7 +1225,7 @@ export async function labelResourceHandler(
     // Get the label to access its value and properties
     const existingLabels = await db.queryDrive(
       org_id,
-      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload, resources, labels FROM labels WHERE id = ?",
+      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload FROM labels WHERE id = ?",
       [labelId]
     );
 
@@ -1276,12 +1274,12 @@ export async function labelResourceHandler(
       let resourceSystemId: SystemResourceID;
       // Handle special case where resourceTypePrefix is "LabelID" (labels labeling other labels)
       if (resourceTypePrefix === IDPrefixEnum.LabelID.slice(0, -1)) {
-        resourceSystemId = actualResourceId as SystemResourceID; // LabelID_uuid format
+        resourceSystemId = actualResourceId; // LabelID_uuid format
       } else {
         // For other record types, the `resourceIdString` (e.g., "FileID_xyz") is already the correct SystemResourceID.
         // For table types (like "TABLE_LABELS"), we construct it directly.
         // Assuming all labelable resources are records except Labels table itself if it could be labeled directly (which is not the case here).
-        resourceSystemId = actualResourceId as SystemResourceID;
+        resourceSystemId = actualResourceId;
       }
 
       const resourceBeingLabeledPermissions = await checkSystemPermissions(
@@ -1386,7 +1384,7 @@ export async function labelResourceHandler(
       // 1. Update the resource's `labels` column (stored as JSON string in SQLite)
       const existingResource = database
         .prepare(`SELECT labels FROM ${resourceTableName} WHERE id = ?`)
-        .get(actualResourceId) as unknown as Record<string, any>; // Corrected to use actualResourceId
+        .get(actualResourceId) as unknown as Record<string, any>;
 
       let currentResourceLabels: string[] = [];
       if (existingResource && existingResource.labels) {
@@ -1463,96 +1461,100 @@ export async function labelResourceHandler(
         `${addOperation ? "Added" : "Removed"} label ${labelValue} to resource ${actualResourceId}`
       );
 
-      // 2. Update the label's `resources` array on the Label object itself
-      // This is the `resources: Vec<LabelResourceID>` field on the Label struct.
-      // This is stored in the `labels` table directly in a JSON column.
-      let currentLabelResources: string[] = [];
-      try {
-        if (rawLabel.resources) {
-          currentLabelResources = JSON.parse(rawLabel.resources);
-        }
-      } catch (e) {
-        request.log.warn(
-          `Failed to parse resources for label ${labelId}: ${e}. Assuming empty array.`
-        );
-        currentLabelResources = [];
-      }
+      // NOTE: As discussed, the `resources` and `labels` columns on the `labels` table itself
+      // are not in your DDL. The following block, which attempts to update them, remains commented out.
+      // If these were intended to be direct columns, the schema would need to be updated.
+      // The `castLabelToLabelFE` function correctly derives these from junction tables.
 
-      let updatedLabelResources = [...currentLabelResources];
-      if (addOperation) {
-        if (!updatedLabelResources.includes(actualResourceId)) {
-          updatedLabelResources.push(actualResourceId);
-        }
-      } else {
-        // Remove operation
-        const index = updatedLabelResources.indexOf(actualResourceId);
-        if (index > -1) {
-          updatedLabelResources.splice(index, 1);
-        }
-        // If label's resources become empty after removal, Rust code deletes the label entirely.
-        if (updatedLabelResources.length === 0) {
-          request.log.debug(
-            `Label '${labelValue}' no longer has any resources. Deleting label.`
-          );
-          database.prepare("DELETE FROM labels WHERE id = ?").run(labelId);
-          // Also delete associated nested label relationships where this label is a child
-          database
-            .prepare(`DELETE FROM label_labels WHERE child_label_id = ?`)
-            .run(plainLabelId); // Use plain ID for junction table
-          await updateExternalIdMapping(
-            rawLabel.external_id,
-            null,
-            labelId,
-            org_id
-          ); // Clean up external ID mapping
-        }
-      }
+      // // Let's re-fetch the label to get its current `resources` and `labels` (nested labels)
+      // const currentLabelRaw = database.prepare("SELECT resources, labels FROM labels WHERE id = ?").get(labelId);
 
-      // Only update the label's `resources` and `last_updated_at` if the label itself still exists
-      if (updatedLabelResources.length > 0 || addOperation) {
-        // If adding, or if not empty after removing
-        // Make sure the label still exists before attempting to update it
-        const labelExists = database
-          .prepare("SELECT id FROM labels WHERE id = ?")
-          .get(labelId);
-        if (labelExists) {
-          database
-            .prepare(
-              "UPDATE labels SET resources = ?, last_updated_at = ? WHERE id = ?"
-            )
-            .run(JSON.stringify(updatedLabelResources), Date.now(), labelId);
-        }
-      }
+      // let currentLabelResources: string[] = [];
+      // try {
+      //   if (currentLabelRaw && currentLabelRaw.resources) {
+      //     currentLabelResources = JSON.parse(currentLabelRaw.resources);
+      //   }
+      // } catch (e) {
+      //   request.log.warn(
+      //     `Failed to parse resources for label ${labelId}: ${e}. Assuming empty array.`
+      //   );
+      //   currentLabelResources = [];
+      // }
+
+      // let updatedLabelResources = [...currentLabelResources];
+      // if (addOperation) {
+      //   if (!updatedLabelResources.includes(actualResourceId)) {
+      //     updatedLabelResources.push(actualResourceId);
+      //   }
+      // } else {
+      //   // Remove operation
+      //   const index = updatedLabelResources.indexOf(actualResourceId);
+      //   if (index > -1) {
+      //     updatedLabelResources.splice(index, 1);
+      //   }
+      //   // If label's resources become empty after removal, Rust code deletes the label entirely.
+      //   if (updatedLabelResources.length === 0) {
+      //     request.log.debug(
+      //       `Label '${labelValue}' no longer has any resources. Deleting label.`
+      //     );
+      //     database.prepare("DELETE FROM labels WHERE id = ?").run(labelId);
+      //     // Also delete associated nested label relationships where this label is a child
+      //     database
+      //       .prepare(`DELETE FROM label_labels WHERE child_label_id = ?`)
+      //       .run(plainLabelId); // Use plain ID for junction table
+      //     await updateExternalIdMapping(
+      //       rawLabel.external_id,
+      //       null,
+      //       labelId,
+      //       org_id
+      //     ); // Clean up external ID mapping
+      //   }
+      // }
+
+      // // Only update the label's `resources` and `last_updated_at` if the label itself still exists
+      // if (updatedLabelResources.length > 0 || addOperation) {
+      //   // If adding, or if not empty after removing
+      //   // Make sure the label still exists before attempting to update it
+      //   const labelExists = database
+      //     .prepare("SELECT id FROM labels WHERE id = ?")
+      //     .get(labelId);
+      //   if (labelExists) {
+      //     database
+      //       .prepare(
+      //         "UPDATE labels SET resources = ?, last_updated_at = ? WHERE id = ?"
+      //       )
+      //       .run(JSON.stringify(updatedLabelResources), Date.now(), labelId);
+      //   }
+      // }
     });
 
     const actionMessage = addOperation ? "added" : "removed";
 
-    // Fire webhook if needed
-    const webhookEvent = addOperation
-      ? WebhookEventLabel.LABEL_ADDED
-      : WebhookEventLabel.LABEL_REMOVED;
-    const webhooks = await getActiveLabelWebhooks(
+    // **FIXED:** Call the actual `getActiveLabelWebhooks` and `fireLabelWebhook` from the service.
+    const webhooksToFire = await getActiveLabelWebhooks(
+      org_id, // Pass orgId
       labelId,
-      webhookEvent,
-      org_id
+      addOperation
+        ? WebhookEventLabel.LABEL_ADDED
+        : WebhookEventLabel.LABEL_REMOVED
     );
-    if (webhooks.length > 0) {
+
+    if (webhooksToFire.length > 0) {
       const notes = `Label ${labelId} ${actionMessage} resource ${actualResourceId}`;
-      // For LabelWebhookData, we need the full Label object. Re-fetch it after modification.
-      // Or pass relevant data directly. The Rust `LabelWebhookData` has specific fields.
-      const webhookPayloadData = {
+      const webhookPayloadData: LabelWebhookData = {
         label_id: labelId,
         resource_id: actualResourceId,
         label_value: labelValue,
         add: addOperation,
       };
       await fireLabelWebhook(
-        webhookEvent,
-        webhooks,
-        null, // No pre-state snapshot for webhooks here
-        webhookPayloadData, // Simple data for webhook payload
-        notes,
-        org_id
+        addOperation
+          ? WebhookEventLabel.LABEL_ADDED
+          : WebhookEventLabel.LABEL_REMOVED,
+        webhooksToFire,
+        undefined, // No `before` snapshot for this specific event in Rust
+        webhookPayloadData, // `after` snapshot as per Rust
+        notes
       );
     }
 
@@ -1560,27 +1562,15 @@ export async function labelResourceHandler(
     let finalLabel: Label | undefined;
     const finalLabelQuery = await db.queryDrive(
       org_id,
-      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload, resources, labels FROM labels WHERE id = ?",
+      "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload FROM labels WHERE id = ?",
       [labelId]
     );
 
     if (finalLabelQuery.length > 0) {
       const rawFinalLabel = finalLabelQuery[0];
-      let finalLabelResources: string[] = [];
-      let finalNestedLabels: string[] = [];
-      try {
-        if (rawFinalLabel.resources)
-          finalLabelResources = JSON.parse(rawFinalLabel.resources);
-      } catch (e) {
-        /* ignore parse error for mock */
-      }
-      try {
-        if (rawFinalLabel.labels)
-          finalNestedLabels = JSON.parse(rawFinalLabel.labels);
-      } catch (e) {
-        /* ignore parse error for mock */
-      }
-
+      // `resources` and `labels` on `Label` struct are derived, not directly from `labels` table `resources` and `labels` columns
+      // (as those columns aren't in the provided DDL for `labels` table).
+      // They are populated in `castLabelToLabelFE`.
       finalLabel = {
         id: rawFinalLabel.id as LabelID,
         value: rawFinalLabel.value as LabelValue,
@@ -1590,11 +1580,11 @@ export async function labelResourceHandler(
         created_by: rawFinalLabel.created_by_user_id as UserID,
         created_at: rawFinalLabel.created_at,
         last_updated_at: rawFinalLabel.last_updated_at,
-        resources: finalLabelResources,
-        labels: finalNestedLabels,
+        resources: [], // Will be populated by castLabelToLabelFE
+        labels: [], // Will be populated by castLabelToLabelFE
         external_id: rawFinalLabel.external_id,
         external_payload: rawFinalLabel.external_payload,
-      } as Label;
+      };
     }
 
     return reply.status(200).send(
@@ -1619,141 +1609,4 @@ export async function labelResourceHandler(
       })
     );
   }
-}
-
-// New helper function: `redactLabelValue`
-export async function redactLabelValue(
-  orgId: DriveID,
-  labelValue: LabelValue,
-  requesterUserId: UserID
-): Promise<LabelValue | null> {
-  // 1. Get the LabelID from the value. In Rust, this is `LABELS_BY_VALUE_HASHTABLE`.
-  // In SQLite, we need a DB lookup.
-  const labelResult = await db.queryDrive(
-    orgId,
-    "SELECT id FROM labels WHERE value = ?",
-    [labelValue]
-  );
-
-  if (labelResult.length === 0) {
-    return null; // Label not found, effectively redacted
-  }
-  const labelId: LabelID = labelResult[0].id;
-
-  // 2. Check if the user is the owner (Owner bypass)
-  const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
-  if (isOwner) {
-    return labelValue; // Owner sees everything
-  }
-
-  // 3. Check permissions for this specific label and the Labels table
-  // Rust uses `check_system_resource_permissions_labels` which handles label prefixes.
-  // We use the imported `checkSystemResourcePermissionsLabels` for this.
-  const labelRecordId =
-    `${IDPrefixEnum.LabelID}${labelId.substring(IDPrefixEnum.LabelID.length)}` as SystemResourceID;
-
-  const recordPermissions = await checkSystemResourcePermissionsLabels(
-    labelRecordId, // Resource for the specific label record
-    requesterUserId,
-    labelValue, // Pass labelValue for label-prefixed permission checks
-    orgId
-  );
-
-  const tablePermissions = await checkSystemResourcePermissionsLabels(
-    `TABLE_${SystemTableValueEnum.LABELS}`, // Resource for the Labels table
-    requesterUserId,
-    labelValue, // Pass labelValue for label-prefixed permission checks
-    orgId
-  );
-
-  // If the user has View permission either at the table level or for this specific label
-  if (
-    recordPermissions.includes(SystemPermissionType.VIEW) ||
-    tablePermissions.includes(SystemPermissionType.VIEW)
-  ) {
-    return labelValue;
-  }
-
-  // If we get here, the user doesn't have permission to see this label
-  return null;
-}
-
-// Update `castLabelToLabelFE` to use `redactLabelValue`
-async function castLabelToLabelFE(
-  label: Label,
-  requesterUserId: UserID,
-  orgId: DriveID
-): Promise<LabelFE> {
-  const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
-
-  let privateNote: string | null | undefined = label.private_note;
-  let resources: any[] = label.resources;
-  let labels: LabelValue[] = label.labels; // Labels applied to this label
-
-  // --- Populate permission_previews based on existing logic in getLabelHandler ---
-  const tablePermissions = await checkSystemPermissions(
-    `TABLE_${SystemTableValueEnum.LABELS}`, // SystemTableEnum::Labels in Rust
-    requesterUserId,
-    orgId
-  );
-
-  const labelRecordId =
-    `${IDPrefixEnum.LabelID}${label.id.substring(IDPrefixEnum.LabelID.length)}` as SystemResourceID;
-
-  const resourcePermissions = await checkSystemPermissions(
-    labelRecordId, // SystemRecordIDEnum::Label in Rust
-    requesterUserId,
-    orgId
-  );
-
-  const labelPrefixPermissions = await checkSystemResourcePermissionsLabels(
-    `TABLE_${SystemTableValueEnum.LABELS}`,
-    requesterUserId,
-    label.value, // Pass label value for prefix permissions
-    orgId
-  );
-
-  // Combine and deduplicate all relevant permissions
-  const combinedPermissions = Array.from(
-    new Set([
-      ...tablePermissions,
-      ...resourcePermissions,
-      ...labelPrefixPermissions,
-    ])
-  );
-
-  if (!isOwner) {
-    resources = []; // Non-owners don't see what resources a label is applied to.
-
-    // Check for EDIT permission on the label itself to show private_note
-    const hasEditPermission = combinedPermissions.includes(
-      SystemPermissionType.EDIT
-    );
-
-    if (!hasEditPermission) {
-      privateNote = undefined;
-    }
-
-    // Filter nested labels based on user's permissions using redactLabelValue
-    const redactedNestedLabels: LabelValue[] = [];
-    for (const nestedLabelValue of label.labels) {
-      const redacted = await redactLabelValue(
-        orgId,
-        nestedLabelValue,
-        requesterUserId
-      );
-      if (redacted !== null) {
-        redactedNestedLabels.push(redacted);
-      }
-    }
-    labels = redactedNestedLabels;
-  }
-
-  return {
-    ...label,
-    private_note: privateNote,
-    resources: resources,
-    labels: labels,
-    permission_previews: combinedPermissions, // Use the combined, deduplicated permissions
-  };
 }

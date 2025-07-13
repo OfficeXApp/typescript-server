@@ -16,6 +16,7 @@ import {
   RestoreTrashPayload,
   UpdateFilePayload,
   UpdateFolderPayload,
+  WebhookEventLabel,
 } from "@officexapp/types";
 import {
   DriveID,
@@ -63,13 +64,15 @@ import {
   getFileMetadata as driveGetFileMetadata,
   getFolderMetadata as driveGetFolderMetadata,
 } from "./drive";
-
-// TODO: WEBHOOK
-// import { fireDirectoryWebhook } from "../webhooks/directory";
-// TODO: SHARE_TRACKING
-// import { generateShareTrackHash, decodeShareTrackHash } from "../share_tracking";
-
-// #endregion
+import {
+  fireDirectoryWebhook,
+  getActiveFileWebhooks,
+  getActiveFolderWebhooks,
+} from "../webhooks";
+import {
+  decodeShareTrackHash,
+  generateShareTrackHash,
+} from "../webhooks/share";
 
 /**
  * Custom error class for directory actions to return structured errors.
@@ -220,12 +223,100 @@ export async function pipeAction(
         }
       }
 
-      // TODO: WEBHOOK Implement webhook logic from Rust
-      // fireDirectoryWebhook(...)
+      // WEBHOOK: Fire File Viewed webhook
+      const fileViewWebhooks = await getActiveFileWebhooks(
+        driveId,
+        file.id, // Use file.id directly here
+        WebhookEventLabel.FILE_VIEWED
+      );
+      if (fileViewWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_VIEWED,
+          fileViewWebhooks,
+          { File: { file: file } }, // Use the retrieved 'file' object
+          { File: { file: file } }, // Use the retrieved 'file' object
+          `File viewed: ${file.name}`
+        );
+      }
 
-      // TODO: SHARE_TRACKING Implement share tracking logic from Rust
-      // decodeShareTrackHash(...)
-      // generateShareTrackHash(...)
+      const subfileViewWebhooks = await getActiveFileWebhooks(
+        driveId,
+        file.id, // Use file.id directly here
+        WebhookEventLabel.SUBFILE_VIEWED
+      );
+      if (subfileViewWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_VIEWED,
+          subfileViewWebhooks,
+          { Subfile: { file: file } }, // Use the retrieved 'file' object
+          { Subfile: { file: file } }, // Use the retrieved 'file' object
+          `Subfile viewed: ${file.name}`
+        );
+      }
+
+      // WEBHOOK: Implement share tracking logic from Rust
+      let shareTrackingOriginId: string | undefined;
+      let shareTrackingOriginUser: UserID | undefined;
+
+      if (payload.share_track_hash && payload.share_track_hash.length > 0) {
+        // Assuming decodeShareTrackHash exists and returns [ShareTrackID, UserID]
+        const [decodedShareTrackId, decodedFromUserId] = decodeShareTrackHash(
+          payload.share_track_hash
+        );
+        shareTrackingOriginId = decodedShareTrackId;
+        shareTrackingOriginUser = decodedFromUserId;
+      }
+
+      const [myShareTrackId, myShareTrackHash] = generateShareTrackHash(userId);
+
+      const shareTrackingPayload = {
+        id: myShareTrackId,
+        hash: myShareTrackHash,
+        origin_id: shareTrackingOriginId,
+        origin_hash: payload.share_track_hash,
+        from_user: shareTrackingOriginUser,
+        to_user: userId,
+        resource_id: `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+        resource_name: file.name,
+        drive_id: driveId,
+        timestamp_ms: Date.now(),
+        endpoint_url: "TODO: FETCH_ACTUAL_URL_ENDPOINT", // Rust had URL_ENDPOINT.with(|url| url.borrow().get().clone())
+        metadata: undefined,
+      };
+
+      const fileShareWebhooks = await getActiveFileWebhooks(
+        driveId,
+        file.id, // Use file.id directly here
+        WebhookEventLabel.FILE_SHARED
+      );
+      if (fileShareWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_SHARED,
+          fileShareWebhooks,
+          undefined,
+          { ShareTracking: shareTrackingPayload },
+          "Tracked file share"
+        );
+      }
+
+      const subfileShareWebhooks = await getActiveFileWebhooks(
+        driveId,
+        file.id, // Use file.id directly here
+        WebhookEventLabel.SUBFILE_SHARED
+      );
+      if (subfileShareWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_SHARED,
+          subfileShareWebhooks,
+          undefined,
+          { ShareTracking: shareTrackingPayload },
+          "Tracked subfile share"
+        );
+      }
 
       const breadcrumbs = await deriveDirectoryBreadcrumbsService(
         `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
@@ -267,7 +358,100 @@ export async function pipeAction(
         }
       }
 
-      // TODO: WEBHOOK Implement webhook and share tracking logic...
+      const folderViewWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        folder.id,
+        WebhookEventLabel.FOLDER_VIEWED
+      );
+      if (folderViewWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_VIEWED,
+          folderViewWebhooks,
+          { Folder: { folder } },
+          { Folder: { folder } },
+          `Folder viewed: ${folder.name}`
+        );
+      }
+
+      const subfolderViewWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        folder.id,
+        WebhookEventLabel.SUBFOLDER_VIEWED
+      );
+      if (subfolderViewWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_VIEWED,
+          subfolderViewWebhooks,
+          { Subfolder: { folder } },
+          { Subfolder: { folder } },
+          `Subfolder viewed: ${folder.name}`
+        );
+      }
+
+      // WEBHOOK: Implement share tracking logic from Rust
+      let shareTrackingOriginId: string | undefined;
+      let shareTrackingOriginUser: UserID | undefined;
+
+      if (payload.share_track_hash && payload.share_track_hash.length > 0) {
+        // Assuming decodeShareTrackHash exists and returns [ShareTrackID, UserID]
+        const [decodedShareTrackId, decodedFromUserId] = decodeShareTrackHash(
+          payload.share_track_hash
+        );
+        shareTrackingOriginId = decodedShareTrackId;
+        shareTrackingOriginUser = decodedFromUserId;
+      }
+
+      const [myShareTrackId, myShareTrackHash] = generateShareTrackHash(userId);
+
+      const shareTrackingPayload = {
+        id: myShareTrackId,
+        hash: myShareTrackHash,
+        origin_id: shareTrackingOriginId,
+        origin_hash: payload.share_track_hash,
+        from_user: shareTrackingOriginUser,
+        to_user: userId,
+        resource_id:
+          `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+        resource_name: folder.name,
+        drive_id: driveId,
+        timestamp_ms: Date.now(),
+        endpoint_url: "TODO: FETCH_ACTUAL_URL_ENDPOINT", // Rust had URL_ENDPOINT.with(|url| url.borrow().get().clone())
+        metadata: undefined,
+      };
+
+      const folderShareWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        folder.id,
+        WebhookEventLabel.FOLDER_SHARED
+      );
+      if (folderShareWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_SHARED,
+          folderShareWebhooks,
+          undefined,
+          { ShareTracking: shareTrackingPayload },
+          "Tracked folder share"
+        );
+      }
+
+      const subfolderShareWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        folder.id,
+        WebhookEventLabel.SUBFOLDER_SHARED
+      );
+      if (subfolderShareWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_SHARED,
+          subfolderShareWebhooks,
+          undefined,
+          { ShareTracking: shareTrackingPayload },
+          "Tracked subfolder share"
+        );
+      }
 
       const breadcrumbs = await deriveDirectoryBreadcrumbsService(
         `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
@@ -298,6 +482,39 @@ export async function pipeAction(
         payload
       );
 
+      // WEBHOOK: Fire File Created webhooks
+      const fileCreatedWebhooks = await getActiveFileWebhooks(
+        driveId,
+        fileRecord.id, // Use the ID of the newly created file
+        WebhookEventLabel.FILE_CREATED
+      );
+      if (fileCreatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_CREATED,
+          fileCreatedWebhooks,
+          undefined, // No before snap for creation
+          { File: { file: fileRecord } },
+          `File created: ${fileRecord.name}`
+        );
+      }
+
+      const subfileCreatedWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        payload.parent_folder_uuid,
+        WebhookEventLabel.SUBFILE_CREATED
+      );
+      if (subfileCreatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_CREATED,
+          subfileCreatedWebhooks,
+          undefined, // No before snap for creation
+          { Subfile: { file: fileRecord } },
+          `Subfile created in folder: ${fileRecord.parent_folder_uuid}`
+        );
+      }
+
       return {
         CreateFile: {
           file: await castFileToFE(fileRecord, userId, driveId),
@@ -316,6 +533,39 @@ export async function pipeAction(
       // The permission check for `CREATE_FOLDER` is now handled inside `driveCreateFolder` itself,
       // simplifying this action handler. `driveCreateFolder` will throw an error if permissions are insufficient.
       const folderRecord = await driveCreateFolder(driveId, userId, payload);
+
+      // WEBHOOK: Fire Folder Created webhooks
+      const folderCreatedWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        folderRecord.id, // Use the ID of the newly created folder
+        WebhookEventLabel.FOLDER_CREATED
+      );
+      if (folderCreatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_CREATED,
+          folderCreatedWebhooks,
+          undefined, // No before snap for creation
+          { Folder: { folder: folderRecord } },
+          `Folder created: ${folderRecord.name}`
+        );
+      }
+
+      const subfolderCreatedWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        payload.parent_folder_uuid,
+        WebhookEventLabel.SUBFOLDER_CREATED
+      );
+      if (subfolderCreatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_CREATED,
+          subfolderCreatedWebhooks,
+          undefined, // No before snap for creation
+          { Subfolder: { folder: folderRecord } },
+          `Subfolder created in folder: ${folderRecord.parent_folder_uuid}`
+        );
+      }
 
       return {
         CreateFolder: {
@@ -430,6 +680,39 @@ export async function pipeAction(
       if (!updatedFile)
         throw new DirectoryActionError(404, "File not found after update");
 
+      // WEBHOOK: Fire File Updated webhooks
+      const fileUpdatedWebhooks = await getActiveFileWebhooks(
+        driveId,
+        payload.id,
+        WebhookEventLabel.FILE_UPDATED
+      );
+      if (fileUpdatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_UPDATED,
+          fileUpdatedWebhooks,
+          { File: { file: file } }, // Original file before update
+          { File: { file: updatedFile } }, // Updated file
+          `File updated: ${updatedFile.name}`
+        );
+      }
+
+      const subfileUpdatedWebhooks = await getActiveFileWebhooks(
+        driveId,
+        payload.id, // Rust uses file_id for subfile.updated event
+        WebhookEventLabel.SUBFILE_UPDATED
+      );
+      if (subfileUpdatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_UPDATED,
+          subfileUpdatedWebhooks,
+          { Subfile: { file: file } }, // Original file before update
+          { Subfile: { file: updatedFile } }, // Updated file
+          `Subfile updated: ${updatedFile.name}`
+        );
+      }
+
       return { UpdateFile: await castFileToFE(updatedFile, userId, driveId) };
     }
 
@@ -527,6 +810,39 @@ export async function pipeAction(
       if (!updatedFolder)
         throw new DirectoryActionError(404, "Folder not found after update");
 
+      // WEBHOOK: Fire Folder Updated webhooks
+      const folderUpdatedWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        payload.id,
+        WebhookEventLabel.FOLDER_UPDATED
+      );
+      if (folderUpdatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_UPDATED,
+          folderUpdatedWebhooks,
+          { Folder: { folder: folder } }, // Original folder before update
+          { Folder: { folder: updatedFolder } }, // Updated folder
+          `Folder updated: ${updatedFolder.name}`
+        );
+      }
+
+      const subfolderUpdatedWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        payload.id, // Rust uses folder_id for subfolder.updated event
+        WebhookEventLabel.SUBFOLDER_UPDATED
+      );
+      if (subfolderUpdatedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_UPDATED,
+          subfolderUpdatedWebhooks,
+          { Subfolder: { folder: folder } }, // Original folder before update
+          { Subfolder: { folder: updatedFolder } }, // Updated folder
+          `Subfolder updated: ${updatedFolder.name}`
+        );
+      }
+
       return {
         UpdateFolder: await castFolderToFE(updatedFolder, userId, driveId),
       };
@@ -592,6 +908,39 @@ export async function pipeAction(
               `${trashFolder.full_directory_path}${file.name}` as DriveFullFilePath;
           }
         }
+      }
+
+      // WEBHOOK: Fire File Deleted webhooks
+      const fileDeletedWebhooks = await getActiveFileWebhooks(
+        driveId,
+        payload.id,
+        WebhookEventLabel.FILE_DELETED
+      );
+      if (fileDeletedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_DELETED,
+          fileDeletedWebhooks,
+          { File: { file: file } }, // Before snap is the file being deleted
+          undefined, // No after snap for deletion
+          `File deleted: ${file.name}`
+        );
+      }
+
+      const subfileDeletedWebhooks = await getActiveFileWebhooks(
+        driveId,
+        payload.id, // Rust uses file_id for subfile.deleted event
+        WebhookEventLabel.SUBFILE_DELETED
+      );
+      if (subfileDeletedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_DELETED,
+          subfileDeletedWebhooks,
+          { Subfile: { file: file } }, // Before snap is the file being deleted
+          undefined, // No after snap for deletion
+          `Subfile deleted: ${file.name}`
+        );
       }
 
       return { DeleteFile: { file_id: payload.id, path_to_trash } };
@@ -665,6 +1014,39 @@ export async function pipeAction(
         }
       }
 
+      // WEBHOOK: Fire Folder Deleted webhooks
+      const folderDeletedWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        payload.id,
+        WebhookEventLabel.FOLDER_DELETED
+      );
+      if (folderDeletedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_DELETED,
+          folderDeletedWebhooks,
+          { Folder: { folder: folder } }, // Before snap is the folder being deleted
+          undefined, // No after snap for deletion
+          `Folder deleted: ${folder.name}`
+        );
+      }
+
+      const subfolderDeletedWebhooks = await getActiveFolderWebhooks(
+        driveId,
+        payload.id, // Rust uses folder_id for subfolder.deleted event
+        WebhookEventLabel.SUBFOLDER_DELETED
+      );
+      if (subfolderDeletedWebhooks.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_DELETED,
+          subfolderDeletedWebhooks,
+          { Subfolder: { folder: folder } }, // Before snap is the folder being deleted
+          undefined, // No after snap for deletion
+          `Subfolder deleted: ${folder.name}`
+        );
+      }
+
       // TODO: Rust had `deleted_files` and `deleted_folders` in response for `DeleteFolderResponse`.
       // We might need to gather these from `driveDeleteResource` if it provided them.
       // For now, returning empty arrays as placeholders based on current `driveDeleteResource` return.
@@ -697,6 +1079,39 @@ export async function pipeAction(
         undefined
       );
 
+      // WEBHOOK: Fire File Created and Subfile Created webhooks for the copied file
+      const fileCreatedWebhooksForCopy = await getActiveFileWebhooks(
+        driveId,
+        copiedFile.id,
+        WebhookEventLabel.FILE_CREATED
+      );
+      if (fileCreatedWebhooksForCopy.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_CREATED,
+          fileCreatedWebhooksForCopy,
+          { File: { file: file } }, // Before snap is the original file
+          { File: { file: copiedFile } }, // After snap is the new copied file
+          `File copied: ${file.name} to ${copiedFile.name}`
+        );
+      }
+
+      const subfileCreatedWebhooksForCopy = await getActiveFolderWebhooks(
+        driveId,
+        copiedFile.parent_folder_uuid, // Destination folder of the copy
+        WebhookEventLabel.SUBFILE_CREATED
+      );
+      if (subfileCreatedWebhooksForCopy.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_CREATED,
+          subfileCreatedWebhooksForCopy,
+          { Subfile: { file: file } }, // Before snap is the original file
+          { Subfile: { file: copiedFile } }, // After snap is the new copied file
+          `Subfile copied into folder: ${copiedFile.parent_folder_uuid}`
+        );
+      }
+
       return { CopyFile: await castFileToFE(copiedFile, userId, driveId) };
     }
 
@@ -716,6 +1131,39 @@ export async function pipeAction(
         payload.file_conflict_resolution,
         undefined
       );
+
+      // WEBHOOK: Fire Folder Created and Subfolder Created webhooks for the copied folder
+      const folderCreatedWebhooksForCopy = await getActiveFolderWebhooks(
+        driveId,
+        copiedFolder.id,
+        WebhookEventLabel.FOLDER_CREATED
+      );
+      if (folderCreatedWebhooksForCopy.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_CREATED,
+          folderCreatedWebhooksForCopy,
+          { Folder: { folder: folder } }, // Before snap is the original folder
+          { Folder: { folder: copiedFolder } }, // After snap is the new copied folder
+          `Folder copied: ${folder.name} to ${copiedFolder.name}`
+        );
+      }
+
+      const subfolderCreatedWebhooksForCopy = await getActiveFolderWebhooks(
+        driveId,
+        copiedFolder.parent_folder_uuid!, // Destination folder of the copy (guaranteed to exist for copied folder)
+        WebhookEventLabel.SUBFOLDER_CREATED
+      );
+      if (subfolderCreatedWebhooksForCopy.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_CREATED,
+          subfolderCreatedWebhooksForCopy,
+          { Subfolder: { folder: folder } }, // Before snap is the original folder
+          { Subfolder: { folder: copiedFolder } }, // After snap is the new copied folder
+          `Subfolder copied into folder: ${copiedFolder.parent_folder_uuid}`
+        );
+      }
 
       return {
         CopyFolder: await castFolderToFE(copiedFolder, userId, driveId),
@@ -737,6 +1185,71 @@ export async function pipeAction(
         payload.file_conflict_resolution || FileConflictResolutionEnum.KEEP_BOTH
       );
 
+      // WEBHOOK: Fire File Created (at new location) and File Deleted (from old location) webhooks for the moved file
+      const fileCreatedWebhooksForMove = await getActiveFileWebhooks(
+        driveId,
+        movedFile.id,
+        WebhookEventLabel.FILE_CREATED
+      );
+      if (fileCreatedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_CREATED,
+          fileCreatedWebhooksForMove,
+          { File: { file: file } }, // Before snap is the original file
+          { File: { file: movedFile } }, // After snap is the moved file
+          `File moved: ${file.name} to ${movedFile.full_directory_path}`
+        );
+      }
+
+      const subfileCreatedWebhooksForMove = await getActiveFolderWebhooks(
+        driveId,
+        movedFile.parent_folder_uuid, // New parent folder
+        WebhookEventLabel.SUBFILE_CREATED
+      );
+      if (subfileCreatedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_CREATED,
+          subfileCreatedWebhooksForMove,
+          { Subfile: { file: file } }, // Before snap is the original file
+          { Subfile: { file: movedFile } }, // After snap is the moved file
+          `Subfile moved into folder: ${movedFile.parent_folder_uuid}`
+        );
+      }
+
+      const fileDeletedWebhooksForMove = await getActiveFileWebhooks(
+        driveId,
+        file.id, // Use original file ID for deletion event
+        WebhookEventLabel.FILE_DELETED
+      );
+      if (fileDeletedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FILE_DELETED,
+          fileDeletedWebhooksForMove,
+          { File: { file: file } }, // Before snap is the original file
+          undefined, // No after snap for deletion
+          `File moved (deleted from old location): ${file.name}`
+        );
+      }
+
+      const subfileDeletedWebhooksForMove = await getActiveFileWebhooks(
+        driveId,
+        file.id, // Use original file ID for subfile deletion event
+        WebhookEventLabel.SUBFILE_DELETED
+      );
+      if (subfileDeletedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFILE_DELETED,
+          subfileDeletedWebhooksForMove,
+          { Subfile: { file: file } }, // Before snap is the original file
+          undefined, // No after snap for deletion
+          `Subfile moved (deleted from old location): ${file.name}`
+        );
+      }
+
       return { MoveFile: await castFileToFE(movedFile, userId, driveId) };
     }
 
@@ -755,6 +1268,71 @@ export async function pipeAction(
         payload.file_conflict_resolution || FileConflictResolutionEnum.KEEP_BOTH
       );
 
+      // WEBHOOK: Fire Folder Created (at new location) and Folder Deleted (from old location) webhooks for the moved folder
+      const folderCreatedWebhooksForMove = await getActiveFolderWebhooks(
+        driveId,
+        movedFolder.id,
+        WebhookEventLabel.FOLDER_CREATED
+      );
+      if (folderCreatedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_CREATED,
+          folderCreatedWebhooksForMove,
+          { Folder: { folder: folder } }, // Before snap is the original folder
+          { Folder: { folder: movedFolder } }, // After snap is the moved folder
+          `Folder moved: ${folder.name} to ${movedFolder.full_directory_path}`
+        );
+      }
+
+      const subfolderCreatedWebhooksForMove = await getActiveFolderWebhooks(
+        driveId,
+        movedFolder.parent_folder_uuid!, // New parent folder (guaranteed to exist)
+        WebhookEventLabel.SUBFOLDER_CREATED
+      );
+      if (subfolderCreatedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_CREATED,
+          subfolderCreatedWebhooksForMove,
+          { Subfolder: { folder: folder } }, // Before snap is the original folder
+          { Subfolder: { folder: movedFolder } }, // After snap is the moved folder
+          `Subfolder moved into folder: ${movedFolder.parent_folder_uuid}`
+        );
+      }
+
+      const folderDeletedWebhooksForMove = await getActiveFolderWebhooks(
+        driveId,
+        folder.id, // Use original folder ID for deletion event
+        WebhookEventLabel.FOLDER_DELETED
+      );
+      if (folderDeletedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.FOLDER_DELETED,
+          folderDeletedWebhooksForMove,
+          { Folder: { folder: folder } }, // Before snap is the original folder
+          undefined, // No after snap for deletion
+          `Folder moved (deleted from old location): ${folder.name}`
+        );
+      }
+
+      const subfolderDeletedWebhooksForMove = await getActiveFolderWebhooks(
+        driveId,
+        folder.id, // Use original folder ID for subfolder deletion event
+        WebhookEventLabel.SUBFOLDER_DELETED
+      );
+      if (subfolderDeletedWebhooksForMove.length > 0) {
+        await fireDirectoryWebhook(
+          driveId,
+          WebhookEventLabel.SUBFOLDER_DELETED,
+          subfolderDeletedWebhooksForMove,
+          { Subfolder: { folder: folder } }, // Before snap is the original folder
+          undefined, // No after snap for deletion
+          `Subfolder moved (deleted from old location): ${folder.name}`
+        );
+      }
+
       return { MoveFolder: await castFolderToFE(movedFolder, userId, driveId) };
     }
 
@@ -767,6 +1345,77 @@ export async function pipeAction(
         payload,
         userId
       );
+
+      // Moved webhook logic inside the conditional blocks to correctly capture before_snap and after_snap
+      if (payload.id.startsWith(IDPrefixEnum.Folder)) {
+        const folderId = payload.id as FolderID;
+        const folder = await driveGetFolderMetadata(driveId, folderId);
+        if (!folder)
+          throw new DirectoryActionError(404, "Folder not found for restore.");
+
+        // Before snapshot for folder restore
+        const beforeSnapFolder = { Folder: { folder: folder } };
+
+        // After snapshot for folder restore - retrieve the updated folder after restore operation
+        const updatedFolder = await driveGetFolderMetadata(driveId, folderId);
+        if (!updatedFolder)
+          throw new DirectoryActionError(
+            500,
+            "Folder not found after restore."
+          );
+        const afterSnapFolder = { Folder: { folder: updatedFolder } };
+
+        const restoreTrashWebhooks = await getActiveFolderWebhooks(
+          driveId,
+          folderId,
+          WebhookEventLabel.DRIVE_RESTORE_TRASH
+        );
+        if (restoreTrashWebhooks.length > 0) {
+          await fireDirectoryWebhook(
+            driveId,
+            WebhookEventLabel.DRIVE_RESTORE_TRASH,
+            restoreTrashWebhooks,
+            beforeSnapFolder,
+            afterSnapFolder,
+            "Folder restored from trash"
+          );
+        }
+      } else if (payload.id.startsWith(IDPrefixEnum.File)) {
+        const fileId = payload.id as FileID;
+        const file = await driveGetFileMetadata(driveId, fileId);
+        if (!file)
+          throw new DirectoryActionError(404, "File not found for restore.");
+
+        // Before snapshot for file restore
+        const beforeSnapFile = { File: { file: file } };
+
+        // After snapshot for file restore - retrieve the updated file after restore operation
+        const updatedFile = await driveGetFileMetadata(driveId, fileId);
+        if (!updatedFile)
+          throw new DirectoryActionError(500, "File not found after restore.");
+        const afterSnapFile = { File: { file: updatedFile } };
+
+        const restoreTrashWebhooks = await getActiveFileWebhooks(
+          driveId,
+          fileId,
+          WebhookEventLabel.DRIVE_RESTORE_TRASH
+        );
+        if (restoreTrashWebhooks.length > 0) {
+          await fireDirectoryWebhook(
+            driveId,
+            WebhookEventLabel.DRIVE_RESTORE_TRASH,
+            restoreTrashWebhooks,
+            beforeSnapFile,
+            afterSnapFile,
+            "File restored from trash"
+          );
+        }
+      } else {
+        throw new DirectoryActionError(
+          400,
+          "Invalid resource ID for restore trash."
+        );
+      }
 
       return {
         RestoreTrash: restoreResponse,

@@ -779,18 +779,18 @@ async function markClaimedUuid(orgId: DriveID, uuid: string): Promise<void> {
   });
 }
 
-// TODO: WEBHOOK: Implement `snapshot_prestate` and `snapshot_poststate` equivalent
+// TODO: SNAPSHOT: Implement `snapshot_prestate` and `snapshot_poststate` equivalent
 // These are likely for state diffing/auditing. In a Fastify server, this might be
 // less about canister state snapshots and more about database transaction logging or
 // event sourcing if such a system is in place. For now, they are mocks.
 function snapshotPrestate(): any {
-  console.log("[TODO: WEBHOOK] Simulating pre-state snapshot.");
+  console.log("[TODO: SNAPSHOT] Simulating pre-state snapshot.");
   return {}; // Placeholder for a pre-state snapshot
 }
 
 function snapshotPoststate(prestate: any, notes?: string): void {
   console.log(
-    `[TODO: WEBHOOK] Simulating post-state snapshot. Notes: ${notes}`
+    `[TODO: SNAPSHOT] Simulating post-state snapshot. Notes: ${notes}`
   );
   // Compare with prestate, log diffs if necessary.
 }
