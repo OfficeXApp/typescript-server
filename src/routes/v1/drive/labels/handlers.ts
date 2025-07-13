@@ -131,7 +131,6 @@ function parseLabelResourceID(idStr: string): {
   };
 }
 
-// TODO: LABEL: FIX: Implemented castLabelToLabelFE to fetch real resources and nested labels, and calculate permissions.
 async function castLabelToLabelFE(
   label: Label,
   requesterUserId: UserID,
