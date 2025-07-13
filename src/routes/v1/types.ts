@@ -18,8 +18,6 @@ export function createApiResponse<T>(
   };
 }
 
-// TODO: Replace with actual function to get the drive owner's UserID from the database
-// This might involve querying the `about_drive` table for the current `DriveID`'s owner.
 export async function getDriveOwnerId(orgId: DriveID): Promise<UserID> {
   try {
     const result = await db.queryDrive(
@@ -32,7 +30,6 @@ export async function getDriveOwnerId(orgId: DriveID): Promise<UserID> {
   } catch (error) {
     console.error("Error fetching drive owner ID:", error);
   }
-  // Return a sensible placeholder or throw an error if owner ID cannot be determined.
-  // For now, an educated guess is a default user ID.
-  return "UserID_PLACEHOLDER_DRIVE_OWNER"; // TODO: Replace with actual owner ID from DB
+  // throw an error if none
+  throw new Error("Owner ID not found for drive");
 }

@@ -15,10 +15,24 @@ import {
   GroupID,
   UserID,
   GroupRole,
+  SystemResourceID,
+  SystemTableValueEnum,
+  SystemPermissionType,
+  DriveID,
+  GroupInviteeTypeEnum,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
 import { OrgIdParams } from "../../types";
+import {
+  checkSystemPermissions,
+  hasSystemManagePermission,
+} from "../../../../services/permissions/system";
+import {
+  getGroupById,
+  getGroupInviteById,
+  isGroupAdmin,
+} from "../../../../services/groups";
 
 interface GetGroupInviteParams extends OrgIdParams {
   invite_id: string;
@@ -48,18 +62,20 @@ function validateCreateRequest(body: IRequestCreateGroupInvite): {
   valid: boolean;
   error?: string;
 } {
-  if (!body.group_id || !body.group_id.startsWith("GroupID_")) {
+  if (!body.group_id || !body.group_id.startsWith(IDPrefixEnum.Group)) {
     return { valid: false, error: "Group ID must start with GroupID_" };
   }
 
   if (
     body.invitee_id &&
-    !body.invitee_id.startsWith("UserID_") &&
-    body.invitee_id !== "PUBLIC"
+    !body.invitee_id.startsWith(IDPrefixEnum.User) &&
+    body.invitee_id !== GroupInviteeTypeEnum.PUBLIC &&
+    !body.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
   ) {
     return {
       valid: false,
-      error: "Invitee ID must start with UserID_ or be PUBLIC",
+      error:
+        "Invitee ID must start with UserID_, PlaceholderGroupInviteeID_, or be PUBLIC",
     };
   }
 
@@ -88,16 +104,14 @@ export async function getGroupInviteHandler(
         );
     }
 
-    const inviteId = request.params.invite_id;
+    const inviteId = request.params.invite_id as GroupInviteID;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Get the invite
-    const invites = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM group_invites WHERE id = ?",
-      [inviteId]
-    );
+    const invite = await getGroupInviteById(inviteId, orgId);
 
-    if (!invites || invites.length === 0) {
+    if (!invite) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -106,41 +120,50 @@ export async function getGroupInviteHandler(
       );
     }
 
-    const invite = invites[0] as GroupInvite;
+    // Get group information
+    const group = await getGroupById(invite.group_id, orgId);
 
-    // Check if user is authorized
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT owner_user_id FROM groups WHERE id = ?",
-      [invite.group_id]
-    );
-
-    if (groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
-          message: "Group not found",
+          message: "Associated group not found",
         })
       );
     }
 
-    const group = groups[0];
-    const isAuthorized =
-      requesterApiKey.user_id === group.owner_user_id ||
-      requesterApiKey.user_id === invite.inviter_id ||
-      requesterApiKey.user_id === invite.invitee_id;
+    // PERMIT: Check if requester is the org owner, inviter, invitee, or has VIEW permission on this specific group invite record
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const isInviter = currentUserId === invite.inviter_id;
+    const isInvitee = currentUserId === invite.invitee_id;
+    const canViewInviteViaPermissions = (
+      await checkSystemPermissions(
+        invite.id as SystemResourceID, // GroupInviteID is a SystemRecordIDEnum
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.VIEW);
 
-    if (!isAuthorized) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+    if (
+      !isOrgOwner &&
+      !isInviter &&
+      !isInvitee &&
+      !canViewInviteViaPermissions
+    ) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to view this invite",
+        })
+      );
     }
 
     // Get group and invitee info for FE
     const groupInfo = await db.queryDrive(
-      request.params.org_id,
+      orgId,
       "SELECT name, avatar FROM groups WHERE id = ?",
       [invite.group_id]
     );
@@ -148,9 +171,9 @@ export async function getGroupInviteHandler(
     let inviteeName = "";
     let inviteeAvatar = undefined;
 
-    if (invite.invitee_id && invite.invitee_id !== "PUBLIC") {
+    if (invite.invitee_id && invite.invitee_id.startsWith(IDPrefixEnum.User)) {
       const inviteeInfo = await db.queryDrive(
-        request.params.org_id,
+        orgId,
         "SELECT name, avatar FROM contacts WHERE id = ?",
         [invite.invitee_id]
       );
@@ -160,7 +183,19 @@ export async function getGroupInviteHandler(
       }
     } else if (invite.invitee_id === "PUBLIC") {
       inviteeName = "Public";
+    } else if (
+      invite.invitee_id &&
+      invite.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
+    ) {
+      inviteeName = "Awaiting Anon";
     }
+
+    // PERMIT: Get permission previews for the current user on this group invite record
+    const permissionPreviews = await checkSystemPermissions(
+      invite.id as SystemResourceID,
+      currentUserId,
+      orgId
+    );
 
     const inviteFE: GroupInviteFE = {
       ...invite,
@@ -168,7 +203,7 @@ export async function getGroupInviteHandler(
       group_avatar: groupInfo[0]?.avatar,
       invitee_name: inviteeName,
       invitee_avatar: inviteeAvatar,
-      permission_previews: [], // TODO: Implement permission previews
+      permission_previews: permissionPreviews,
     };
 
     return reply.status(200).send(createApiResponse(inviteFE));
@@ -204,15 +239,13 @@ export async function listGroupInvitesHandler(
     const body = request.body;
     const pageSize = body.page_size || 50;
     const direction = body.direction || "DESC";
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
-    // Check if group exists and user has access
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT owner_user_id FROM groups WHERE id = ?",
-      [body.group_id]
-    );
+    // Check if group exists
+    const group = await getGroupById(body.group_id as GroupID, orgId);
 
-    if (groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -221,29 +254,33 @@ export async function listGroupInvitesHandler(
       );
     }
 
-    const group = groups[0];
-    const isOwner = requesterApiKey.user_id === group.owner_user_id;
+    // PERMIT: Check if requester is the org owner, or has VIEW permission on the Group Invites table.
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const canViewInvitesTable = (
+      await checkSystemPermissions(
+        `TABLE_${SystemTableValueEnum.INBOX}` as SystemResourceID, // Invites are typically linked to Inbox/notifications in Rust
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.VIEW);
 
-    // Check if user is a member
-    const memberCheck = await db.queryDrive(
-      request.params.org_id,
-      `SELECT 1 FROM contact_groups WHERE user_id = ? AND group_id = ?`,
-      [requesterApiKey.user_id, body.group_id]
-    );
-    const isMember = memberCheck.length > 0;
-
-    if (!isOwner && !isMember) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+    if (!isOrgOwner && !canViewInvitesTable) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to list group invites",
+        })
+      );
     }
 
     // Build query with cursor-based pagination
     let query = `
         SELECT gi.*, g.name as group_name, g.avatar as group_avatar,
-               c.name as invitee_name, c.avatar as invitee_avatar
+               c.name as invitee_name, c.avatar as invitee_avatar,
+               gi.invitee_type, gi.invitee_id
         FROM group_invites gi
         JOIN groups g ON gi.group_id = g.id
         LEFT JOIN contacts c ON gi.invitee_id = c.id
@@ -259,7 +296,7 @@ export async function listGroupInvitesHandler(
     query += ` ORDER BY gi.created_at ${direction} LIMIT ?`;
     params.push(pageSize + 1);
 
-    const invites = await db.queryDrive(request.params.org_id, query, params);
+    const invites = await db.queryDrive(orgId, query, params);
 
     const hasMore = invites.length > pageSize;
     if (hasMore) {
@@ -268,35 +305,68 @@ export async function listGroupInvitesHandler(
 
     // Get total count
     const countResult = await db.queryDrive(
-      request.params.org_id,
+      orgId,
       "SELECT COUNT(*) as total FROM group_invites WHERE group_id = ?",
       [body.group_id]
     );
     const total = countResult[0]?.total || 0;
 
-    const invitesFE: GroupInviteFE[] = invites.map((invite: any) => ({
-      id: invite.id,
-      group_id: invite.group_id,
-      inviter_id: invite.inviter_id,
-      invitee_id: invite.invitee_id || "PUBLIC",
-      role: invite.role,
-      note: invite.note,
-      active_from: invite.active_from,
-      expires_at: invite.expires_at,
-      created_at: invite.created_at,
-      last_modified_at: invite.last_modified_at,
-      from_placeholder_invitee: invite.from_placeholder_invitee,
-      labels: [],
-      redeem_code: invite.redeem_code,
-      external_id: invite.external_id,
-      external_payload: invite.external_payload,
-      group_name: invite.group_name || "",
-      group_avatar: invite.group_avatar,
-      invitee_name:
-        invite.invitee_id === "PUBLIC" ? "Public" : invite.invitee_name || "",
-      invitee_avatar: invite.invitee_avatar,
-      permission_previews: [],
-    }));
+    const invitesFE: GroupInviteFE[] = await Promise.all(
+      invites.map(async (invite: any) => {
+        let inviteeName = "";
+        let inviteeAvatar = undefined;
+
+        // Handle invitee_id and invitee_type from DB rows
+        if (invite.invitee_type === "USER" && invite.invitee_id) {
+          const inviteeInfo = await db.queryDrive(
+            orgId,
+            "SELECT name, avatar FROM contacts WHERE id = ?",
+            [invite.invitee_id]
+          );
+          if (inviteeInfo.length > 0) {
+            inviteeName = inviteeInfo[0].name;
+            inviteeAvatar = inviteeInfo[0].avatar;
+          }
+        } else if (invite.invitee_type === "PUBLIC") {
+          inviteeName = "Public";
+        } else if (invite.invitee_type === "PLACEHOLDER") {
+          inviteeName = "Awaiting Anon";
+        }
+
+        // PERMIT: Get permission previews for the current user on each group invite record
+        const permissionPreviews = await checkSystemPermissions(
+          invite.id as SystemResourceID,
+          currentUserId,
+          orgId
+        );
+
+        return {
+          id: invite.id,
+          group_id: invite.group_id,
+          inviter_id: invite.inviter_id,
+          invitee_id:
+            invite.invitee_type === "USER" && invite.invitee_id
+              ? invite.invitee_id
+              : invite.invitee_type, // Map back to GranteeID string
+          role: invite.role,
+          note: invite.note,
+          active_from: invite.active_from,
+          expires_at: invite.expires_at,
+          created_at: invite.created_at,
+          last_modified_at: invite.last_modified_at,
+          from_placeholder_invitee: invite.from_placeholder_invitee,
+          labels: [],
+          redeem_code: invite.redeem_code,
+          external_id: invite.external_id,
+          external_payload: invite.external_payload,
+          group_name: invite.group_name || "",
+          group_avatar: invite.group_avatar,
+          invitee_name: inviteeName,
+          invitee_avatar: inviteeAvatar,
+          permission_previews: permissionPreviews,
+        };
+      })
+    );
 
     const nextCursor =
       hasMore && invites.length > 0
@@ -345,6 +415,8 @@ export async function createGroupInviteHandler(
     }
 
     const body = request.body;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Validate request
     const validation = validateCreateRequest(body);
@@ -357,14 +429,10 @@ export async function createGroupInviteHandler(
       );
     }
 
-    // Check if group exists and user has permission
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT owner_user_id FROM groups WHERE id = ?",
-      [body.group_id]
-    );
+    // Check if group exists
+    const group = await getGroupById(body.group_id as GroupID, orgId);
 
-    if (groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -373,16 +441,26 @@ export async function createGroupInviteHandler(
       );
     }
 
-    const group = groups[0];
-    const isOwner = requesterApiKey.user_id === group.owner_user_id;
+    // PERMIT: Check if requester is the org owner, or has INVITE permission on the group record.
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const canInviteToGroupViaPermissions = (
+      await checkSystemPermissions(
+        group.id as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.INVITE);
 
-    // TODO: Check if requester is admin
-    if (!isOwner) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+    if (!isOrgOwner && !canInviteToGroupViaPermissions) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not allowed to create invites for this group",
+        })
+      );
     }
 
     const now = Date.now();
@@ -392,21 +470,35 @@ export async function createGroupInviteHandler(
     let inviteeId = body.invitee_id;
     let redeemCode = undefined;
     let fromPlaceholder = undefined;
+    let inviteeType: "USER" | "PLACEHOLDER" | "PUBLIC";
 
     if (!inviteeId) {
-      // Create placeholder invite
+      // Create placeholder invite if invitee_id is not provided
       const placeholderId = `${IDPrefixEnum.PlaceholderGroupInviteeID}${uuidv4()}`;
       inviteeId = placeholderId;
-      redeemCode = `REDEEM_${Date.now()}`;
+      redeemCode = `REDEEM_${Date.now()}`; // Generate a redeem code for placeholder invites
+      inviteeType = "PLACEHOLDER";
     } else if (inviteeId === "PUBLIC") {
-      redeemCode = "PUBLIC";
+      redeemCode = "PUBLIC"; // Public invites have a static redeem code
+      inviteeType = "PUBLIC";
+    } else if (inviteeId.startsWith(IDPrefixEnum.User)) {
+      inviteeType = "USER";
+    } else if (inviteeId.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)) {
+      inviteeType = "PLACEHOLDER";
+    } else {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: "Invalid invitee_id format",
+        })
+      );
     }
 
     const invite: GroupInvite = {
       id: inviteId as GroupInviteID,
       group_id: body.group_id as GroupID,
       inviter_id: requesterApiKey.user_id,
-      invitee_id: inviteeId as UserID,
+      invitee_id: inviteeId,
       role: body.role || GroupRole.MEMBER,
       note: body.note || "",
       active_from: body.active_from || 0,
@@ -421,7 +513,7 @@ export async function createGroupInviteHandler(
     };
 
     // Insert invite using transaction
-    await dbHelpers.transaction("drive", request.params.org_id, (database) => {
+    await dbHelpers.transaction("drive", orgId, (database) => {
       const stmt = database.prepare(
         `INSERT INTO group_invites (
             id, group_id, inviter_id, invitee_id, invitee_type, role, note,
@@ -430,18 +522,11 @@ export async function createGroupInviteHandler(
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
 
-      const inviteeType =
-        inviteeId === "PUBLIC"
-          ? "PUBLIC"
-          : inviteeId.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
-            ? "PLACEHOLDER"
-            : "USER";
-
       stmt.run(
         invite.id,
         invite.group_id,
         invite.inviter_id,
-        inviteeId === "PUBLIC" ? null : invite.invitee_id,
+        inviteeType === "USER" ? invite.invitee_id : null, // Store actual invitee_id only for USER type, otherwise NULL
         inviteeType,
         invite.role,
         invite.note,
@@ -455,18 +540,18 @@ export async function createGroupInviteHandler(
         invite.external_payload
       );
 
-      // If it's a user invite, add them to the group
+      // If it's a direct user invite, add them to the contact_groups table immediately
       if (inviteeType === "USER" && invite.invitee_id) {
         const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id) VALUES (?, ?)`
+          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
         );
-        memberStmt.run(invite.invitee_id, invite.group_id);
+        memberStmt.run(invite.invitee_id, invite.group_id, invite.role);
       }
     });
 
     // Get group info for FE response
     const groupInfo = await db.queryDrive(
-      request.params.org_id,
+      orgId,
       "SELECT name, avatar FROM groups WHERE id = ?",
       [body.group_id]
     );
@@ -474,13 +559,9 @@ export async function createGroupInviteHandler(
     let inviteeName = "";
     let inviteeAvatar = undefined;
 
-    if (
-      inviteeId &&
-      inviteeId !== "PUBLIC" &&
-      !inviteeId.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
-    ) {
+    if (inviteeId && inviteeId.startsWith(IDPrefixEnum.User)) {
       const inviteeInfo = await db.queryDrive(
-        request.params.org_id,
+        orgId,
         "SELECT name, avatar FROM contacts WHERE id = ?",
         [inviteeId]
       );
@@ -490,7 +571,16 @@ export async function createGroupInviteHandler(
       }
     } else if (inviteeId === "PUBLIC") {
       inviteeName = "Public";
+    } else if (inviteeId.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)) {
+      inviteeName = "Awaiting Anon";
     }
+
+    // PERMIT: Get permission previews for the current user on the newly created invite record
+    const permissionPreviews = await checkSystemPermissions(
+      invite.id as SystemResourceID,
+      currentUserId,
+      orgId
+    );
 
     const inviteFE: GroupInviteFE = {
       ...invite,
@@ -499,7 +589,7 @@ export async function createGroupInviteHandler(
       group_avatar: groupInfo[0]?.avatar,
       invitee_name: inviteeName,
       invitee_avatar: inviteeAvatar,
-      permission_previews: [],
+      permission_previews: permissionPreviews,
     };
 
     return reply.status(200).send(createApiResponse(inviteFE));
@@ -536,15 +626,13 @@ export async function updateGroupInviteHandler(
     }
 
     const body = request.body;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Get existing invite
-    const invites = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM group_invites WHERE id = ?",
-      [body.id]
-    );
+    const invite = await getGroupInviteById(body.id as GroupInviteID, orgId);
 
-    if (!invites || invites.length === 0) {
+    if (!invite) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -553,35 +641,39 @@ export async function updateGroupInviteHandler(
       );
     }
 
-    const invite = invites[0] as GroupInvite;
+    // Get group information
+    const group = await getGroupById(invite.group_id, orgId);
 
-    // Check permissions
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT owner_user_id FROM groups WHERE id = ?",
-      [invite.group_id]
-    );
-
-    if (groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
-          message: "Group not found",
+          message: "Associated group not found",
         })
       );
     }
 
-    const group = groups[0];
-    const isAuthorized =
-      requesterApiKey.user_id === group.owner_user_id ||
-      requesterApiKey.user_id === invite.inviter_id;
+    // PERMIT: Check if requester is the org owner, inviter, or has EDIT permission on the group invite record
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const isInviter = currentUserId === invite.inviter_id;
+    const canEditInviteViaPermissions = (
+      await checkSystemPermissions(
+        invite.id as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.EDIT);
 
-    if (!isAuthorized) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+    if (!isOrgOwner && !isInviter && !canEditInviteViaPermissions) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to edit this invite",
+        })
+      );
     }
 
     // Build update query
@@ -624,38 +716,65 @@ export async function updateGroupInviteHandler(
 
     updates.push("last_modified_at = ?");
     values.push(Date.now());
-    values.push(body.id);
+    values.push(invite.id);
 
     // Update in transaction
-    await dbHelpers.transaction("drive", request.params.org_id, (database) => {
+    await dbHelpers.transaction("drive", orgId, (database) => {
       const stmt = database.prepare(
         `UPDATE group_invites SET ${updates.join(", ")} WHERE id = ?`
       );
       stmt.run(...values);
+
+      // If the role is being updated and it's a direct user invite, update contact_groups
+      if (
+        body.role !== undefined &&
+        invite.invitee_id &&
+        invite.invitee_id.startsWith(IDPrefixEnum.User)
+      ) {
+        const updateMemberRoleStmt = database.prepare(
+          `UPDATE contact_groups SET role = ? WHERE user_id = ? AND group_id = ?`
+        );
+        updateMemberRoleStmt.run(body.role, invite.invitee_id, invite.group_id);
+      }
     });
 
     // Get updated invite with additional info
-    const updatedInvites = await db.queryDrive(
-      request.params.org_id,
-      `SELECT gi.*, g.name as group_name, g.avatar as group_avatar,
-                c.name as invitee_name, c.avatar as invitee_avatar
-         FROM group_invites gi
-         JOIN groups g ON gi.group_id = g.id
-         LEFT JOIN contacts c ON gi.invitee_id = c.id
-         WHERE gi.id = ?`,
-      [body.id]
-    );
+    const updatedInvite = await getGroupInviteById(invite.id, orgId);
 
-    const updatedInvite = updatedInvites[0];
+    if (!updatedInvite) {
+      return reply.status(500).send(
+        createApiResponse(undefined, {
+          code: 500,
+          message: "Failed to retrieve updated invite",
+        })
+      );
+    }
+
+    // PERMIT: Get permission previews for the current user on the updated invite record
+    const permissionPreviews = await checkSystemPermissions(
+      updatedInvite.id as SystemResourceID,
+      currentUserId,
+      orgId
+    );
 
     const inviteFE: GroupInviteFE = {
       ...updatedInvite,
+      group_name: group.name,
       invitee_id: updatedInvite.invitee_id || "PUBLIC",
-      invitee_name:
-        updatedInvite.invitee_id === null
-          ? "Public"
-          : updatedInvite.invitee_name || "",
-      permission_previews: [],
+      invitee_name: updatedInvite.invitee_id.startsWith(
+        GroupInviteeTypeEnum.USER
+      )
+        ? "Public"
+        : updatedInvite.invitee_id.startsWith(
+              GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE
+            )
+          ? "Awaiting Anon"
+          : updatedInvite.invitee_id.startsWith(
+                GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE
+              )
+            ? "Placeholder"
+            : "",
+      permission_previews: permissionPreviews,
     };
 
     return reply.status(200).send(createApiResponse(inviteFE));
@@ -692,15 +811,13 @@ export async function deleteGroupInviteHandler(
     }
 
     const body = request.body;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Get invite to check permissions
-    const invites = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM group_invites WHERE id = ?",
-      [body.id]
-    );
+    const invite = await getGroupInviteById(body.id as GroupInviteID, orgId);
 
-    if (!invites || invites.length === 0) {
+    if (!invite) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -709,46 +826,50 @@ export async function deleteGroupInviteHandler(
       );
     }
 
-    const invite = invites[0] as GroupInvite;
+    // Get group information
+    const group = await getGroupById(invite.group_id, orgId);
 
-    // Check permissions
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT owner_user_id FROM groups WHERE id = ?",
-      [invite.group_id]
-    );
-
-    if (groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
-          message: "Group not found",
+          message: "Associated group not found",
         })
       );
     }
 
-    const group = groups[0];
-    const isAuthorized =
-      requesterApiKey.user_id === group.owner_user_id ||
-      requesterApiKey.user_id === invite.inviter_id;
+    // PERMIT: Check if requester is the org owner, inviter, or has DELETE permission on the group invite record
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const isInviter = currentUserId === invite.inviter_id;
+    const canDeleteInviteViaPermissions = (
+      await checkSystemPermissions(
+        invite.id as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.DELETE);
 
-    if (!isAuthorized) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+    if (!isOrgOwner && !isInviter && !canDeleteInviteViaPermissions) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not allowed to delete this invite",
+        })
+      );
     }
 
     // Delete invite and remove user from group if needed
-    await dbHelpers.transaction("drive", request.params.org_id, (database) => {
+    await dbHelpers.transaction("drive", orgId, (database) => {
       // Delete the invite
-      database.prepare("DELETE FROM group_invites WHERE id = ?").run(body.id);
+      database.prepare("DELETE FROM group_invites WHERE id = ?").run(invite.id);
 
-      // Remove user from group if they were added
+      // Remove user from group if they were added via a direct user invite
       if (
         invite.invitee_id &&
-        !invite.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
+        invite.invitee_id.startsWith(IDPrefixEnum.User)
       ) {
         database
           .prepare(
@@ -756,6 +877,10 @@ export async function deleteGroupInviteHandler(
           )
           .run(invite.invitee_id, invite.group_id);
       }
+      // Also remove any system permissions associated with this invite ID as a resource
+      database
+        .prepare("DELETE FROM permissions_system WHERE resource_identifier = ?")
+        .run(invite.id);
     });
 
     const deletedData: IResponseDeleteGroupInvite = {
@@ -801,15 +926,16 @@ export async function redeemGroupInviteHandler(
     }
 
     const body = request.body;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Get the invite
-    const invites = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM group_invites WHERE id = ?",
-      [body.invite_id]
+    const invite = await getGroupInviteById(
+      body.invite_id as GroupInviteID,
+      orgId
     );
 
-    if (!invites || invites.length === 0) {
+    if (!invite) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -817,8 +943,6 @@ export async function redeemGroupInviteHandler(
         })
       );
     }
-
-    const invite = invites[0];
 
     // Validate redeem code
     if (!invite.redeem_code || invite.redeem_code !== body.redeem_code) {
@@ -830,69 +954,104 @@ export async function redeemGroupInviteHandler(
       );
     }
 
+    // PERMIT: User attempting to redeem must be the intended invitee if it's a specific user invite.
+    if (
+      invite.invitee_id.startsWith(IDPrefixEnum.User) &&
+      invite.invitee_id !== currentUserId
+    ) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: This invite is not for you",
+        })
+      );
+    }
+
+    // PERMIT: Check if user has INVITE permission on the group record (to join it)
+    const canJoinGroupViaPermissions = (
+      await checkSystemPermissions(
+        invite.group_id as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.INVITE);
+
+    if (!canJoinGroupViaPermissions) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not allowed to join this group",
+        })
+      );
+    }
+
     const now = Date.now();
 
     // Handle different invite types
-    if (invite.invitee_type === "PUBLIC") {
+    if (invite.invitee_id.startsWith(GroupInviteeTypeEnum.PUBLIC)) {
       // For public invites, create a new invite for the specific user
       const newInviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
 
-      await dbHelpers.transaction(
-        "drive",
-        request.params.org_id,
-        (database) => {
-          // Create new invite
-          const stmt = database.prepare(
-            `INSERT INTO group_invites (
+      await dbHelpers.transaction("drive", orgId, (database) => {
+        // Create new invite
+        const stmt = database.prepare(
+          `INSERT INTO group_invites (
               id, group_id, inviter_id, invitee_id, invitee_type, role, note,
               active_from, expires_at, created_at, last_modified_at,
               redeem_code, from_placeholder_invitee, external_id, external_payload
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          );
+        );
 
-          const userNote = body.note
-            ? `Note from User: ${body.note}, Prior Original Note: ${invite.note}`
-            : invite.note;
+        const userNote = body.note
+          ? `Note from User: ${body.note}, Prior Original Note: ${invite.note}`
+          : invite.note;
 
-          stmt.run(
-            newInviteId,
-            invite.group_id,
-            invite.inviter_id,
-            body.user_id,
-            "USER",
-            GroupRole.MEMBER,
-            userNote,
-            invite.active_from,
-            invite.expires_at,
-            now,
-            now,
-            null,
-            invite.id,
-            invite.external_id,
-            invite.external_payload
-          );
+        stmt.run(
+          newInviteId,
+          invite.group_id,
+          invite.inviter_id,
+          body.user_id,
+          "USER",
+          invite.role, // Maintain the original role from the public invite
+          userNote,
+          invite.active_from,
+          invite.expires_at,
+          now,
+          now,
+          null, // Clear redeem code for the new specific invite
+          invite.id, // Reference the original public invite as from_placeholder_invitee
+          invite.external_id,
+          invite.external_payload
+        );
 
-          // Add user to group
-          const memberStmt = database.prepare(
-            `INSERT OR IGNORE INTO contact_groups (user_id, group_id) VALUES (?, ?)`
-          );
-          memberStmt.run(body.user_id, invite.group_id);
-        }
-      );
+        // Add user to group
+        const memberStmt = database.prepare(
+          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
+        );
+        memberStmt.run(body.user_id, invite.group_id, invite.role);
+      });
 
       // Get the new invite with additional info
-      const newInvites = await db.queryDrive(
-        request.params.org_id,
-        `SELECT gi.*, g.name as group_name, g.avatar as group_avatar,
-                  c.name as invitee_name, c.avatar as invitee_avatar
-           FROM group_invites gi
-           JOIN groups g ON gi.group_id = g.id
-           LEFT JOIN contacts c ON gi.invitee_id = c.id
-           WHERE gi.id = ?`,
-        [newInviteId]
+      const newInvite = await getGroupInviteById(
+        newInviteId as GroupInviteID,
+        orgId
       );
 
-      const newInvite = newInvites[0];
+      if (!newInvite) {
+        return reply.status(500).send(
+          createApiResponse(undefined, {
+            code: 500,
+            message: "Failed to retrieve new invite after public redemption",
+          })
+        );
+      }
+
+      // PERMIT: Get permission previews for the current user on the newly redeemed invite record
+      const permissionPreviews = await checkSystemPermissions(
+        newInvite.id as SystemResourceID,
+        currentUserId,
+        orgId
+      );
 
       const responseData: IResponseRedeemGroupInvite = {
         ok: {
@@ -900,15 +1059,15 @@ export async function redeemGroupInviteHandler(
             invite: {
               ...newInvite,
               invitee_id: newInvite.invitee_id || "PUBLIC",
-              invitee_name: newInvite.invitee_name || "",
-              permission_previews: [],
             },
           },
         },
       };
 
       return reply.status(200).send(createApiResponse(responseData));
-    } else if (invite.invitee_type === "PLACEHOLDER") {
+    } else if (
+      invite.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
+    ) {
       // For placeholder invites, update the existing invite
       if (invite.from_placeholder_invitee) {
         return reply.status(400).send(
@@ -919,52 +1078,54 @@ export async function redeemGroupInviteHandler(
         );
       }
 
-      await dbHelpers.transaction(
-        "drive",
-        request.params.org_id,
-        (database) => {
-          // Update invite
-          const userNote = body.note
-            ? `Note from User: ${body.note}, Prior Original Note: ${invite.note}`
-            : invite.note;
+      await dbHelpers.transaction("drive", orgId, (database) => {
+        // Update invite
+        const userNote = body.note
+          ? `Note from User: ${body.note}, Prior Original Note: ${invite.note}`
+          : invite.note;
 
-          const stmt = database.prepare(
-            `UPDATE group_invites 
-             SET invitee_id = ?, invitee_type = ?, role = ?, note = ?, 
+        const stmt = database.prepare(
+          `UPDATE group_invites
+             SET invitee_id = ?, invitee_type = ?, role = ?, note = ?,
                  last_modified_at = ?, redeem_code = NULL, from_placeholder_invitee = ?
              WHERE id = ?`
-          );
-          stmt.run(
-            body.user_id,
-            "USER",
-            GroupRole.MEMBER,
-            userNote,
-            now,
-            invite.invitee_id,
-            body.invite_id
-          );
+        );
+        stmt.run(
+          body.user_id,
+          "USER",
+          invite.role, // Maintain the original role from the placeholder invite
+          userNote,
+          now,
+          invite.invitee_id, // Store the original placeholder ID here
+          invite.id
+        );
 
-          // Add user to group
-          const memberStmt = database.prepare(
-            `INSERT OR IGNORE INTO contact_groups (user_id, group_id) VALUES (?, ?)`
-          );
-          memberStmt.run(body.user_id, invite.group_id);
-        }
-      );
+        // Add user to group
+        const memberStmt = database.prepare(
+          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
+        );
+        memberStmt.run(body.user_id, invite.group_id, invite.role);
+      });
 
       // Get updated invite
-      const updatedInvites = await db.queryDrive(
-        request.params.org_id,
-        `SELECT gi.*, g.name as group_name, g.avatar as group_avatar,
-                  c.name as invitee_name, c.avatar as invitee_avatar
-           FROM group_invites gi
-           JOIN groups g ON gi.group_id = g.id
-           LEFT JOIN contacts c ON gi.invitee_id = c.id
-           WHERE gi.id = ?`,
-        [body.invite_id]
-      );
+      const updatedInvite = await getGroupInviteById(invite.id, orgId);
 
-      const updatedInvite = updatedInvites[0];
+      if (!updatedInvite) {
+        return reply.status(500).send(
+          createApiResponse(undefined, {
+            code: 500,
+            message:
+              "Failed to retrieve updated invite after placeholder redemption",
+          })
+        );
+      }
+
+      // PERMIT: Get permission previews for the current user on the updated invite record
+      const permissionPreviews = await checkSystemPermissions(
+        updatedInvite.id as SystemResourceID,
+        currentUserId,
+        orgId
+      );
 
       const responseData: IResponseRedeemGroupInvite = {
         ok: {
@@ -972,19 +1133,58 @@ export async function redeemGroupInviteHandler(
             invite: {
               ...updatedInvite,
               invitee_id: updatedInvite.invitee_id || "PUBLIC",
-              invitee_name: updatedInvite.invitee_name || "",
-              permission_previews: [],
             },
           },
         },
       };
 
       return reply.status(200).send(createApiResponse(responseData));
+    } else if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
+      // If it's a direct user invite, and the user matches, just ensure they are in contact_groups
+      // (This should already be handled during invite creation, but good for idempotency or
+      // if invite was deleted from contact_groups without invite being deleted)
+      await dbHelpers.transaction("drive", orgId, (database) => {
+        const memberStmt = database.prepare(
+          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
+        );
+        memberStmt.run(invite.invitee_id, invite.group_id, invite.role);
+      });
+
+      // Get updated invite (no change to invite record itself, just confirmation of membership)
+      const redeemedInvite = await getGroupInviteById(invite.id, orgId);
+
+      if (!redeemedInvite) {
+        return reply.status(500).send(
+          createApiResponse(undefined, {
+            code: 500,
+            message: "Failed to retrieve invite after user redemption",
+          })
+        );
+      }
+
+      const permissionPreviews = await checkSystemPermissions(
+        redeemedInvite.id as SystemResourceID,
+        currentUserId,
+        orgId
+      );
+
+      const responseData: IResponseRedeemGroupInvite = {
+        ok: {
+          data: {
+            invite: {
+              ...redeemedInvite,
+              invitee_id: redeemedInvite.invitee_id,
+            },
+          },
+        },
+      };
+      return reply.status(200).send(createApiResponse(responseData));
     } else {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: "Invite is not a public or placeholder invite",
+          message:
+            "Invite is not a public, placeholder, or direct user invite for redemption",
         })
       );
     }

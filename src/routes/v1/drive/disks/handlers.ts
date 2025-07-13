@@ -1,3 +1,4 @@
+// typescript-server/src/routes/v1/drive/disks/handlers.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -17,10 +18,36 @@ import {
   DriveID,
   SystemPermissionType,
   SortDirection,
-} from "@officexapp/types"; // Assuming these are correctly defined
+  SystemResourceID,
+  SystemTableValueEnum,
+  IRequestListDirectory,
+  IResponseListDirectory,
+  DirectoryPermissionType,
+  DirectoryResourceID,
+  FilePathBreadcrumb,
+  FileRecord,
+  FolderRecord,
+  FolderRecordFE,
+  FileRecordFE,
+} from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { getDriveOwnerId, OrgIdParams } from "../../types";
+import { getDriveOwnerId } from "../../types";
+import {
+  checkSystemPermissions as checkSystemPermissionsService,
+  canUserAccessSystemPermission as canUserAccessSystemPermissionService,
+  redactLabelValue,
+} from "../../../../services/permissions/system";
+import {
+  checkDirectoryPermissions,
+  deriveBreadcrumbVisibilityPreviews,
+} from "../../../../services/permissions/directory";
+import { clipDirectoryPath } from "../../../../services/directory/internals";
+import {
+  claimUUID,
+  isUUIDClaimed,
+  updateExternalIDMapping,
+} from "../../../../services/external";
 
 // --- Helper Types for Request Params ---
 
@@ -28,15 +55,18 @@ interface GetDiskParams extends OrgIdParams {
   disk_id: string; // Corresponds to DiskID
 }
 
-// --- Internal Helper Functions (Adapted from Rust) ---
+interface OrgIdParams {
+  org_id: DriveID;
+}
 
 // Helper function to validate request body for creating a disk
-function validateCreateDiskRequest(body: IRequestCreateDisk): {
+async function validateCreateDiskRequest(
+  body: IRequestCreateDisk,
+  orgID: DriveID
+): Promise<{
   valid: boolean;
   error?: string;
-} {
-  // TODO: Implement more comprehensive validation based on Rust's `CreateDiskRequestBody::validate_body`
-  // Placeholder for now
+}> {
   if (!body.name || body.name.length === 0 || body.name.length > 256) {
     return {
       valid: false,
@@ -58,9 +88,15 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
         error: `Disk ID must start with '${IDPrefixEnum.Disk}'.`,
       };
     }
-    // TODO: Implement `validate_unclaimed_uuid` equivalent (check if ID already exists in DB)
+    // Check if the provided ID is already claimed (Rust's `validate_unclaimed_uuid`)
+    const alreadyClaimed = await isUUIDClaimed(orgID, body.id);
+    if (alreadyClaimed) {
+      return {
+        valid: false,
+        error: `Provided Disk ID '${body.id}' is already claimed.`,
+      };
+    }
   }
-
   // Validate notes
   if (body.public_note && body.public_note.length > 8192) {
     return {
@@ -92,7 +128,6 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
       error: "Auth JSON must be 8,192 characters or less.",
     };
   }
-  // TODO: Further parse and validate `auth_json` content based on `AwsBucketAuth` structure for AWS and Storj
   // For example, if DiskTypeEnum.AwsBucket, check if auth_json is valid JSON and contains expected fields.
   if (body.disk_type === DiskTypeEnum.AwsBucket && body.auth_json) {
     try {
@@ -114,18 +149,41 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
       return { valid: false, error: "Auth JSON is not valid JSON." };
     }
   }
+  if (body.external_id && body.external_id.length > 256) {
+    return {
+      valid: false,
+      error: "External ID must be 256 characters or less.",
+    };
+  }
+  if (body.external_payload && body.external_payload.length > 8192) {
+    return {
+      valid: false,
+      error: "External payload must be 8,192 characters or less.",
+    };
+  }
+  if (body.endpoint && body.endpoint.length > 2048) {
+    return {
+      valid: false,
+      error: "Endpoint must be 2048 characters or less.",
+    };
+  }
 
-  // TODO: validate `external_id`, `external_payload`, `endpoint` based on Rust's `validate_external_id`, `validate_external_payload`, `validate_url`
+  // mark it claimed
+  if (body.id) {
+    await claimUUID(orgID, body.id);
+  }
 
   return { valid: true };
 }
 
 // Helper function to validate request body for updating a disk
-function validateUpdateDiskRequest(body: IRequestUpdateDisk): {
+async function validateUpdateDiskRequest(
+  body: IRequestUpdateDisk,
+  orgID: DriveID
+): Promise<{
   valid: boolean;
   error?: string;
-} {
-  // TODO: Implement comprehensive validation based on Rust's `UpdateDiskRequestBody::validate_body`
+}> {
   if (!body.id || !body.id.startsWith(IDPrefixEnum.Disk)) {
     return {
       valid: false,
@@ -156,11 +214,63 @@ function validateUpdateDiskRequest(body: IRequestUpdateDisk): {
     };
   }
 
-  // TODO: Re-validate auth_json structure if provided, similar to create. Requires fetching existing disk type.
+  // Re-validate auth_json structure if provided, similar to create. Requires fetching existing disk type.
   // This will need to fetch the existing disk to know its `disk_type`.
-  // For now, assume it's structurally valid if present.
+  const disks = await db.queryDrive(orgID, "SELECT * FROM disks WHERE id = ?", [
+    body.id,
+  ]);
 
-  // TODO: validate `external_id`, `external_payload`, `endpoint`
+  if (!disks || disks.length === 0) {
+    return {
+      valid: false,
+      error: "Disk not found.",
+    };
+  }
+
+  const disk = disks[0];
+
+  if (
+    (disk.disk_type === DiskTypeEnum.AwsBucket && body.auth_json) ||
+    (disk.disk_type === DiskTypeEnum.StorjWeb3 && body.auth_json)
+  ) {
+    try {
+      const auth = JSON.parse(body.auth_json);
+      if (
+        !auth.endpoint ||
+        !auth.access_key ||
+        !auth.secret_key ||
+        !auth.bucket ||
+        !auth.region
+      ) {
+        return {
+          valid: false,
+          error:
+            "Auth JSON for AWS_BUCKET must contain endpoint, access_key, secret_key, bucket, and region.",
+        };
+      }
+    } catch (e) {
+      return { valid: false, error: "Auth JSON is not valid JSON." };
+    }
+  }
+
+  if (body.external_id && body.external_id.length > 256) {
+    return {
+      valid: false,
+      error: "External ID must be 256 characters or less.",
+    };
+  }
+  if (body.external_payload && body.external_payload.length > 8192) {
+    return {
+      valid: false,
+      error: "External payload must be 8,192 characters or less.",
+    };
+  }
+  if (body.endpoint && body.endpoint.length > 2048) {
+    return {
+      valid: false,
+      error: "Endpoint must be 2048 characters or less.",
+    };
+  }
 
   return { valid: true };
 }
@@ -170,7 +280,6 @@ function validateDeleteDiskRequest(body: IRequestDeleteDisk): {
   valid: boolean;
   error?: string;
 } {
-  // TODO: Implement comprehensive validation based on Rust's `DeleteDiskRequest::validate_body`
   if (!body.id || !body.id.startsWith(IDPrefixEnum.Disk)) {
     return {
       valid: false,
@@ -193,165 +302,472 @@ function createApiResponse<T>(
   };
 }
 
-// TODO: Implement `check_system_permissions` equivalent in TypeScript.
-// This would involve querying the `permissions_system` table for the given resource and grantee.
-// For now, this is a mock implementation.
-async function checkSystemPermissions(
-  orgId: DriveID,
-  resourceId: string, // Corresponds to SystemResourceID in Rust
-  granteeId: UserID // Corresponds to PermissionGranteeID::User in Rust
-): Promise<Array<SystemPermissionType>> {
-  // TODO: Implement actual database query to check permissions for the given resource and grantee.
-  // For now, return a mock based on the `isOwner` logic.
-  const ownerId = await getDriveOwnerId(orgId);
-  if (granteeId === ownerId) {
-    return [
-      SystemPermissionType.CREATE,
-      SystemPermissionType.EDIT,
-      SystemPermissionType.DELETE,
-      SystemPermissionType.VIEW,
-      SystemPermissionType.INVITE,
-    ];
+export async function fetch_root_shortcuts_of_user(
+  config: IRequestListDirectory,
+  userId: UserID,
+  orgId: DriveID // Added orgId as a parameter
+): Promise<IResponseListDirectory> {
+  console.log(
+    `[DRIVE] Fetching root shortcuts for user ${userId} in organization ${orgId} with config:`,
+    config
+  );
+
+  const diskId = config.disk_id;
+  if (!diskId) {
+    throw new Error("DiskID must be provided for fetching root shortcuts.");
   }
-  // This is a placeholder; real permissions would be fetched from the 'permissions_system' table.
-  if (resourceId.includes("Table_DISKS") || resourceId.includes("DiskID_")) {
-    return [SystemPermissionType.VIEW];
+
+  // 1. Get permissions explicitly granted to this user
+  const userPermissionsRows = await db.queryDrive(
+    orgId,
+    `
+    SELECT
+      pd.resource_id,
+      pd.resource_type,
+      pd.resource_path,
+      GROUP_CONCAT(pdt.permission_type) AS permission_types
+    FROM permissions_directory pd
+    JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
+    WHERE pd.grantee_type = 'User' AND pd.grantee_id = ?
+    GROUP BY pd.resource_id, pd.resource_type, pd.resource_path
+    `,
+    [userId.substring(IDPrefixEnum.User.length)]
+  );
+
+  // 2. Get permissions granted to groups the user is a member of
+  // First, find all groups the user is a member of (via group_invites)
+  const userGroupInvites = await db.queryFactory(
+    // Group invites are factory-level
+    `
+    SELECT group_id FROM group_invites
+    WHERE invitee_type = 'USER' AND invitee_id = ? AND expires_at > ? AND active_from <= ?
+    `,
+    [userId.substring(IDPrefixEnum.User.length), Date.now(), Date.now()]
+  );
+  const userGroupIds = userGroupInvites.map((row: any) => row.group_id);
+
+  let groupPermissionsRows: any[] = [];
+  if (userGroupIds.length > 0) {
+    const placeholders = userGroupIds.map(() => "?").join(",");
+    groupPermissionsRows = await db.queryDrive(
+      orgId,
+      `
+      SELECT
+        pd.resource_id,
+        pd.resource_type,
+        pd.resource_path,
+        GROUP_CONCAT(pdt.permission_type) AS permission_types
+      FROM permissions_directory pd
+      JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
+      WHERE pd.grantee_type = 'Group' AND pd.grantee_id IN (${placeholders})
+      GROUP BY pd.resource_id, pd.resource_type, pd.resource_path
+      `,
+      userGroupIds
+    );
   }
-  return [];
+
+  // 3. Get public permissions
+  const publicPermissionsRows = await db.queryDrive(
+    orgId,
+    `
+    SELECT
+      pd.resource_id,
+      pd.resource_type,
+      pd.resource_path,
+      GROUP_CONCAT(pdt.permission_type) AS permission_types
+    FROM permissions_directory pd
+    JOIN permissions_directory_types pdt ON pd.id = pdt.permission_id
+    WHERE pd.grantee_type = 'PUBLIC'
+    GROUP BY pd.resource_id, pd.resource_type, pd.resource_path
+    `
+  );
+
+  // Combine and deduplicate resources that the user has VIEW permission for
+  const uniqueResources = new Map<
+    string,
+    {
+      resource_id: string;
+      resource_type: string;
+      resource_path: string;
+      permission_types: DirectoryPermissionType[];
+    }
+  >();
+
+  const processPermissionRows = (rows: any[]) => {
+    for (const row of rows) {
+      const resourceIdFull =
+        row.resource_type === "Folder"
+          ? `${IDPrefixEnum.Folder}${row.resource_id}`
+          : `${IDPrefixEnum.File}${row.resource_id}`;
+
+      let currentPermissions: DirectoryPermissionType[] = [];
+      if (uniqueResources.has(resourceIdFull)) {
+        currentPermissions =
+          uniqueResources.get(resourceIdFull)!.permission_types;
+      }
+      // Ensure row.permission_types is a string before splitting
+      const newPermissions = ((row.permission_types as string) || "")
+        .split(",")
+        .filter(Boolean)
+        .map((p) => p as DirectoryPermissionType);
+      const combinedPermissions = Array.from(
+        new Set([...currentPermissions, ...newPermissions])
+      );
+
+      uniqueResources.set(resourceIdFull, {
+        resource_id: row.resource_id,
+        resource_type: row.resource_type,
+        resource_path: row.resource_path,
+        permission_types: combinedPermissions,
+      });
+    }
+  };
+
+  processPermissionRows(userPermissionsRows);
+  processPermissionRows(groupPermissionsRows);
+  processPermissionRows(publicPermissionsRows);
+
+  const isOwner = (await getDriveOwnerId(orgId)) === userId;
+
+  let foldersRaw: FolderRecord[] = [];
+  let filesRaw: FileRecord[] = [];
+
+  const diskRecords = await db.queryDrive(
+    orgId,
+    "SELECT id, root_folder_id FROM disks WHERE id = ?",
+    [config.disk_id]
+  );
+  const diskRootFolderId =
+    diskRecords.length > 0 ? diskRecords[0].root_folder_id : null;
+
+  for (const [fullResourceId, resourceData] of uniqueResources.entries()) {
+    // Check if the resource has VIEW permission
+    if (
+      !isOwner &&
+      !resourceData.permission_types.includes(DirectoryPermissionType.VIEW)
+    ) {
+      continue; // Skip if no view permission
+    }
+
+    if (resourceData.resource_type === "Folder") {
+      const folder = await db.queryDrive(
+        orgId,
+        `SELECT id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE id = ?`,
+        [fullResourceId.substring(IDPrefixEnum.Folder.length)]
+      );
+      if (folder.length > 0) {
+        const folderRecord = folder[0] as FolderRecord;
+        // Additional check: filter for folders that are direct children of the disk root
+        if (folderRecord.parent_folder_uuid === diskRootFolderId) {
+          foldersRaw.push(folderRecord);
+        }
+      }
+    } else if (resourceData.resource_type === "File") {
+      const file = await db.queryDrive(
+        orgId,
+        `SELECT id, name, parent_folder_id, version_id, extension, full_directory_path, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, last_updated_at, last_updated_by_user_id, is_deleted, drive_id, upload_status, expires_at, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload FROM files WHERE id = ?`,
+        [fullResourceId.substring(IDPrefixEnum.File.length)]
+      );
+      if (file.length > 0) {
+        const fileRecord = file[0] as FileRecord;
+        // Additional check: filter for files that are direct children of the disk root
+        if (fileRecord.parent_folder_uuid === diskRootFolderId) {
+          filesRaw.push(fileRecord);
+        }
+      }
+    }
+  }
+
+  // Sort the results (Rust sorts by last_modified_at descending for permissions)
+  // Here, we'll sort by last_updated_date_ms if available, otherwise by created_at.
+  let allItems = [
+    ...foldersRaw.map((f) => ({ ...f, type: "folder" as const })),
+    ...filesRaw.map((f) => ({ ...f, type: "file" as const })),
+  ];
+
+  allItems.sort((a, b) => {
+    const aTime = a.last_updated_date_ms || a.created_at || 0;
+    const bTime = b.last_updated_date_ms || b.created_at || 0;
+    if (config.direction === SortDirection.DESC) {
+      return bTime - aTime;
+    }
+    return aTime - bTime;
+  });
+
+  let startIndex = 0;
+  if (config.cursor) {
+    const cursorIndex = allItems.findIndex((item) => item.id === config.cursor);
+    if (cursorIndex !== -1) {
+      startIndex = cursorIndex + 1;
+    }
+  }
+
+  // Use optional chaining with a default value for page_size
+  const paginatedItems = allItems.slice(
+    startIndex,
+    startIndex + (config.page_size ?? 50)
+  ); // Default to 50 if page_size is undefined
+
+  const feFolders: FolderRecordFE[] = [];
+  const feFiles: FileRecordFE[] = [];
+
+  for (const item of paginatedItems) {
+    if (item.type === "folder") {
+      const folder = item as FolderRecord;
+      const resourceId =
+        `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID;
+      const permission_previews = await checkDirectoryPermissions(
+        resourceId,
+        userId,
+        orgId
+      );
+      feFolders.push({
+        ...folder,
+        clipped_directory_path: clipDirectoryPath(folder.full_directory_path),
+        permission_previews,
+      });
+    } else if (item.type === "file") {
+      const file = item as FileRecord;
+      const resourceId =
+        `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID;
+      const permission_previews = await checkDirectoryPermissions(
+        resourceId,
+        userId,
+        orgId
+      );
+      feFiles.push({
+        ...file,
+        clipped_directory_path: clipDirectoryPath(file.full_directory_path),
+        permission_previews,
+      });
+    }
+  }
+
+  const nextCursor =
+    paginatedItems.length > 0 &&
+    startIndex + paginatedItems.length < allItems.length
+      ? paginatedItems[paginatedItems.length - 1].id
+      : null;
+
+  // Breadcrumbs for root shortcuts: Disk Name -> "Shared with me" (as per Rust example)
+  let breadcrumbs: FilePathBreadcrumb[] = [];
+
+  const disk = (
+    await db.queryDrive(orgId, "SELECT id, name FROM disks WHERE id = ?", [
+      config.disk_id,
+    ])
+  )[0];
+  if (disk) {
+    const diskRootPath = `${disk.id}::/`;
+    const diskRootFolder = (
+      await db.queryDrive(
+        orgId,
+        "SELECT id FROM folders WHERE full_directory_path = ?",
+        [diskRootPath]
+      )
+    )[0];
+    if (diskRootFolder) {
+      breadcrumbs.push({
+        resource_id: diskRootFolder.id,
+        resource_name: disk.name,
+        visibility_preview: await deriveBreadcrumbVisibilityPreviews(
+          `${IDPrefixEnum.Folder}${diskRootFolder.id}` as DirectoryResourceID,
+          orgId
+        ),
+      });
+    }
+  }
+  breadcrumbs.push({
+    resource_id: "shared-with-me", // Placeholder ID for "Shared with me"
+    resource_name: "Shared with me",
+    visibility_preview: [], // No specific visibility for this virtual folder
+  });
+
+  return {
+    ok: {
+      data: {
+        folders: feFolders,
+        files: feFiles,
+        total_folders: feFolders.length,
+        total_files: feFiles.length,
+        cursor: nextCursor,
+        breadcrumbs: breadcrumbs,
+        // Removed `permission_previews` from here as it's not part of IResponseListDirectory.data
+      },
+    },
+  };
 }
 
-// TODO: Implement `ensure_disk_root_and_trash_folder` equivalent
-// This function would ensure that the root and trash folders for a disk exist in the `folders` table.
-// It should interact with the database to create these records if they don't exist.
-async function ensureDiskRootAndTrashFolder(
+export async function ensureDiskRootAndTrashFolder(
   orgId: DriveID,
   diskId: string,
   ownerId: UserID,
   diskType: DiskTypeEnum
 ): Promise<{ rootFolderId: string; trashFolderId: string }> {
-  // TODO: Implement actual logic to check/create folders in `folders` table in the drive DB.
-  // This will require functions to insert/query the 'folders' table.
-  // The folder IDs will need to follow the `FolderID_` prefix convention.
-
   const now = Date.now();
-  const rootFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
-  const trashFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
-  const driveId = orgId; // DRIVE_ID in Rust context
+  const rootPath = `${diskId}::/`;
+  const trashPath = `${diskId}::.trash/`;
 
-  // Mock folder records for now. In a real implementation, these would be inserted into the DB.
-  const rootFolder: any = {
-    id: rootFolderId,
-    name: "Root",
-    parent_folder_id: null,
-    full_directory_path: `${diskId}::/`, // Rust's `format!("{}::/", disk_id.to_string())`
-    created_by_user_id: ownerId,
-    created_at: now,
-    last_updated_at: now,
-    last_updated_by_user_id: ownerId,
-    disk_id: diskId,
-    disk_type: diskType,
-    is_deleted: 0,
-    expires_at: -1,
-    drive_id: driveId,
-    has_sovereign_permissions: 1, // true in Rust
-  };
+  let rootFolderId: string;
+  let trashFolderId: string;
 
-  const trashFolder: any = {
-    id: trashFolderId,
-    name: "Trash",
-    parent_folder_id: null, // In Rust, this was also None. If it should be a subfolder of root, adjust here.
-    full_directory_path: `${diskId}::.trash/`, // Rust's `format!("{}::.trash/", disk_id.to_string())`
-    created_by_user_id: ownerId,
-    created_at: now,
-    last_updated_at: now,
-    last_updated_by_user_id: ownerId,
-    disk_id: diskId,
-    disk_type: diskType,
-    is_deleted: 0,
-    expires_at: -1,
-    drive_id: driveId,
-    has_sovereign_permissions: 1,
-  };
+  return await dbHelpers.transaction("drive", orgId, (database) => {
+    // Check for existing root folder
+    let existingRoot = database
+      .prepare("SELECT id FROM folders WHERE full_directory_path = ?")
+      .get(rootPath) as { id: string } | undefined;
 
-  // Insert into DB using a transaction
-  await dbHelpers.transaction("drive", orgId, (database) => {
-    const insertFolderStmt = database.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    insertFolderStmt.run(
-      rootFolder.id,
-      rootFolder.name,
-      rootFolder.parent_folder_id,
-      rootFolder.full_directory_path,
-      rootFolder.created_by_user_id,
-      rootFolder.created_at,
-      rootFolder.last_updated_at,
-      rootFolder.last_updated_by_user_id,
-      rootFolder.disk_id,
-      rootFolder.disk_type,
-      rootFolder.is_deleted,
-      rootFolder.expires_at,
-      rootFolder.drive_id,
-      rootFolder.has_sovereign_permissions
-    );
-    insertFolderStmt.run(
-      trashFolder.id,
-      trashFolder.name,
-      trashFolder.parent_folder_id,
-      trashFolder.full_directory_path,
-      trashFolder.created_by_user_id,
-      trashFolder.created_at,
-      trashFolder.last_updated_at,
-      trashFolder.last_updated_by_user_id,
-      trashFolder.disk_id,
-      trashFolder.disk_type,
-      trashFolder.is_deleted,
-      trashFolder.expires_at,
-      trashFolder.drive_id,
-      trashFolder.has_sovereign_permissions
-    );
+    if (existingRoot) {
+      rootFolderId = existingRoot.id;
+    } else {
+      rootFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+      const insertRootStmt = database.prepare(
+        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertRootStmt.run(
+        rootFolderId,
+        "", // Name for root is empty in Rust
+        null, // No parent for root
+        rootPath,
+        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
+        now,
+        now,
+        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
+        diskId,
+        diskType,
+        0, // is_deleted (false)
+        -1, // expires_at (-1 for never)
+        orgId,
+        1, // has_sovereign_permissions (true for root as per Rust)
+        null,
+        null,
+        null,
+        null,
+        null
+      );
+
+      // Add default permissions for the newly created root folder (All permissions for owner)
+      const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+      database
+        .prepare(
+          `
+        INSERT INTO permissions_directory (
+          id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by_user_id,
+          begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+        )
+        .run(
+          rootPermissionId,
+          "Folder",
+          rootFolderId.substring(IDPrefixEnum.Folder.length),
+          rootPath,
+          "User",
+          ownerId.substring(IDPrefixEnum.User.length),
+          ownerId.substring(IDPrefixEnum.User.length),
+          0, // Immediate
+          -1, // Never expires
+          1, // Inheritable
+          "Default permissions for disk root folder owner",
+          now,
+          now
+        );
+
+      const insertRootPermissionTypes = database.prepare(`
+        INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+      `);
+      Object.values(DirectoryPermissionType).forEach((type) => {
+        insertRootPermissionTypes.run(rootPermissionId, type);
+      });
+    }
+
+    // Check for existing trash folder
+    let existingTrash = database
+      .prepare("SELECT id FROM folders WHERE full_directory_path = ?")
+      .get(trashPath) as { id: string } | undefined;
+
+    if (existingTrash) {
+      trashFolderId = existingTrash.id;
+    } else {
+      trashFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+      const insertTrashStmt = database.prepare(
+        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertTrashStmt.run(
+        trashFolderId,
+        ".trash",
+        rootFolderId, // Trash is a subfolder of root
+        trashPath,
+        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
+        now,
+        now,
+        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
+        diskId,
+        diskType,
+        0, // is_deleted (false)
+        -1, // expires_at (-1 for never)
+        orgId,
+        1, // has_sovereign_permissions (true for trash as per Rust)
+        null,
+        null,
+        null,
+        null,
+        null
+      );
+
+      // Add default permissions for the newly created trash folder (All permissions for owner)
+      const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+      database
+        .prepare(
+          `
+        INSERT INTO permissions_directory (
+          id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by_user_id,
+          begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+        )
+        .run(
+          trashPermissionId,
+          "Folder",
+          trashFolderId.substring(IDPrefixEnum.Folder.length),
+          trashPath,
+          "User",
+          ownerId.substring(IDPrefixEnum.User.length),
+          ownerId.substring(IDPrefixEnum.User.length),
+          0, // Immediate
+          -1, // Never expires
+          0, // Not inheritable (sovereign permissions in Rust means not inherited by children)
+          "Default permissions for disk trash folder owner",
+          now,
+          now
+        );
+
+      const insertTrashPermissionTypes = database.prepare(`
+        INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+      `);
+      Object.values(DirectoryPermissionType).forEach((type) => {
+        insertTrashPermissionTypes.run(trashPermissionId, type);
+      });
+    }
+    return { rootFolderId, trashFolderId };
   });
-
-  return { rootFolderId, trashFolderId };
 }
 
-// TODO: Implement `update_external_id_mapping` equivalent
-// This function would manage a mapping of external IDs to internal IDs.
-// It's likely updating a separate table for external ID lookups.
-async function updateExternalIdMapping(
-  orgId: DriveID,
-  oldExternalId: string | null | undefined,
-  newExternalId: string | null | undefined,
-  internalId: string
-): Promise<void> {
-  // TODO: Implement actual database interaction for external ID mapping.
-  // This might involve a dedicated `external_id_mappings` table.
-  console.log(
-    `[TODO] Simulating external ID mapping update for org ${orgId}: ${oldExternalId} -> ${newExternalId} for internal ID ${internalId}`
-  );
-}
-
-// TODO: Implement `mark_claimed_uuid` equivalent
-// This function would mark a generated UUID as "claimed" to prevent reuse.
-async function markClaimedUuid(orgId: DriveID, uuid: string): Promise<void> {
-  // TODO: Implement logic to store claimed UUIDs, possibly in a dedicated table or a set.
-  console.log(
-    `[TODO] Simulating marking UUID as claimed for org ${orgId}: ${uuid}`
-  );
-}
-
-// TODO: Implement `snapshot_prestate` and `snapshot_poststate` equivalent
+// TODO: SNAPSHOT: Implement `snapshot_prestate` and `snapshot_poststate` equivalent
 // These are likely for state diffing/auditing. In a Fastify server, this might be
 // less about canister state snapshots and more about database transaction logging or
 // event sourcing if such a system is in place. For now, they are mocks.
 function snapshotPrestate(): any {
-  console.log("[TODO] Simulating pre-state snapshot.");
+  console.log("[TODO: SNAPSHOT] Simulating pre-state snapshot.");
   return {}; // Placeholder for a pre-state snapshot
 }
 
 function snapshotPoststate(prestate: any, notes?: string): void {
-  console.log(`[TODO] Simulating post-state snapshot. Notes: ${notes}`);
+  console.log(
+    `[TODO: SNAPSHOT] Simulating post-state snapshot. Notes: ${notes}`
+  );
   // Compare with prestate, log diffs if necessary.
 }
 
@@ -394,55 +810,50 @@ export async function getDiskHandler(
 
     const disk = disks[0] as Disk;
 
-    // Check permissions if not owner
-    if (!isOwner) {
-      const tablePermissions = await checkSystemPermissions(
-        org_id,
-        "Table_DISKS", // Corresponds to SystemTableEnum::Disks
-        requesterApiKey.user_id
-      );
-      const resourcePermissions = await checkSystemPermissions(
-        org_id,
-        `DiskID_${disk_id}`, // Corresponds to SystemRecordIDEnum::Disk
-        requesterApiKey.user_id
-      );
+    const canAccessDisk = await canUserAccessSystemPermissionService(
+      `${IDPrefixEnum.Disk}${disk_id}` as SystemResourceID, // Construct SystemResourceID for record
+      requesterApiKey.user_id,
+      org_id
+    );
 
-      if (
-        !resourcePermissions.includes(SystemPermissionType.VIEW) &&
-        !tablePermissions.includes(SystemPermissionType.VIEW)
-      ) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
+    if (!canAccessDisk && !isOwner) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
+
+    // Determine permission_previews using the actual permission service
+    const permissionPreviews = isOwner
+      ? [
+          SystemPermissionType.CREATE,
+          SystemPermissionType.EDIT,
+          SystemPermissionType.DELETE,
+          SystemPermissionType.VIEW,
+          SystemPermissionType.INVITE,
+        ]
+      : await Promise.resolve().then(async () => {
+          // Use Promise.resolve().then for async operations
+          const recordPermissions = await checkSystemPermissionsService(
+            `${IDPrefixEnum.Disk}${disk_id}` as SystemResourceID,
+            requesterApiKey.user_id,
+            org_id
+          );
+          const tablePermissions = await checkSystemPermissionsService(
+            `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+            requesterApiKey.user_id,
+            org_id
+          );
+          return Array.from(
+            new Set([...recordPermissions, ...tablePermissions])
+          );
+        });
 
     // Cast to DiskFE and redact sensitive fields based on permissions
     const diskFE: DiskFE = {
       ...disk,
-      permission_previews: isOwner
-        ? [
-            SystemPermissionType.CREATE,
-            SystemPermissionType.EDIT,
-            SystemPermissionType.DELETE,
-            SystemPermissionType.VIEW,
-            SystemPermissionType.INVITE,
-          ]
-        : await checkSystemPermissions(
-            org_id,
-            `DiskID_${disk_id}`,
-            requesterApiKey.user_id
-          ).then((perms) =>
-            checkSystemPermissions(
-              org_id,
-              "Table_DISKS",
-              requesterApiKey.user_id
-            ).then((tablePerms) =>
-              Array.from(new Set([...perms, ...tablePerms]))
-            )
-          ), // Combine record and table permissions
+      permission_previews: permissionPreviews,
     };
 
     // Redaction logic, replicating Rust's DiskFE::redacted
@@ -453,8 +864,18 @@ export async function getDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: Implement label redaction logic (requiring `redact_label` equivalent)
-    diskFE.labels = []; // Placeholder for labels after redaction
+    const diskLabelsRaw = await db.queryDrive(
+      org_id,
+      `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+      [disk.id]
+    );
+    diskFE.labels = (
+      await Promise.all(
+        diskLabelsRaw.map((row: any) =>
+          redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+        )
+      )
+    ).filter((label): label is string => label !== null);
 
     return reply.status(200).send(createApiResponse(diskFE));
   } catch (error) {
@@ -499,11 +920,20 @@ export async function listDisksHandler(
       );
     }
 
-    const hasTablePermission = await checkSystemPermissions(
-      org_id,
-      "Table_DISKS",
-      requesterApiKey.user_id
+    const hasTablePermission = await checkSystemPermissionsService(
+      `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+      requesterApiKey.user_id,
+      org_id
     ).then((perms) => perms.includes(SystemPermissionType.VIEW));
+
+    // If not owner and no table view permission, return forbidden
+    if (!isOwner && !hasTablePermission) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
+    }
 
     // SQL query for listing disks. Filters and pagination need to be handled carefully.
     // The Rust code iterates through a StableVec and then filters. For SQLite,
@@ -530,13 +960,13 @@ export async function listDisksHandler(
       }
     }
 
-    // TODO: Implement filtering based on `body.filters`. This requires parsing the filter string.
+    // TODO: FEATURE: Implement filtering based on `body.filters`. This requires parsing the filter string.
     // For now, assuming no filters are applied to the SQL directly.
     if (body.filters && body.filters.length > 0) {
       // This is a placeholder. Real filtering logic would be complex.
       // E.g., `sql += " WHERE name LIKE ?"`, `params.push(`%${body.filters}%`)`
       request.log.warn(
-        `Filtering by '${body.filters}' is not yet implemented.`
+        `[TODO: FEATURE] Filtering by '${body.filters}' is not yet implemented.`
       );
     }
 
@@ -585,19 +1015,21 @@ export async function listDisksHandler(
                 SystemPermissionType.VIEW,
                 SystemPermissionType.INVITE,
               ]
-            : await checkSystemPermissions(
-                org_id,
-                `DiskID_${disk.id}`,
-                requesterApiKey.user_id
-              ).then((perms) =>
-                checkSystemPermissions(
-                  org_id,
-                  "Table_DISKS",
-                  requesterApiKey.user_id
-                ).then((tablePerms) =>
-                  Array.from(new Set([...perms, ...tablePerms]))
-                )
-              ),
+            : await Promise.resolve().then(async () => {
+                const recordPermissions = await checkSystemPermissionsService(
+                  `${IDPrefixEnum.Disk}${disk.id}` as SystemResourceID,
+                  requesterApiKey.user_id,
+                  org_id
+                );
+                const tablePermissions = await checkSystemPermissionsService(
+                  `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+                  requesterApiKey.user_id,
+                  org_id
+                );
+                return Array.from(
+                  new Set([...recordPermissions, ...tablePermissions])
+                );
+              }),
         };
         // Apply redaction
         if (
@@ -607,7 +1039,18 @@ export async function listDisksHandler(
           diskFE.auth_json = undefined;
           diskFE.private_note = undefined;
         }
-        diskFE.labels = []; // TODO: Implement label redaction
+        const listDiskLabelsRaw = await db.queryDrive(
+          org_id,
+          `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+          [disk.id]
+        );
+        diskFE.labels = (
+          await Promise.all(
+            listDiskLabelsRaw.map((row: any) =>
+              redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+            )
+          )
+        ).filter((label): label is string => label !== null);
         return diskFE;
       })
     );
@@ -632,35 +1075,6 @@ export async function listDisksHandler(
   }
 }
 
-// Helper for validating ListDisksRequestBody
-function validateListDisksRequest(body: IRequestListDisks): {
-  valid: boolean;
-  error?: string;
-} {
-  if (body.filters && body.filters.length > 256) {
-    return {
-      valid: false,
-      error: "Filters must be 256 characters or less",
-    };
-  }
-  if (
-    body.page_size !== undefined &&
-    (body.page_size === 0 || body.page_size > 1000)
-  ) {
-    return {
-      valid: false,
-      error: "Page size must be between 1 and 1000",
-    };
-  }
-  if (body.cursor && body.cursor.length > 256) {
-    return { valid: false, error: "Cursor must be 256 characters or less" };
-  }
-  if (body.cursor && body.cursor.length > 256) {
-    return { valid: false, error: "Cursor must be 256 characters or less" };
-  }
-  return { valid: true };
-}
-
 export async function createDiskHandler(
   request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestCreateDisk }>,
   reply: FastifyReply
@@ -682,7 +1096,7 @@ export async function createDiskHandler(
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
     // Validate request body
-    const validation = validateCreateDiskRequest(body);
+    const validation = await validateCreateDiskRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -692,20 +1106,19 @@ export async function createDiskHandler(
       );
     }
 
+    const hasCreatePermission = await checkSystemPermissionsService(
+      `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+      requesterApiKey.user_id,
+      org_id
+    ).then((perms) => perms.includes(SystemPermissionType.CREATE));
+
     // Check create permission if not owner
-    if (!isOwner) {
-      const permissions = await checkSystemPermissions(
-        org_id,
-        "Table_DISKS",
-        requesterApiKey.user_id
-      );
-      if (!permissions.includes(SystemPermissionType.CREATE)) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
+    if (!isOwner && !hasCreatePermission) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
 
     const prestate = snapshotPrestate(); // For state diffing/auditing
@@ -738,8 +1151,8 @@ export async function createDiskHandler(
     // Store the disk in the database
     await dbHelpers.transaction("drive", org_id, (database) => {
       const stmt = database.prepare(
-        `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, labels, created_at, root_folder_id, trash_folder_id, external_id, external_payload, endpoint)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder_id, trash_folder_id, external_id, external_payload, endpoint)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       stmt.run(
         newDisk.id,
@@ -748,7 +1161,6 @@ export async function createDiskHandler(
         newDisk.private_note || null,
         newDisk.public_note || null,
         newDisk.auth_json || null,
-        JSON.stringify(newDisk.labels), // Store labels as JSON string
         newDisk.created_at,
         newDisk.root_folder,
         newDisk.trash_folder,
@@ -758,13 +1170,13 @@ export async function createDiskHandler(
       );
     });
 
-    await updateExternalIdMapping(
+    await updateExternalIDMapping(
       org_id,
-      undefined, // Old external ID is undefined for creation
+      undefined,
       newDisk.external_id,
       newDisk.id
     );
-    await markClaimedUuid(org_id, newDisk.id);
+    await claimUUID(org_id, newDisk.id);
 
     snapshotPoststate(
       prestate,
@@ -773,13 +1185,29 @@ export async function createDiskHandler(
 
     const diskFE: DiskFE = {
       ...newDisk,
-      permission_previews: [
-        SystemPermissionType.CREATE,
-        SystemPermissionType.EDIT,
-        SystemPermissionType.DELETE,
-        SystemPermissionType.VIEW,
-        SystemPermissionType.INVITE,
-      ],
+      permission_previews: isOwner
+        ? [
+            SystemPermissionType.CREATE,
+            SystemPermissionType.EDIT,
+            SystemPermissionType.DELETE,
+            SystemPermissionType.VIEW,
+            SystemPermissionType.INVITE,
+          ]
+        : await Promise.resolve().then(async () => {
+            const recordPermissions = await checkSystemPermissionsService(
+              `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+              requesterApiKey.user_id,
+              org_id
+            );
+            const tablePermissions = await checkSystemPermissionsService(
+              `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+              requesterApiKey.user_id,
+              org_id
+            );
+            return Array.from(
+              new Set([...recordPermissions, ...tablePermissions])
+            );
+          }),
     };
     // Redaction logic, replicating Rust's DiskFE::redacted
     if (
@@ -789,7 +1217,18 @@ export async function createDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    diskFE.labels = []; // Placeholder for labels after redaction
+    const createDiskLabelsRaw = await db.queryDrive(
+      org_id,
+      `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+      [newDisk.id]
+    );
+    diskFE.labels = (
+      await Promise.all(
+        createDiskLabelsRaw.map((row: any) =>
+          redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+        )
+      )
+    ).filter((label): label is string => label !== null);
 
     return reply.status(200).send(createApiResponse(diskFE));
   } catch (error) {
@@ -824,7 +1263,7 @@ export async function updateDiskHandler(
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
     // Validate request body
-    const validation = validateUpdateDiskRequest(body);
+    const validation = await validateUpdateDiskRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -853,29 +1292,30 @@ export async function updateDiskHandler(
     }
     const existingDisk = existingDisks[0] as Disk;
 
-    // Check update permission if not owner
-    if (!isOwner) {
-      const tablePermissions = await checkSystemPermissions(
-        org_id,
-        "Table_DISKS",
-        requesterApiKey.user_id
+    const hasEditPermission = await Promise.resolve().then(async () => {
+      const recordPermissions = await checkSystemPermissionsService(
+        `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+        requesterApiKey.user_id,
+        org_id
       );
-      const resourcePermissions = await checkSystemPermissions(
-        org_id,
-        `DiskID_${diskId}`,
-        requesterApiKey.user_id
+      const tablePermissions = await checkSystemPermissionsService(
+        `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+        requesterApiKey.user_id,
+        org_id
       );
+      return (
+        recordPermissions.includes(SystemPermissionType.EDIT) ||
+        tablePermissions.includes(SystemPermissionType.EDIT)
+      );
+    });
 
-      if (
-        !resourcePermissions.includes(SystemPermissionType.EDIT) &&
-        !tablePermissions.includes(SystemPermissionType.EDIT)
-      ) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
+    // Check update permission if not owner
+    if (!isOwner && !hasEditPermission) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
 
     const prestate = snapshotPrestate(); // For state diffing/auditing
@@ -896,14 +1336,13 @@ export async function updateDiskHandler(
       values.push(body.private_note);
     }
     if (body.auth_json !== undefined) {
-      // TODO: Re-validate auth_json based on `existingDisk.disk_type`
       updates.push("auth_json = ?");
       values.push(body.auth_json);
     }
     if (body.external_id !== undefined) {
       updates.push("external_id = ?");
       values.push(body.external_id);
-      await updateExternalIdMapping(
+      await updateExternalIDMapping(
         org_id,
         existingDisk.external_id,
         body.external_id,
@@ -961,19 +1400,21 @@ export async function updateDiskHandler(
             SystemPermissionType.VIEW,
             SystemPermissionType.INVITE,
           ]
-        : await checkSystemPermissions(
-            org_id,
-            `DiskID_${diskId}`,
-            requesterApiKey.user_id
-          ).then((perms) =>
-            checkSystemPermissions(
-              org_id,
-              "Table_DISKS",
-              requesterApiKey.user_id
-            ).then((tablePerms) =>
-              Array.from(new Set([...perms, ...tablePerms]))
-            )
-          ),
+        : await Promise.resolve().then(async () => {
+            const recordPermissions = await checkSystemPermissionsService(
+              `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+              requesterApiKey.user_id,
+              org_id
+            );
+            const tablePermissions = await checkSystemPermissionsService(
+              `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+              requesterApiKey.user_id,
+              org_id
+            );
+            return Array.from(
+              new Set([...recordPermissions, ...tablePermissions])
+            );
+          }),
     };
     // Redaction logic
     if (
@@ -983,7 +1424,18 @@ export async function updateDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    diskFE.labels = []; // Placeholder for labels after redaction
+    const updateDiskLabelsRaw = await db.queryDrive(
+      org_id,
+      `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+      [updatedDisk.id]
+    );
+    diskFE.labels = (
+      await Promise.all(
+        updateDiskLabelsRaw.map((row: any) =>
+          redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+        )
+      )
+    ).filter((label): label is string => label !== null);
 
     return reply.status(200).send(createApiResponse(diskFE));
   } catch (error) {
@@ -1032,29 +1484,30 @@ export async function deleteDiskHandler(
 
     const diskId = body.id;
 
-    // Check delete permission if not owner
-    if (!isOwner) {
-      const tablePermissions = await checkSystemPermissions(
-        org_id,
-        "Table_DISKS",
-        requesterApiKey.user_id
+    const hasDeletePermission = await Promise.resolve().then(async () => {
+      const recordPermissions = await checkSystemPermissionsService(
+        `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+        requesterApiKey.user_id,
+        org_id
       );
-      const resourcePermissions = await checkSystemPermissions(
-        org_id,
-        `DiskID_${diskId}`,
-        requesterApiKey.user_id
+      const tablePermissions = await checkSystemPermissionsService(
+        `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+        requesterApiKey.user_id,
+        org_id
       );
+      return (
+        recordPermissions.includes(SystemPermissionType.DELETE) ||
+        tablePermissions.includes(SystemPermissionType.DELETE)
+      );
+    });
 
-      if (
-        !resourcePermissions.includes(SystemPermissionType.DELETE) &&
-        !tablePermissions.includes(SystemPermissionType.DELETE)
-      ) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
+    // Check delete permission if not owner
+    if (!isOwner && !hasDeletePermission) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
 
     // Get disk for external ID cleanup before deleting
@@ -1073,7 +1526,7 @@ export async function deleteDiskHandler(
     });
 
     if (externalIdToDelete) {
-      await updateExternalIdMapping(
+      await updateExternalIDMapping(
         org_id,
         externalIdToDelete,
         undefined, // New external ID is undefined for deletion
@@ -1101,4 +1554,34 @@ export async function deleteDiskHandler(
       })
     );
   }
+}
+
+// Helper for validating ListDisksRequestBody
+function validateListDisksRequest(body: IRequestListDisks): {
+  valid: boolean;
+  error?: string;
+} {
+  if (body.filters && body.filters.length > 256) {
+    return {
+      valid: false,
+      error: "Filters must be 256 characters or less",
+    };
+  }
+  if (
+    body.page_size !== undefined &&
+    (body.page_size === 0 || body.page_size > 1000)
+  ) {
+    return {
+      valid: false,
+      error: "Page size must be between 1 and 1000",
+    };
+  }
+  if (body.cursor && body.cursor.length > 256) {
+    return { valid: false, error: "Cursor must be 256 characters or less" };
+  }
+  // The original Rust code had this line twice, keeping it for parity although redundant.
+  if (body.cursor && body.cursor.length > 256) {
+    return { valid: false, error: "Cursor must be 256 characters or less" };
+  }
+  return { valid: true };
 }

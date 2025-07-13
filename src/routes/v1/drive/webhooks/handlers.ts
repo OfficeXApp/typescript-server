@@ -15,10 +15,18 @@ import {
   IResponseCreateWebhook,
   IResponseUpdateWebhook,
   SortDirection,
+  SystemPermissionType, // Import SystemPermissionType
+  SystemResourceID, // Import SystemResourceID
+  SystemTableValueEnum, // Import SystemTableValueEnum
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
 import { OrgIdParams } from "../../types";
+import {
+  canUserAccessSystemPermission, // Import the system permission checker
+  hasSystemManagePermission, // Import for manage permission check
+  checkSystemPermissions,
+} from "../../../../services/permissions/system"; // Import relevant permission services
 
 // Helper function to validate webhook event
 function isValidWebhookEvent(event: string): boolean {
@@ -124,7 +132,7 @@ export async function getWebhookHandler(
 
     const webhookId = request.params.webhook_id;
 
-    // Get the webhook from database
+    // Retrieve the webhook from the database
     const webhooks = await db.queryDrive(
       request.params.org_id,
       "SELECT * FROM webhooks WHERE id = ?",
@@ -142,8 +150,20 @@ export async function getWebhookHandler(
 
     const webhook = webhooks[0] as Webhook;
 
-    // TODO: Add permission checks similar to Rust implementation
-    // For now, we'll assume the requester has permission if they're authenticated
+    const hasPermission = await canUserAccessSystemPermission(
+      webhook.id as SystemResourceID, // The webhook ID is a SystemResourceID::Record
+      requesterApiKey.user_id,
+      request.params.org_id
+    );
+
+    if (!hasPermission) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to view this webhook.",
+        })
+      );
+    }
 
     return reply.status(200).send(createApiResponse(webhook));
   } catch (error) {
@@ -182,6 +202,22 @@ export async function listWebhooksHandler(
         .send(
           createApiResponse(undefined, { code: 401, message: "Unauthorized" })
         );
+    }
+
+    // PERMIT: Check if the user has VIEW permission on the Webhooks table
+    const hasPermission = await checkSystemPermissions(
+      `TABLE_${SystemTableValueEnum.WEBHOOKS}` as SystemResourceID,
+      requesterApiKey.user_id,
+      request.params.org_id
+    );
+
+    if (!hasPermission.includes(SystemPermissionType.VIEW)) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to list webhooks.",
+        })
+      );
     }
 
     const {
@@ -254,6 +290,22 @@ export async function createWebhookHandler(
         .send(
           createApiResponse(undefined, { code: 401, message: "Unauthorized" })
         );
+    }
+
+    // PERMIT: Check if the user has CREATE permission on the Webhooks table
+    const hasPermission = await checkSystemPermissions(
+      `TABLE_${SystemTableValueEnum.WEBHOOKS}` as SystemResourceID,
+      requesterApiKey.user_id,
+      request.params.org_id
+    );
+
+    if (!hasPermission.includes(SystemPermissionType.CREATE)) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to create webhooks.",
+        })
+      );
     }
 
     const body = request.body;
@@ -376,6 +428,22 @@ export async function updateWebhookHandler(
 
     const existingWebhook = webhooks[0] as Webhook;
 
+    // PERMIT: Check if the user has EDIT permission on this specific webhook record
+    const hasPermission = await canUserAccessSystemPermission(
+      existingWebhook.id as SystemResourceID, // The webhook ID is a SystemResourceID::Record
+      requesterApiKey.user_id,
+      request.params.org_id
+    );
+
+    if (!hasPermission) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to update this webhook.",
+        })
+      );
+    }
+
     // Build update query dynamically
     const updates: string[] = [];
     const values: any[] = [];
@@ -481,6 +549,40 @@ export async function deleteWebhookHandler(
         createApiResponse(undefined, {
           code: 400,
           message: validation.error!,
+        })
+      );
+    }
+
+    // Get existing webhook to check permissions
+    const webhooks = await db.queryDrive(
+      request.params.org_id,
+      "SELECT id FROM webhooks WHERE id = ?",
+      [body.id]
+    );
+
+    if (!webhooks || webhooks.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: "Webhook not found",
+        })
+      );
+    }
+
+    const existingWebhookId = webhooks[0].id;
+
+    // PERMIT: Check if the user has DELETE permission on this specific webhook record
+    const hasPermission = await canUserAccessSystemPermission(
+      existingWebhookId as SystemResourceID, // The webhook ID is a SystemResourceID::Record
+      requesterApiKey.user_id,
+      request.params.org_id
+    );
+
+    if (!hasPermission) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to delete this webhook.",
         })
       );
     }

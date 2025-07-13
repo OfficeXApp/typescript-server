@@ -12,7 +12,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
-import { OrgIdParams } from "../../types";
+import { getDriveOwnerId, OrgIdParams } from "../../types";
 
 // Type definitions for route params
 interface GetApiKeyParams extends OrgIdParams {
@@ -134,7 +134,7 @@ export async function getApiKeyHandler(
     }
 
     const apiKey = apiKeys[0] as ApiKey;
-    const ownerId = "check_db_owner";
+    const ownerId = await getDriveOwnerId(request.params.org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
     const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
 
