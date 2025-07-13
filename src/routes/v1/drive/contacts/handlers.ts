@@ -1,6 +1,4 @@
 // src/routes/v1/drive/contacts/handlers.ts
-
-// src/routes/v1/drive/contacts/handlers.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -24,13 +22,20 @@ import {
   SystemPermissionType,
   ApiKeyID,
   ApiKey,
+  SystemResourceID,
+  SystemTableValueEnum,
+  GranteeID,
+  GroupID, // Added GroupID import
+  GroupInviteID, // Added GroupInviteID import
+  GroupRole, // Added GroupRole import
+  GroupInviteeID, // Added GroupInviteeID import
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import {
   authenticateRequest,
   generateApiKey,
   seed_phrase_to_wallet_addresses,
-} from "../../../../services/auth"; // Assuming seed_phrase_to_wallet_addresses is in auth service
+} from "../../../../services/auth";
 import {
   validateEmail,
   validateEvmAddress,
@@ -41,6 +46,20 @@ import {
   validateUserId,
 } from "../../../../services/validation";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
+import {
+  checkSystemPermissions,
+  checkPermissionsTableAccess,
+  mapDbRowToSystemPermission,
+} from "../../../../services/permissions/system";
+import { PUBLIC_GRANTEE_ID_STRING } from "../../../../services/permissions/directory";
+import {
+  getGroupById,
+  isUserOnLocalGroup, // Added for local group membership check
+  getGroupInviteById, // Added for fetching group invite details
+  extractPlainGroupId, // Added to extract plain group ID
+  extractPlainUserId, // Added to extract plain user ID
+  extractPlainGroupInviteId, // Added to extract plain group invite ID
+} from "../../../../services/groups"; // Import group services
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {
@@ -49,9 +68,6 @@ interface GetContactParams extends OrgIdParams {
 
 // --- Utility Functions (Mimicking Rust's `Contact::redacted` and permission checks) ---
 
-// This should ideally be a method on the Contact object if we were building a full ORM.
-// For now, it's a standalone function mimicking the Rust `redacted` behavior.
-// TODO: REDACT Refactor into a class method or a separate service for Contact if possible within TS structure.
 async function redactContact(
   contact: Contact,
   requesterUserId: UserID,
@@ -61,48 +77,114 @@ async function redactContact(
 
   const ownerId = await getDriveOwnerId(orgId);
   const isOwner = requesterUserId === ownerId;
-  const isOwned = requesterUserId === contact.id;
 
-  // Simulate `check_system_permissions`
-  // TODO: PERMIT Implement actual permission checks based on your SQLite schema and data.
-  // For now, return a mock set of permissions.
-  const permissionPreviews: SystemPermissionType[] = [];
-  if (isOwner || isOwned) {
-    permissionPreviews.push(
-      SystemPermissionType.EDIT,
-      SystemPermissionType.VIEW
-    );
-  } else {
-    permissionPreviews.push(SystemPermissionType.VIEW); // Default view for non-owners/non-self
-  }
+  // Derive permission_previews based on system permissions for this specific contact record
+  // and for the overall 'contacts' table.
+  const plainContactId = extractPlainUserId(contact.id);
+  const recordResourceId: SystemResourceID =
+    `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+  const tableResourceId: SystemResourceID =
+    `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
+
+  // Retrieve permissions for the specific contact record
+  const recordPermissions = await checkSystemPermissions(
+    recordResourceId,
+    requesterUserId, // Check permissions for the requester
+    orgId
+  );
+  // Retrieve permissions for the 'CONTACTS' table
+  const tablePermissions = await checkSystemPermissions(
+    tableResourceId,
+    requesterUserId, // Check permissions for the requester
+    orgId
+  );
+
+  const permissionPreviews = Array.from(
+    new Set([...recordPermissions, ...tablePermissions])
+  );
   redactedContact.permission_previews = permissionPreviews;
 
-  // Filter labels (mocking redact_label behavior)
-  // TODO: REDACT Implement actual label redaction logic based on permissions/ownership.
   redactedContact.labels = contact.labels;
 
-  // Filter group previews (mocking redact_group_previews behavior)
-  // TODO: GROUP Fetch real group data and filter based on permissions.
-  redactedContact.group_previews = []; // Sensible placeholder
+  // Fetch real group data and filter based on permissions.
+  // We need to query the `contact_groups` join table to get group IDs associated with this contact.
+  const plainContactIdForGroups = extractPlainUserId(contact.id);
+  const contactGroupsQuery = `
+    SELECT group_id FROM contact_groups WHERE user_id = ?;
+  `;
+  const contactGroupRows: { group_id: string }[] = await db.queryDrive(
+    orgId,
+    contactGroupsQuery,
+    [plainContactIdForGroups]
+  );
+
+  const groupPreviews: ContactGroupPreview[] = [];
+  for (const row of contactGroupRows) {
+    const groupId: GroupID = `${IDPrefixEnum.Group}${row.group_id}` as GroupID;
+    const group = await getGroupById(groupId, orgId);
+
+    if (group) {
+      // Find the specific invite for this user within this group
+      const memberInviteQuery = `
+        SELECT id, role FROM group_invites
+        WHERE group_id = ? AND invitee_type = 'USER' AND invitee_id = ?;
+      `;
+      const memberInviteRows: { id: string; role: string }[] =
+        await db.queryDrive(orgId, memberInviteQuery, [
+          extractPlainGroupId(group.id),
+          plainContactIdForGroups,
+        ]);
+
+      let is_admin = false;
+      let invite_id: GroupInviteID | undefined;
+
+      if (memberInviteRows.length > 0) {
+        const inviteRow = memberInviteRows[0];
+        is_admin = inviteRow.role === GroupRole.ADMIN;
+        invite_id =
+          `${IDPrefixEnum.GroupInvite}${inviteRow.id}` as GroupInviteID;
+      } else {
+        // If no direct invite found, check if the user is the owner of the group
+        if (group.owner === contact.id) {
+          is_admin = true;
+          // For owner, there might not be an explicit invite record, generate a placeholder invite ID
+          invite_id = `${IDPrefixEnum.GroupInvite}OWNER_DEFAULT`; // Placeholder
+        }
+      }
+
+      groupPreviews.push({
+        group_id: group.id,
+        invite_id: invite_id || ("" as GroupInviteID), // Provide a default empty string or handle undefined in FE
+        is_admin,
+        group_name: group.name,
+        group_avatar: group.avatar,
+      });
+    }
+  }
+  redactedContact.group_previews = groupPreviews;
 
   // 2nd most sensitive: redeem_code, private_note
-  if (!isOwner && !permissionPreviews.includes(SystemPermissionType.EDIT)) {
+  // Access to these is granted if the requester is the owner OR has EDIT permission on the record.
+  const hasEditPermissionOnContact = permissionPreviews.includes(
+    SystemPermissionType.EDIT
+  );
+
+  if (!isOwner && !hasEditPermissionOnContact) {
     redactedContact.redeem_code = undefined;
     redactedContact.private_note = undefined;
   }
 
   // 3rd most sensitive: notifications_url, from_placeholder_user_id
-  if (
-    !isOwner &&
-    !permissionPreviews.includes(SystemPermissionType.EDIT) &&
-    !isOwned
-  ) {
+  // Access to these is granted if the requester is the owner OR has EDIT permission on the record OR is the contact itself.
+  const isOwned = requesterUserId === contact.id;
+  if (!isOwner && !hasEditPermissionOnContact && !isOwned) {
     redactedContact.notifications_url = "";
     redactedContact.from_placeholder_user_id = "";
   }
 
   return redactedContact;
 }
+
 // --- Handlers ---
 
 export async function getContactHandler(
@@ -112,7 +194,6 @@ export async function getContactHandler(
   try {
     const { org_id, contact_id } = request.params;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -122,11 +203,11 @@ export async function getContactHandler(
         );
     }
 
-    // Get the contact from the specific drive DB
+    const plainContactId = extractPlainUserId(contact_id);
     const contacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
-      [contact_id]
+      [plainContactId]
     );
 
     if (!contacts || contacts.length === 0) {
@@ -139,22 +220,33 @@ export async function getContactHandler(
     }
 
     const contact = contacts[0] as Contact;
+    contact.id = `${IDPrefixEnum.User}${contact.id}` as UserID;
+
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    // TODO:  PERMIT Implement actual permission checks based on `permissions_system` table.
-    // For now, simulate the Rust logic: if not owner, check for 'View' permission.
-    let hasPermission = isOwner;
-    if (!isOwner) {
-      // Simulate check_system_permissions logic for a specific contact or the entire contacts table
-      // In a real scenario, this would involve complex DB queries joining permissions_system and contacts.
-      // For now, we'll assume a simplified check.
-      const canViewRecord = true; // TODO: PERMIT Query permissions_system table for SystemPermissionType.View on this specific contact_id
-      const canViewTable = true; // TODO: PERMIT Query permissions_system table for SystemPermissionType.View on 'CONTACTS' table
-      hasPermission = canViewRecord || canViewTable;
-    }
+    const recordResourceId: SystemResourceID =
+      `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+    const contactRecordPermissions = await checkSystemPermissions(
+      recordResourceId,
+      requesterApiKey.user_id,
+      org_id
+    );
 
-    if (!hasPermission) {
+    const contactsTableResourceId: SystemResourceID =
+      `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
+    const contactsTablePermissions = await checkSystemPermissions(
+      contactsTableResourceId,
+      requesterApiKey.user_id,
+      org_id
+    );
+
+    const hasViewPermission =
+      isOwner ||
+      contactRecordPermissions.includes(SystemPermissionType.VIEW) ||
+      contactsTablePermissions.includes(SystemPermissionType.VIEW);
+
+    if (!hasViewPermission) {
       return reply
         .status(403)
         .send(
@@ -162,7 +254,6 @@ export async function getContactHandler(
         );
     }
 
-    // Redact sensitive fields based on requester's permissions and ownership
     const castFeContact = await redactContact(
       contact,
       requesterApiKey.user_id,
@@ -188,7 +279,6 @@ export async function listContactsHandler(
   try {
     const { org_id } = request.params;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -200,7 +290,6 @@ export async function listContactsHandler(
 
     const requestBody = request.body;
 
-    // Validate request body (similar to Rust's `validate_body` on `ListContactsRequestBody`)
     if (requestBody.filters && requestBody.filters.length > 256) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -231,9 +320,29 @@ export async function listContactsHandler(
     }
 
     const direction = requestBody.direction || SortDirection.DESC;
-    const filters = requestBody.filters || ""; // Use an empty string if no filters
+    const filters = requestBody.filters || "";
 
-    // Query for total count (might be restricted by permissions)
+    const ownerId = await getDriveOwnerId(org_id);
+    const isOwner = requesterApiKey.user_id === ownerId;
+
+    const hasViewTablePermission = await checkPermissionsTableAccess(
+      requesterApiKey.user_id,
+      SystemPermissionType.VIEW,
+      org_id
+    );
+
+    if (!hasViewTablePermission && !isOwner) {
+      return reply.status(200).send(
+        createApiResponse<IResponseListContacts["ok"]["data"]>({
+          items: [],
+          page_size: 0,
+          total: 0,
+          direction: direction,
+          cursor: null,
+        })
+      );
+    }
+
     let totalCountResult;
     try {
       totalCountResult = await db.queryDrive(
@@ -242,7 +351,6 @@ export async function listContactsHandler(
       );
     } catch (e) {
       request.log.error("Error querying total contacts count:", e);
-      // Fallback to 0 or re-throw based on error handling policy
       totalCountResult = [{ count: 0 }];
     }
     const totalCount = totalCountResult[0].count;
@@ -263,7 +371,6 @@ export async function listContactsHandler(
     const queryParams: any[] = [];
     let whereClauses: string[] = [];
 
-    // Add filtering
     if (filters) {
       whereClauses.push(
         `(name LIKE ? OR email LIKE ? OR icp_principal LIKE ?)`
@@ -275,10 +382,8 @@ export async function listContactsHandler(
       query += ` WHERE ${whereClauses.join(" AND ")}`;
     }
 
-    // Add ordering
-    query += ` ORDER BY created_at ${direction || SortDirection.ASC}`;
+    query += ` ORDER BY created_at ${direction}`;
 
-    // Add pagination (LIMIT and OFFSET based on cursor)
     let offset = 0;
     if (requestBody.cursor) {
       offset = parseInt(requestBody.cursor, 10);
@@ -296,15 +401,10 @@ export async function listContactsHandler(
 
     const rawContacts = await db.queryDrive(org_id, query, queryParams);
 
-    // Apply redaction and permission checks to each contact
     const processedContacts: ContactFE[] = [];
-    for (const contact of rawContacts) {
-      // TODO: PERMIT In a real scenario, implement `check_system_permissions` to determine if `requesterApiKey.user_id`
-      // has VIEW permission for this specific contact record OR the overall 'contacts' table.
-      // For now, we'll assume everyone can view if they pass the initial auth.
-      const canView = true; // Placeholder for actual permission check.
-
-      if (canView) {
+    if (hasViewTablePermission || isOwner) {
+      for (const contact of rawContacts) {
+        contact.id = `${IDPrefixEnum.User}${contact.id}` as UserID;
         processedContacts.push(
           await redactContact(
             contact as Contact,
@@ -313,23 +413,41 @@ export async function listContactsHandler(
           )
         );
       }
+    } else {
+      for (const contact of rawContacts) {
+        contact.id = `${IDPrefixEnum.User}${contact.id}` as UserID;
+
+        const contactRecordResourceId: SystemResourceID =
+          `${IDPrefixEnum.User}${extractPlainUserId(contact.id)}` as SystemResourceID;
+        const contactRecordPermissions = await checkSystemPermissions(
+          contactRecordResourceId,
+          requesterApiKey.user_id,
+          org_id
+        );
+
+        if (contactRecordPermissions.includes(SystemPermissionType.VIEW)) {
+          processedContacts.push(
+            await redactContact(
+              contact as Contact,
+              requesterApiKey.user_id,
+              org_id
+            )
+          );
+        }
+      }
     }
 
-    // Determine next cursor
     const nextCursor =
       processedContacts.length < pageSize
         ? null
         : (offset + pageSize).toString();
 
-    // Determine total count to return (considering permissions, similar to Rust's logic)
-    // For simplicity, we'll return the actual total count if the user is authenticated.
-    // In a more complex scenario, this would depend on the `has_table_permission` logic.
-    let totalCountToReturn = totalCount;
+    const totalCountToReturn = processedContacts.length;
 
     return reply.status(200).send(
       createApiResponse<IResponseListContacts["ok"]["data"]>({
         items: processedContacts,
-        page_size: processedContacts.length, // Actual items returned
+        page_size: processedContacts.length,
         total: totalCountToReturn,
         direction: direction,
         cursor: nextCursor,
@@ -353,7 +471,6 @@ export async function createContactHandler(
   try {
     const { org_id } = request.params;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -365,7 +482,6 @@ export async function createContactHandler(
 
     const createReq = request.body;
 
-    // Validate request body (mimicking Rust's `validate_body`)
     if (createReq.id && !createReq.id.startsWith(IDPrefixEnum.User)) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -383,7 +499,6 @@ export async function createContactHandler(
         })
       );
     }
-    // TODO: VALIDATE  Add more robust ICP principal validation (e.g., using @dfinity/principal)
     if (!validateIdString(createReq.name)) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -473,7 +588,6 @@ export async function createContactHandler(
       );
     }
 
-    // Seed phrase validation and address derivation
     if (createReq.seed_phrase) {
       try {
         const derivedAddresses = await seed_phrase_to_wallet_addresses(
@@ -511,28 +625,31 @@ export async function createContactHandler(
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    // Check create permission if not owner
-    if (!isOwner) {
-      // TODO: PERMIT Implement actual permission check for SystemTableEnum.Contacts with SystemPermissionType.Create
-      const hasCreatePermission = true; // Placeholder for actual permission check
-      if (!hasCreatePermission) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
+    const hasCreatePermission = await checkPermissionsTableAccess(
+      requesterApiKey.user_id,
+      SystemPermissionType.CREATE,
+      org_id
+    );
+
+    if (!hasCreatePermission) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
 
+    // Generate contactId based on ICP principal if not provided
     const contactId: UserID =
       (createReq.id as UserID) ||
-      `${IDPrefixEnum.User}${createReq.icp_principal.replace(/[^a-zA-Z0-9]/g, "_")}`;
+      (`${IDPrefixEnum.User}${createReq.icp_principal.replace(/[^a-zA-Z0-9]/g, "_")}` as UserID);
+    const plainContactId = extractPlainUserId(contactId);
 
     // Ensure the ID is unique if it's client-provided
     const existingContact = await db.queryDrive(
       org_id,
       "SELECT id FROM contacts WHERE id = ?",
-      [contactId]
+      [plainContactId]
     );
     if (existingContact.length > 0) {
       return reply.status(409).send(
@@ -550,7 +667,7 @@ export async function createContactHandler(
       email: createReq.email || "",
       notifications_url: createReq.notifications_url || "",
       public_note: createReq.public_note || "",
-      private_note: createReq.private_note || "", // Allow null if not provided
+      private_note: createReq.private_note || "",
       evm_public_address: createReq.evm_public_address || "",
       icp_principal: createReq.icp_principal,
       seed_phrase: createReq.seed_phrase || "",
@@ -558,7 +675,7 @@ export async function createContactHandler(
       from_placeholder_user_id: createReq.is_placeholder
         ? contactId
         : undefined,
-      redeem_code: createReq.is_placeholder ? uuidv4() : undefined, // Generate if placeholder
+      redeem_code: createReq.is_placeholder ? uuidv4() : undefined,
       created_at: Date.now(),
       last_online_ms: 0,
       external_id: createReq.external_id || undefined,
@@ -571,7 +688,7 @@ export async function createContactHandler(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       stmt.run(
-        newContact.id,
+        plainContactId,
         newContact.name,
         newContact.avatar,
         newContact.email,
@@ -581,7 +698,9 @@ export async function createContactHandler(
         newContact.evm_public_address,
         newContact.icp_principal,
         newContact.seed_phrase,
-        newContact.from_placeholder_user_id,
+        newContact.from_placeholder_user_id
+          ? extractPlainUserId(newContact.from_placeholder_user_id)
+          : null,
         newContact.redeem_code,
         newContact.created_at,
         newContact.last_online_ms,
@@ -589,11 +708,91 @@ export async function createContactHandler(
         newContact.external_payload
       );
 
-      // TODO: GROUP Add the contact to the default "Everyone" group if it exists (requires a service to handle group memberships)
-      // This would involve inserting into the `contact_groups` table and potentially updating `groups` and `group_invites` tables.
+      // Add the contact to the default "Everyone" group if it exists
+      interface DefaultGroupQueryResult {
+        value?: string;
+        id?: string;
+      }
+
+      const defaultEveryoneGroupResult = database
+        .prepare(
+          `SELECT value FROM about_drive WHERE key = 'default_everyone_group_id'`
+        )
+        .get() as DefaultGroupQueryResult | undefined;
+
+      let defaultGroupId: GroupID | null = null;
+      if (defaultEveryoneGroupResult?.value) {
+        defaultGroupId = defaultEveryoneGroupResult.value as GroupID;
+      } else {
+        // Fallback: Query the groups table for a group named "Group for All" and created by the owner
+        const defaultGroupSearch = database
+          .prepare(
+            `
+          SELECT id FROM groups WHERE name = 'Group for All' AND owner_user_id = ? LIMIT 1;
+        `
+          )
+          .get(extractPlainUserId(ownerId)) as
+          | DefaultGroupQueryResult
+          | undefined;
+
+        if (defaultGroupSearch?.id) {
+          defaultGroupId =
+            `${IDPrefixEnum.Group}${defaultGroupSearch.id}` as GroupID;
+        }
+      }
+
+      if (defaultGroupId) {
+        const plainDefaultGroupId = extractPlainGroupId(defaultGroupId);
+        const newGroupInviteId: GroupInviteID =
+          `${IDPrefixEnum.GroupInvite}${uuidv4()}` as GroupInviteID;
+        const plainNewGroupInviteId =
+          extractPlainGroupInviteId(newGroupInviteId);
+
+        // Check if a member invite for this user already exists in this group
+        const existingInvite = database
+          .prepare(
+            `
+          SELECT id FROM group_invites
+          WHERE group_id = ? AND invitee_type = 'USER' AND invitee_id = ?;
+        `
+          )
+          .get(plainDefaultGroupId, plainContactId);
+
+        if (!existingInvite) {
+          // Insert into group_invites table
+          database
+            .prepare(
+              `
+            INSERT INTO group_invites (id, group_id, inviter_user_id, invitee_type, invitee_id, role, note, active_from, expires_at, created_at, last_modified_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+          `
+            )
+            .run(
+              plainNewGroupInviteId,
+              plainDefaultGroupId,
+              extractPlainUserId(ownerId), // The owner invites the new contact
+              "USER",
+              plainContactId,
+              GroupRole.MEMBER, // Default role for "Everyone" group
+              `Auto-invited to default 'Group for All' upon contact creation.`,
+              Date.now(),
+              -1, // Never expires
+              Date.now(),
+              Date.now()
+            );
+
+          // Insert into contact_groups join table
+          database
+            .prepare(
+              `
+            INSERT INTO contact_groups (user_id, group_id) VALUES (?, ?);
+          `
+            )
+            .run(plainContactId, plainDefaultGroupId);
+        }
+      }
     });
 
-    // Redact sensitive fields before sending response
     const castFeContact = await redactContact(
       newContact,
       requesterApiKey.user_id,
@@ -619,7 +818,6 @@ export async function updateContactHandler(
   try {
     const { org_id } = request.params;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -631,7 +829,6 @@ export async function updateContactHandler(
 
     const updateReq = request.body;
 
-    // Validate request body
     if (!validateUserId(updateReq.id)) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -729,11 +926,11 @@ export async function updateContactHandler(
       );
     }
 
-    // Get existing contact
+    const plainContactId = extractPlainUserId(updateReq.id);
     const contacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
-      [updateReq.id]
+      [plainContactId]
     );
 
     if (!contacts || contacts.length === 0) {
@@ -746,20 +943,38 @@ export async function updateContactHandler(
     }
 
     const existingContact = contacts[0] as Contact;
+    existingContact.id = `${IDPrefixEnum.User}${existingContact.id}` as UserID;
+
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    // Check update permission if not owner
-    if (!isOwner) {
-      // TODO: PERMIT Implement actual permission checks for SystemTableEnum.Contacts or specific contact record with SystemPermissionType.Edit
-      const hasEditPermission = true; // Placeholder for actual permission check
-      if (!hasEditPermission) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
+    const recordResourceId: SystemResourceID =
+      `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+    const contactRecordPermissions = await checkSystemPermissions(
+      recordResourceId,
+      requesterApiKey.user_id,
+      org_id
+    );
+
+    const contactsTableResourceId: SystemResourceID =
+      `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
+    const contactsTablePermissions = await checkSystemPermissions(
+      contactsTableResourceId,
+      requesterApiKey.user_id,
+      org_id
+    );
+
+    const hasEditPermission =
+      isOwner ||
+      contactRecordPermissions.includes(SystemPermissionType.EDIT) ||
+      contactsTablePermissions.includes(SystemPermissionType.EDIT);
+
+    if (!hasEditPermission) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
 
     const updates: string[] = [];
@@ -785,8 +1000,8 @@ export async function updateContactHandler(
       updates.push("public_note = ?");
       values.push(updateReq.public_note);
     }
-    // Only owner can update private_note
-    if (updateReq.private_note !== undefined && isOwner) {
+    if (updateReq.private_note !== undefined) {
+      // Allow private_note update if hasEditPermission is true (or isOwner)
       updates.push("private_note = ?");
       values.push(updateReq.private_note);
     }
@@ -812,7 +1027,7 @@ export async function updateContactHandler(
       );
     }
 
-    values.push(updateReq.id); // WHERE clause parameter
+    values.push(plainContactId);
 
     await dbHelpers.transaction("drive", org_id, (database) => {
       const stmt = database.prepare(
@@ -821,16 +1036,15 @@ export async function updateContactHandler(
       stmt.run(...values);
     });
 
-    // Fetch the updated contact to return
     const updatedContacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
-      [updateReq.id]
+      [plainContactId]
     );
 
     const updatedContact = updatedContacts[0] as Contact;
+    updatedContact.id = `${IDPrefixEnum.User}${updatedContact.id}` as UserID;
 
-    // Redact sensitive fields before sending response
     const castFeContact = await redactContact(
       updatedContact,
       requesterApiKey.user_id,
@@ -856,7 +1070,6 @@ export async function deleteContactHandler(
   try {
     const { org_id } = request.params;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -868,7 +1081,6 @@ export async function deleteContactHandler(
 
     const deleteReq = request.body;
 
-    // Validate request body
     if (!validateUserId(deleteReq.id)) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -878,11 +1090,11 @@ export async function deleteContactHandler(
       );
     }
 
-    // Get existing contact
+    const plainContactId = extractPlainUserId(deleteReq.id);
     const contacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
-      [deleteReq.id]
+      [plainContactId]
     );
 
     if (!contacts || contacts.length === 0) {
@@ -895,32 +1107,82 @@ export async function deleteContactHandler(
     }
 
     const existingContact = contacts[0] as Contact;
+    existingContact.id = `${IDPrefixEnum.User}${existingContact.id}` as UserID;
+
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    // Check delete permission if not owner
-    if (!isOwner) {
-      // TODO: PERMIT Implement actual permission checks for SystemTableEnum.Contacts or specific contact record with SystemPermissionType.Delete
-      const hasDeletePermission = true; // Placeholder for actual permission check
-      if (!hasDeletePermission) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
+    const recordResourceId: SystemResourceID =
+      `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+    const contactRecordPermissions = await checkSystemPermissions(
+      recordResourceId,
+      requesterApiKey.user_id,
+      org_id
+    );
+
+    const contactsTableResourceId: SystemResourceID =
+      `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
+    const contactsTablePermissions = await checkSystemPermissions(
+      contactsTableResourceId,
+      requesterApiKey.user_id,
+      org_id
+    );
+
+    const hasDeletePermission =
+      isOwner ||
+      contactRecordPermissions.includes(SystemPermissionType.DELETE) ||
+      contactsTablePermissions.includes(SystemPermissionType.DELETE);
+
+    if (!hasDeletePermission) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
 
     await dbHelpers.transaction("drive", org_id, (database) => {
       // Delete from contacts table
-      const stmt = database.prepare("DELETE FROM contacts WHERE id = ?");
-      stmt.run(deleteReq.id);
+      database.prepare("DELETE FROM contacts WHERE id = ?").run(plainContactId);
 
-      // TODO: GROUP Clean up related entries in `contact_groups` and `group_invites` tables.
-      // This would involve more complex SQL or a dedicated service to manage these relationships.
-      // Example:
-      // database.prepare("DELETE FROM contact_groups WHERE user_id = ?").run(deleteReq.id);
-      // database.prepare("DELETE FROM group_invites WHERE invitee_id = ?").run(deleteReq.id);
+      // Clean up related entries in `contact_groups`
+      database
+        .prepare("DELETE FROM contact_groups WHERE user_id = ?")
+        .run(plainContactId);
+
+      // Clean up related entries in `group_invites` where this user is the invitee
+      database
+        .prepare(
+          "DELETE FROM group_invites WHERE invitee_id = ? AND invitee_type = 'USER'"
+        )
+        .run(plainContactId);
+
+      // Clean up api_keys associated with this user
+      database
+        .prepare("DELETE FROM api_keys WHERE user_id = ?")
+        .run(plainContactId);
+
+      // Clean up permissions_directory where this user is grantee or granter
+      database
+        .prepare(
+          "DELETE FROM permissions_directory WHERE granted_by_user_id = ?"
+        )
+        .run(plainContactId);
+      database
+        .prepare(
+          "DELETE FROM permissions_directory WHERE grantee_id = ? AND grantee_type = 'User'"
+        )
+        .run(plainContactId);
+
+      // Clean up permissions_system where this user is grantee or granter
+      database
+        .prepare("DELETE FROM permissions_system WHERE granted_by_user_id = ?")
+        .run(plainContactId);
+      database
+        .prepare(
+          "DELETE FROM permissions_system WHERE grantee_id = ? AND grantee_type = 'User'"
+        )
+        .run(plainContactId);
     });
 
     const deletedData: IResponseDeleteContact["ok"]["data"] = {
@@ -947,7 +1209,6 @@ export async function redeemContactHandler(
   try {
     const { org_id } = request.params;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -959,7 +1220,6 @@ export async function redeemContactHandler(
 
     const redeemReq = request.body;
 
-    // Validate request body
     if (!validateUserId(redeemReq.current_user_id)) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -985,11 +1245,13 @@ export async function redeemContactHandler(
       );
     }
 
-    // Check for existence of current user contact and redeem token match
+    const currentPlainUserId = extractPlainUserId(redeemReq.current_user_id);
+    const newPlainUserId = extractPlainUserId(redeemReq.new_user_id);
+
     const currentContacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
-      [redeemReq.current_user_id]
+      [currentPlainUserId]
     );
 
     if (!currentContacts || currentContacts.length === 0) {
@@ -1002,6 +1264,7 @@ export async function redeemContactHandler(
     }
 
     const currentContact = currentContacts[0] as Contact;
+    currentContact.id = `${IDPrefixEnum.User}${currentContact.id}` as UserID;
 
     if (currentContact.redeem_code !== redeemReq.redeem_code) {
       return reply.status(400).send(
@@ -1012,119 +1275,144 @@ export async function redeemContactHandler(
       );
     }
 
-    // Perform superswap operation
-    // This is a complex operation that needs to update all references to `current_user_id` to `new_user_id`
-    // across all relevant tables (contacts.past_user_ids, api_keys.user_id, folders.created_by_user_id,
-    // files.created_by_user_id, groups.owner_user_id, group_invites.inviter_user_id, etc.).
-    // This cannot be done with a simple single SQL query and requires a dedicated service.
-    // TODO: PERMIT Implement the `superswapUserId` function that updates all relevant tables.
-    let updateCount = 0; // Placeholder for actual records updated
+    const ownerId = await getDriveOwnerId(org_id);
+    const isOwner = requesterApiKey.user_id === ownerId;
+
+    const hasInviteTablePermission = await checkPermissionsTableAccess(
+      requesterApiKey.user_id,
+      SystemPermissionType.INVITE,
+      org_id
+    );
+
+    const currentContactRecordResourceId: SystemResourceID =
+      `${IDPrefixEnum.User}${currentPlainUserId}` as SystemResourceID;
+    const currentContactRecordPermissions = await checkSystemPermissions(
+      currentContactRecordResourceId,
+      requesterApiKey.user_id,
+      org_id
+    );
+    const canEditCurrentContact = currentContactRecordPermissions.includes(
+      SystemPermissionType.EDIT
+    );
+
+    if (!isOwner && !hasInviteTablePermission && !canEditCurrentContact) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Insufficient permissions to redeem contact.",
+        })
+      );
+    }
+
+    let updateCount = 0;
     try {
-      // Example of what `superswapUserId` would do (simplified):
       await dbHelpers.transaction("drive", org_id, (database) => {
         // 1. Update `contacts` table for the placeholder
         database
           .prepare(
             "UPDATE contacts SET id = ?, from_placeholder_user_id = NULL, redeem_code = NULL WHERE id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
-        // 2. Add old ID to `past_user_ids` for the new contact
-        // This is more complex for SQLite, might involve fetching the contact, updating its array/JSON field, then saving.
-        // For now, we'll directly update the `contacts` table (simplistic, needs refinement for `past_user_ids` list)
-        const updatePastIdsStmt = database.prepare(
-          "UPDATE contacts SET past_user_ids = json_insert(coalesce(past_user_ids, '[]'), '$[#]', ?) WHERE id = ?"
-        );
-        updatePastIdsStmt.run(redeemReq.current_user_id, redeemReq.new_user_id);
+        // 2. Add old ID to `contact_past_ids` for the new contact
+        database
+          .prepare(
+            "INSERT INTO contact_past_ids (user_id, past_user_id) VALUES (?, ?)"
+          )
+          .run(newPlainUserId, currentPlainUserId);
 
         // 3. Update `api_keys`
         database
           .prepare("UPDATE api_keys SET user_id = ? WHERE user_id = ?")
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 4. Update `folders`
         database
           .prepare(
             "UPDATE folders SET created_by_user_id = ? WHERE created_by_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
             "UPDATE folders SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 5. Update `files`
         database
           .prepare(
             "UPDATE files SET created_by_user_id = ? WHERE created_by_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
             "UPDATE files SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 6. Update `groups`
         database
           .prepare(
             "UPDATE groups SET owner_user_id = ? WHERE owner_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 7. Update `group_invites`
         database
           .prepare(
             "UPDATE group_invites SET inviter_user_id = ? WHERE inviter_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
-            "UPDATE group_invites SET invitee_id = ? WHERE invitee_id = ?"
+            "UPDATE group_invites SET invitee_id = ? WHERE invitee_id = ? AND invitee_type = 'USER'"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 8. Update `labels` (created_by_user_id)
         database
           .prepare(
             "UPDATE labels SET created_by_user_id = ? WHERE created_by_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 9. Update `permissions_directory`
         database
           .prepare(
             "UPDATE permissions_directory SET granted_by_user_id = ? WHERE granted_by_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
             "UPDATE permissions_directory SET grantee_id = ? WHERE grantee_id = ? AND grantee_type = 'User'"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 10. Update `permissions_system`
         database
           .prepare(
             "UPDATE permissions_system SET granted_by_user_id = ? WHERE granted_by_user_id = ?"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
             "UPDATE permissions_system SET grantee_id = ? WHERE grantee_id = ? AND grantee_type = 'User'"
           )
-          .run(redeemReq.new_user_id, redeemReq.current_user_id);
+          .run(newPlainUserId, currentPlainUserId);
 
         // 11. Update `contact_id_superswap_history`
         database
           .prepare(
             "INSERT INTO contact_id_superswap_history (old_user_id, new_user_id, swapped_at) VALUES (?, ?, ?)"
           )
-          .run(redeemReq.current_user_id, redeemReq.new_user_id, Date.now());
+          .run(currentPlainUserId, newPlainUserId, Date.now());
 
-        // A more accurate `updateCount` would be to sum the changes from each affected table.
-        updateCount = 1; // Simplified, indicating at least the main contact was updated
+        // 12. Update `contact_groups` (membership in groups)
+        database
+          .prepare("UPDATE contact_groups SET user_id = ? WHERE user_id = ?")
+          .run(newPlainUserId, currentPlainUserId);
+
+        updateCount = 1;
       });
     } catch (e: any) {
       request.log.error("Error during superswap:", e);
@@ -1136,40 +1424,35 @@ export async function redeemContactHandler(
       );
     }
 
-    // Update the redeemed contact's public note if a note is provided
-    const updatedContact = await db.queryDrive(
+    const updatedContactResult = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
-      [redeemReq.new_user_id]
+      [newPlainUserId]
     );
-    if (updatedContact.length > 0) {
-      let contactToUpdate = updatedContact[0] as Contact;
+
+    let updatedContact: Contact;
+    if (updatedContactResult.length > 0) {
+      updatedContact = updatedContactResult[0] as Contact;
+      updatedContact.id = `${IDPrefixEnum.User}${updatedContact.id}` as UserID;
       if (redeemReq.note) {
-        const newPublicNote = contactToUpdate.public_note
-          ? `Note from User: ${redeemReq.note}, Prior Original Note: ${contactToUpdate.public_note}`
+        const newPublicNote = updatedContact.public_note
+          ? `Note from User: ${redeemReq.note}, Prior Original Note: ${updatedContact.public_note}`
           : `Note from User: ${redeemReq.note}`;
         await db.queryDrive(
           org_id,
           "UPDATE contacts SET public_note = ? WHERE id = ?",
-          [newPublicNote, redeemReq.new_user_id]
+          [newPublicNote, extractPlainUserId(updatedContact.id)]
         );
-        contactToUpdate.public_note = newPublicNote; // Update in memory for response
+        updatedContact.public_note = newPublicNote;
       }
+    } else {
+      throw new Error("Redeemed contact not found after superswap.");
     }
 
     // TODO: WEBHOOK Fire a webhook for superswap user
-    // `fire_superswap_user_webhook` function is missing, would involve external HTTP calls.
-    // await fire_superswap_user_webhook(
-    //   WebhookEventLabel.OrganizationSuperswapUser,
-    //   [], // active_webhooks - need to fetch these
-    //   redeemReq.current_user_id,
-    //   redeemReq.new_user_id,
-    //   `Redeem Contact - superswap ${redeemReq.current_user_id} to ${redeemReq.new_user_id}, updated ${updateCount} records`
-    // );
 
-    // Generate new API key for the new user ID
     const newApiKeyId = `${IDPrefixEnum.ApiKey}${uuidv4()}` as ApiKeyID;
-    const newApiKeyValue = await generateApiKey(); // Assuming generateApiKey from auth.ts
+    const newApiKeyValue = await generateApiKey();
     const generatedApiKey: ApiKey = {
       id: newApiKeyId,
       value: newApiKeyValue as ApiKeyValue,
@@ -1190,9 +1473,9 @@ export async function redeemContactHandler(
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
-          generatedApiKey.id,
+          extractPlainUserId(generatedApiKey.id), // Corrected: ApiKeyID prefix handled by extractPlainUserId
           generatedApiKey.value,
-          generatedApiKey.user_id,
+          extractPlainUserId(generatedApiKey.user_id),
           generatedApiKey.name,
           generatedApiKey.private_note,
           generatedApiKey.created_at,
@@ -1205,7 +1488,7 @@ export async function redeemContactHandler(
     });
 
     const redeemedContactFe = await redactContact(
-      updatedContact[0] as Contact,
+      updatedContact,
       requesterApiKey.user_id,
       org_id
     );

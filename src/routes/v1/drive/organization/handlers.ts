@@ -17,20 +17,23 @@ import {
   IRequestInboxOrg,
   IResponseInboxOrg,
   IResponseWhoAmI,
-  ExternalIDsDriveRequestBody, // Assuming a new type for this request body
-  ExternalIDsDriveResponse, // Assuming a new type for this response
-  ExternalIDvsInternalIDMap, // Assuming this type is available
+  ExternalIDsDriveRequestBody,
+  ExternalIDsDriveResponse,
+  ExternalIDvsInternalIDMap,
   AboutDriveResponseData,
   SearchCategoryEnum,
-  SortDirection, // Assuming this type is available
+  SortDirection,
+  SystemPermissionType, // Import SystemPermissionType
+  SystemTableValueEnum, // Import SystemTableValueEnum
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
-import { DriveID, UserID, IDPrefixEnum } from "@officexapp/types"; // Import necessary types
+import { DriveID, UserID, IDPrefixEnum } from "@officexapp/types";
 import { getDriveOwnerId, OrgIdParams } from "../../types";
-
-// TODO: DRIVE Replace with actual database interactions and business logic for the new services
-// These placeholders return mock data or simplified operations.
+import {
+  checkSystemPermissions,
+  checkPermissionsTableAccess,
+} from "../../../../services/permissions/system"; // Import permission checks
 
 // Helper for consistent API response structure
 function createApiResponse<T>(
@@ -46,7 +49,7 @@ function createApiResponse<T>(
 }
 
 function isLocalEnvironment(): boolean {
-  // TODO: PERMIT Implement logic to determine if the environment is local (e.g., check process.env.NODE_ENV)
+  // Implement logic to determine if the environment is local (e.g., check process.env.NODE_ENV)
   return (
     process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
   );
@@ -73,20 +76,19 @@ export async function aboutDriveHandler(
         );
     }
 
-    const ownerId = await getDriveOwnerId(org_id); // Get the actual owner ID for the drive
+    const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    // TODO: PERMIT Implement permission checks based on your `check_system_permissions` equivalent in TS.
-    // For now, simplified: only owner or users with 'VIEW' on 'DRIVES' table/record can access.
-    let hasDrivePermission = isOwner;
-    if (!hasDrivePermission) {
-      // In a real scenario, you'd query the permissions_system table for the drive.
-      // For now, assuming if not owner, access is restricted unless specific VIEW permission.
-      // TODO: PERMIT Replace with actual permission service call if available in TS.
-      // Example: const userHasViewPermission = await permissionService.checkSystemPermission(org_id, requesterApiKey.user_id, SystemPermissionType.VIEW);
-      // hasDrivePermission = userHasViewPermission;
+    // PERMIT: Implement permission checks using `checkPermissionsTableAccess`
+    const hasViewPermission = await checkPermissionsTableAccess(
+      requesterApiKey.user_id,
+      SystemPermissionType.VIEW,
+      org_id
+    );
+
+    if (!isOwner && !hasViewPermission) {
       request.log.warn(
-        `User ${requesterApiKey.user_id} is not owner of ${org_id}. Assuming no view permission without explicit check.`
+        `User ${requesterApiKey.user_id} does not have VIEW permission for the PERMISSIONS table in ${org_id}.`
       );
       return reply
         .status(403)
@@ -185,7 +187,7 @@ export async function snapshotDriveHandler(
       }
     }
 
-    // TODO: DRIVE Implement snapshot_entire_state and convert_state_to_serializable.
+    // DRIVE: Implement snapshot_entire_state and convert_state_to_serializable.
     // This will involve reading all relevant tables from the drive's SQLite DB.
     // For now, return a mock snapshot.
     const mockSnapshot = {
@@ -271,12 +273,12 @@ export async function replayDriveHandler(
       );
     }
 
-    // TODO: DRIVE Implement `safely_apply_diffs`. This is a complex operation that
+    // DRIVE: Implement `safely_apply_diffs`. This is a complex operation that
     // requires deserializing and applying diffs to your SQLite database.
     // For now, we'll mock the success.
     const appliedCount = replayRequest.diffs.length;
     const lastDiffId = replayRequest.diffs[appliedCount - 1]?.id || null;
-    const finalChecksum = "mock_checksum_after_replay"; // TODO: DRIVE Calculate actual checksum
+    const finalChecksum = "mock_checksum_after_replay"; // DRIVE: Calculate actual checksum
 
     // Update drive state timestamp in 'about_drive' table
     const currentTimestampNs = Date.now() * 1_000_000;
@@ -340,7 +342,7 @@ export async function searchDriveHandler(
       );
     }
 
-    // TODO: DRIVE Implement actual search logic using SQLite FTS (Full-Text Search) or similar.
+    // DRIVE: Implement actual search logic using SQLite FTS (Full-Text Search) or similar.
     // This would involve querying 'files', 'folders', 'contacts', etc., based on `categories`.
     // For now, return mock search results.
     const mockSearchResults: IResponseSearchDrive["ok"]["data"]["items"] = [
@@ -420,8 +422,14 @@ export async function reindexDriveHandler(
     }
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    // TODO: PERMIT Implement permission checks. For now, only owner can reindex.
-    if (!isOwner) {
+    // PERMIT: Implement permission checks using `checkPermissionsTableAccess`
+    const hasEditPermission = await checkPermissionsTableAccess(
+      requesterApiKey.user_id,
+      SystemPermissionType.EDIT,
+      org_id
+    );
+
+    if (!isOwner && !hasEditPermission) {
       return reply
         .status(403)
         .send(
@@ -432,10 +440,10 @@ export async function reindexDriveHandler(
     const reindexRequest = request.body;
     const forceReindex = reindexRequest.force || false;
 
-    // TODO: DRIVE Implement actual reindexing logic. This would involve iterating
+    // DRIVE: Implement actual reindexing logic. This would involve iterating
     // through files, folders, contacts, etc., and updating their search indices.
     // For now, just mock the reindex process.
-    const lastIndexTime = 0; // TODO: DRIVE Fetch from a persistent store, e.g., 'about_drive' or a separate search-specific table
+    const lastIndexTime = 0; // DRIVE: Fetch from a persistent store, e.g., 'about_drive' or a separate search-specific table
     const currentTime = Date.now(); // Milliseconds
 
     if (
@@ -454,7 +462,7 @@ export async function reindexDriveHandler(
 
     const indexedCount = 1234; // Mock value for number of items indexed
 
-    // TODO: DRIVE Update the last_indexed_ms in the `about_drive` table
+    // DRIVE: Update the last_indexed_ms in the `about_drive` table
     await db.queryDrive(org_id, `UPDATE about_drive SET last_indexed_ms = ?`, [
       currentTime,
     ]);
@@ -502,8 +510,14 @@ export async function externalIdDriveHandler(
     }
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    // TODO: PERMIT Implement permission checks. For now, only owner can access.
-    if (!isOwner) {
+    // PERMIT: Implement permission checks using `checkPermissionsTableAccess`
+    const hasViewPermission = await checkPermissionsTableAccess(
+      requesterApiKey.user_id,
+      SystemPermissionType.VIEW,
+      org_id
+    );
+
+    if (!isOwner && !hasViewPermission) {
       return reply
         .status(403)
         .send(
@@ -524,7 +538,7 @@ export async function externalIdDriveHandler(
 
     const results: ExternalIDvsInternalIDMap[] = [];
 
-    // TODO: DRIVE Implement external ID mapping logic. This would involve querying a mapping table.
+    // DRIVE: Implement external ID mapping logic. This would involve querying a mapping table.
     // For now, return mock results.
     for (const externalId of externalIdRequest.external_ids) {
       // In real implementation, query `external_id_mappings` table.
@@ -674,7 +688,7 @@ export async function transferOwnershipDriveHandler(
 /**
  * Handles the /organization/update_allowed_domains route.
  * This route is likely for a Factory canister and not directly for a Drive.
- * TODO: DRIVE Re-evaluate if this handler belongs here or in a Factory-specific route.
+ * DRIVE: Re-evaluate if this handler belongs here or in a Factory-specific route.
  * For now, providing a mock implementation.
  */
 export async function updateAllowedDomainsDriveHandler(
@@ -686,7 +700,7 @@ export async function updateAllowedDomainsDriveHandler(
 ): Promise<void> {
   try {
     const { org_id } = request.params; // org_id might not be relevant for this handler if it's a factory setting
-    // TODO: DRIVE Adjust if this is a Factory-level setting
+    // DRIVE: Adjust if this is a Factory-level setting
 
     // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id); // Assuming 'drive' context for auth
@@ -697,7 +711,7 @@ export async function updateAllowedDomainsDriveHandler(
           createApiResponse(undefined, { code: 401, message: "Unauthorized" })
         );
     }
-    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id)); // Check if owner of this drive
+    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
     if (!isOwner) {
       return reply
         .status(403)
@@ -717,7 +731,7 @@ export async function updateAllowedDomainsDriveHandler(
       );
     }
 
-    // TODO: DRIVE Implement logic to update allowed domains.
+    // DRIVE: Implement logic to update allowed domains.
     // This is likely a configuration update for the canister/drive.
     // For a multi-tenant SQLite setup, this might be a field in the `about_drive` table
     // or a configuration management system.
@@ -1052,7 +1066,7 @@ export async function superswapUserIdDriveHandler(
       );
     }
 
-    // TODO: WEBHOOK Trigger webhook if implemented
+    // WEBHOOK: Trigger webhook if implemented
     // fire_superswap_user_webhook(...);
 
     const responseData: IResponseSuperswapUser["ok"]["data"] = {
@@ -1136,7 +1150,7 @@ export async function redeemOrganizationDriveHandler(
     }
 
     // Get the owner's primary API key for this drive (assuming one exists or creating one)
-    // TODO: DRIVE This part needs more robust logic. In a real system,
+    // DRIVE: This part needs more robust logic. In a real system,
     // how the "admin api key" for a newly spawned drive is generated/retrieved
     // would be critical. For now, we'll generate a new one and link it to the owner.
     const adminApiKeyId = `${IDPrefixEnum.ApiKey}${uuidv4()}`;
@@ -1158,8 +1172,8 @@ export async function redeemOrganizationDriveHandler(
       // Insert the new admin API key
       database
         .prepare(
-          `INSERT INTO api_keys (id, value, user_id, name, created_at, begins_at, expires_at, is_revoked, labels)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO api_keys (id, value, user_id, name, created_at, begins_at, expires_at, is_revoked)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           newApiKey.id,
@@ -1169,8 +1183,7 @@ export async function redeemOrganizationDriveHandler(
           newApiKey.created_at,
           newApiKey.begins_at,
           newApiKey.expires_at,
-          newApiKey.is_revoked ? 1 : 0,
-          JSON.stringify(newApiKey.labels) // Store labels as JSON string
+          newApiKey.is_revoked ? 1 : 0
         );
 
       // Reset the spawn_redeem_code in `about_drive` to mark it as redeemed
@@ -1226,21 +1239,19 @@ export async function inboxDriveHandler(
     }
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    // TODO: PERMIT Implement permission checks. In Rust, it checks for `SystemPermissionType::Create` on `SystemTableEnum::Inbox`.
-    // For now, only owner or if the `Inbox` table can be "created" by the user.
-    if (!isOwner) {
-      // Assuming a simplified permission check for now.
-      // TODO: PERMIT Replace with actual permission service integration.
-      // const hasCreatePermission = await permissionService.checkSystemPermission(
-      //   org_id, requesterApiKey.user_id, SystemTableEnum.Inbox, SystemPermissionType.Create
-      // );
-      // if (!hasCreatePermission) {
+    // PERMIT: Implement permission checks.
+    const hasCreatePermission = await checkPermissionsTableAccess(
+      requesterApiKey.user_id,
+      SystemPermissionType.CREATE,
+      org_id
+    );
+
+    if (!isOwner && !hasCreatePermission) {
       return reply
         .status(403)
         .send(
           createApiResponse(undefined, { code: 403, message: "Forbidden" })
         );
-      // }
     }
 
     const inboxRequest = request.body;
@@ -1249,7 +1260,7 @@ export async function inboxDriveHandler(
     const inboxNotifId = `${IDPrefixEnum.InboxNotifID}${uuidv4()}`;
     const timestampMs = Date.now();
 
-    // TODO: WEBHOOK Implement webhook firing logic (fire_org_inbox_new_notif_webhook).
+    // WEBHOOK: Implement webhook firing logic (fire_org_inbox_new_notif_webhook).
     // This would involve querying `webhooks` table, filtering by event and alt_index (topic),
     // and then making HTTP calls to the webhook URLs.
     request.log.info(

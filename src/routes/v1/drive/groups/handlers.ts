@@ -14,10 +14,23 @@ import {
   GroupID,
   UserID,
   DriveID,
+  SystemResourceID,
+  SystemTableValueEnum,
+  SystemPermissionType,
+  GroupRole,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
 import { OrgIdParams } from "../../types";
+import {
+  checkSystemPermissions,
+  hasSystemManagePermission,
+} from "../../../../services/permissions/system";
+import {
+  getGroupById,
+  isGroupAdmin,
+  isUserOnLocalGroup,
+} from "../../../../services/groups"; // isGroupAdmin will still be used for displaying roles.
 
 interface GetGroupParams extends OrgIdParams {
   group_id: string;
@@ -81,7 +94,7 @@ function validateUpdateRequest(body: IRequestUpdateGroup): {
   valid: boolean;
   error?: string;
 } {
-  if (!body.id || !body.id.startsWith("GroupID_")) {
+  if (!body.id || !body.id.startsWith(IDPrefixEnum.Group)) {
     return { valid: false, error: "Group ID must start with GroupID_" };
   }
 
@@ -131,16 +144,14 @@ export async function getGroupHandler(
         );
     }
 
-    const groupId = request.params.group_id;
+    const groupId = request.params.group_id as GroupID;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Get the group
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM groups WHERE id = ?",
-      [groupId]
-    );
+    const group = await getGroupById(groupId, orgId);
 
-    if (!groups || groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -149,20 +160,21 @@ export async function getGroupHandler(
       );
     }
 
-    const group = groups[0] as Group;
+    // PERMIT: Check if the user is the org owner, or has VIEW permission on this specific group record.
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const canViewGroupViaPermissions = (
+      await checkSystemPermissions(
+        groupId as SystemResourceID, // GroupID is a SystemRecordIDEnum
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.VIEW);
 
-    // TODO: PERMIT Check permissions - for now just check if user is owner or member
-    const isOwner = requesterApiKey.user_id === group.owner;
-
-    // Check if user is a member of the group
-    const memberCheck = await db.queryDrive(
-      request.params.org_id,
-      `SELECT 1 FROM contact_groups WHERE user_id = ? AND group_id = ?`,
-      [requesterApiKey.user_id, groupId]
-    );
-    const isMember = memberCheck.length > 0;
-
-    if (!isOwner && !isMember) {
+    // Authorization: Org owner always has access, otherwise check specific permission
+    if (!isOrgOwner && !canViewGroupViaPermissions) {
       return reply
         .status(403)
         .send(
@@ -172,13 +184,20 @@ export async function getGroupHandler(
 
     // Get group members for the FE response
     const members = await db.queryDrive(
-      request.params.org_id,
-      `SELECT c.*, gi.id as invite_id, gi.role, gi.note as invite_note
+      orgId,
+      `SELECT c.*, cg.role, gi.id as invite_id, gi.note as invite_note
        FROM contact_groups cg
        JOIN contacts c ON cg.user_id = c.id
-       LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id
+       LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id AND gi.invitee_type = 'USER'
        WHERE cg.group_id = ?`,
       [groupId]
+    );
+
+    // PERMIT: Get permission previews for the current user on this group record
+    const permissionPreviews = await checkSystemPermissions(
+      groupId as SystemResourceID, // GroupID is a SystemRecordIDEnum
+      currentUserId,
+      orgId
     );
 
     const groupFE: GroupFE = {
@@ -187,13 +206,13 @@ export async function getGroupHandler(
         user_id: m.id,
         name: m.name,
         avatar: m.avatar,
-        note: m.invite_note,
+        note: m.invite_note, // Note from the invite, if available
         group_id: groupId,
-        is_admin: m.role === "ADMIN",
+        is_admin: m.role === GroupRole.ADMIN, // Use role from contact_groups
         invite_id: m.invite_id || "",
         last_online_ms: m.last_online_ms || 0,
       })),
-      permission_previews: [], // TODO: REDACT Implement permission previews
+      permission_previews: permissionPreviews, // PERMIT: Populate permission previews
     };
 
     return reply.status(200).send(createApiResponse(groupFE));
@@ -230,10 +249,36 @@ export async function listGroupsHandler(
     const pageSize = body.page_size || 50;
     const direction = body.direction || "DESC";
     const cursor = body.cursor;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
+
+    // PERMIT: Check if the user is the org owner, or has VIEW permission on the Groups table.
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const canViewGroupsTable = (
+      await checkSystemPermissions(
+        `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.VIEW);
+
+    if (!isOrgOwner && !canViewGroupsTable) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, {
+            code: 403,
+            message: "Forbidden: Not authorized to list groups",
+          })
+        );
+    }
 
     // Build query with cursor-based pagination
     let query = `
-      SELECT g.*, 
+      SELECT g.*,
              (SELECT COUNT(*) FROM contact_groups cg WHERE cg.group_id = g.id) as member_count
       FROM groups g
       WHERE 1=1
@@ -248,7 +293,7 @@ export async function listGroupsHandler(
     query += ` ORDER BY g.created_at ${direction} LIMIT ?`;
     params.push(pageSize + 1); // Get one extra to check if there are more
 
-    const groups = await db.queryDrive(request.params.org_id, query, params);
+    const groups = await db.queryDrive(orgId, query, params);
 
     const hasMore = groups.length > pageSize;
     if (hasMore) {
@@ -257,7 +302,7 @@ export async function listGroupsHandler(
 
     // Get total count
     const countResult = await db.queryDrive(
-      request.params.org_id,
+      orgId,
       "SELECT COUNT(*) as total FROM groups"
     );
     const total = countResult[0]?.total || 0;
@@ -267,14 +312,21 @@ export async function listGroupsHandler(
       groups.map(async (group: Group) => {
         // Get member previews for each group
         const members = await db.queryDrive(
-          request.params.org_id,
-          `SELECT c.*, gi.id as invite_id, gi.role, gi.note as invite_note
+          orgId,
+          `SELECT c.*, cg.role, gi.id as invite_id, gi.note as invite_note
          FROM contact_groups cg
          JOIN contacts c ON cg.user_id = c.id
-         LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id
+         LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id AND gi.invitee_type = 'USER'
          WHERE cg.group_id = ?
          LIMIT 5`, // Limit member previews for list view
           [group.id]
+        );
+
+        // PERMIT: Get permission previews for the current user on each group record
+        const permissionPreviews = await checkSystemPermissions(
+          group.id as SystemResourceID, // GroupID is a SystemRecordIDEnum
+          currentUserId,
+          orgId
         );
 
         return {
@@ -285,11 +337,11 @@ export async function listGroupsHandler(
             avatar: m.avatar,
             note: m.invite_note,
             group_id: group.id,
-            is_admin: m.role === "ADMIN",
+            is_admin: m.role === GroupRole.ADMIN,
             invite_id: m.invite_id || "",
             last_online_ms: m.last_online_ms || 0,
           })),
-          permission_previews: [], // TODO: REDACT Implement permission previews
+          permission_previews: permissionPreviews, // PERMIT: Populate permission previews
         };
       })
     );
@@ -338,6 +390,8 @@ export async function createGroupHandler(
     }
 
     const body = request.body;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Validate request
     const validation = validateCreateRequest(body);
@@ -350,14 +404,36 @@ export async function createGroupHandler(
       );
     }
 
-    // TODO: PERMIT Check create permissions
+    // PERMIT: Check create permissions for the Groups table
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const canCreateGroup = (
+      await checkSystemPermissions(
+        `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.CREATE);
+
+    if (!isOrgOwner && !canCreateGroup) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, {
+            code: 403,
+            message: "Forbidden: Not allowed to create groups",
+          })
+        );
+    }
 
     const now = Date.now();
     const groupId = body.id || `${IDPrefixEnum.Group}${uuidv4()}`;
 
     // Get drive info for defaults
     const driveInfo = await db.queryDrive(
-      request.params.org_id,
+      orgId,
       "SELECT * FROM about_drive LIMIT 1"
     );
     const driveData = driveInfo[0];
@@ -371,7 +447,7 @@ export async function createGroupHandler(
       public_note: body.public_note,
       created_at: now,
       last_modified_at: now,
-      drive_id: request.params.org_id as DriveID,
+      drive_id: orgId,
       endpoint_url: body.endpoint_url || driveData?.url_endpoint || "",
       labels: [],
       external_id: body.external_id,
@@ -380,17 +456,17 @@ export async function createGroupHandler(
       member_invites: [],
     };
 
-    // TODO: GROUP Refactor this to include the groupinvite in admins []
     // Insert group using transaction
-    await dbHelpers.transaction("drive", request.params.org_id, (database) => {
-      const stmt = database.prepare(
+    await dbHelpers.transaction("drive", orgId, (database) => {
+      // 1. Insert the group itself
+      const groupStmt = database.prepare(
         `INSERT INTO groups (
           id, name, owner, avatar, private_note, public_note,
           created_at, last_modified_at, drive_id, endpoint_url,
           external_id, external_payload
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      stmt.run(
+      groupStmt.run(
         group.id,
         group.name,
         group.owner,
@@ -405,28 +481,103 @@ export async function createGroupHandler(
         group.external_payload
       );
 
-      // Add owner as member
-      const memberStmt = database.prepare(
-        `INSERT INTO contact_groups (user_id, group_id) VALUES (?, ?)`
+      // 2. Add owner to contact_groups with ADMIN role
+      const contactGroupStmt = database.prepare(
+        `INSERT INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
       );
-      memberStmt.run(requesterApiKey.user_id, groupId);
+      contactGroupStmt.run(requesterApiKey.user_id, groupId, GroupRole.ADMIN);
+
+      // 3. Create an initial invite record for the owner (as admin)
+      const ownerInviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
+      const inviteStmt = database.prepare(
+        `INSERT INTO group_invites (
+          id, group_id, inviter_id, invitee_id, invitee_type, role, note,
+          active_from, expires_at, created_at, last_modified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      inviteStmt.run(
+        ownerInviteId,
+        groupId,
+        requesterApiKey.user_id, // Inviter is the owner
+        requesterApiKey.user_id,
+        "USER",
+        GroupRole.ADMIN, // Owner is an admin by default
+        "Initial owner invite",
+        0, // active from now
+        -1, // never expires
+        now,
+        now
+      );
+
+      // 4. PERMIT: Grant system permissions to the GROUP itself (as a grantee)
+      //    on its own record. This is how members of this group will inherit
+      //    management capabilities.
+      const groupSelfPermissionId = `${IDPrefixEnum.SystemPermission}${uuidv4()}`;
+      const groupSelfPermissionStmt = database.prepare(
+        `INSERT INTO permissions_system (
+          id, resource_type, resource_identifier, grantee_type, grantee_id,
+          granted_by_user_id, begin_date_ms, expiry_date_ms, note,
+          created_at, last_modified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      groupSelfPermissionStmt.run(
+        groupSelfPermissionId,
+        "Record", // Resource is a record
+        groupId, // The group itself is the resource
+        "Group", // Grantee type is Group
+        groupId, // The group itself is the grantee
+        requesterApiKey.user_id,
+        0, // Active immediately
+        -1, // Never expires
+        `Default manage permissions for group ${group.name}`,
+        now,
+        now
+      );
+
+      // 5. PERMIT: Insert the specific permission types for the group itself
+      //    This grants the "admin" level access to anyone in this group.
+      const permissionTypes = [
+        SystemPermissionType.VIEW,
+        SystemPermissionType.EDIT,
+        SystemPermissionType.DELETE,
+        SystemPermissionType.INVITE,
+        SystemPermissionType.CREATE, // To manage sub-resources if this were a directory
+      ];
+      const permissionTypeStmt = database.prepare(
+        `INSERT INTO permissions_system_types (permission_id, permission_type) VALUES (?, ?)`
+      );
+      permissionTypes.forEach((type) => {
+        permissionTypeStmt.run(groupSelfPermissionId, type);
+      });
     });
+
+    // Get owner's contact info for member_previews
+    const ownerContact = await db.queryDrive(
+      orgId,
+      "SELECT name, avatar FROM contacts WHERE id = ?",
+      [requesterApiKey.user_id]
+    );
 
     const groupFE: GroupFE = {
       ...group,
       member_previews: [
         {
           user_id: requesterApiKey.user_id as UserID,
-          name: "", // TODO: REDACT Get from contacts
-          avatar: undefined,
+          name: ownerContact[0]?.name || "",
+          avatar: ownerContact[0]?.avatar,
           note: "Owner",
           group_id: groupId as GroupID,
           is_admin: true,
-          invite_id: "",
+          invite_id: "", // This would need to be fetched if we want the actual invite ID here
           last_online_ms: now,
         },
       ],
-      permission_previews: [],
+      // PERMIT: Get permission previews for the current user on the newly created group record
+      permission_previews: await checkSystemPermissions(
+        groupId as SystemResourceID,
+        currentUserId,
+        orgId
+      ),
     };
 
     return reply.status(200).send(createApiResponse(groupFE));
@@ -460,6 +611,8 @@ export async function updateGroupHandler(
     }
 
     const body = request.body;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Validate request
     const validation = validateUpdateRequest(body);
@@ -473,13 +626,9 @@ export async function updateGroupHandler(
     }
 
     // Get existing group
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM groups WHERE id = ?",
-      [body.id]
-    );
+    const group = await getGroupById(body.id as GroupID, orgId);
 
-    if (!groups || groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -488,14 +637,27 @@ export async function updateGroupHandler(
       );
     }
 
-    const group = groups[0] as Group;
+    // PERMIT: Check permissions - user must be the org owner, or have EDIT permission on the group record
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const canEditGroupViaPermissions = (
+      await checkSystemPermissions(
+        group.id as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.EDIT);
 
-    // Check permissions
-    if (requesterApiKey.user_id !== group.owner) {
+    if (!isOrgOwner && !canEditGroupViaPermissions) {
       return reply
         .status(403)
         .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          createApiResponse(undefined, {
+            code: 403,
+            message: "Forbidden: Not allowed to edit this group",
+          })
         );
     }
 
@@ -543,10 +705,10 @@ export async function updateGroupHandler(
 
     updates.push("last_modified_at = ?");
     values.push(Date.now());
-    values.push(body.id);
+    values.push(group.id); // Use the validated group.id
 
     // Update in transaction
-    await dbHelpers.transaction("drive", request.params.org_id, (database) => {
+    await dbHelpers.transaction("drive", orgId, (database) => {
       const stmt = database.prepare(
         `UPDATE groups SET ${updates.join(", ")} WHERE id = ?`
       );
@@ -554,23 +716,36 @@ export async function updateGroupHandler(
     });
 
     // Get updated group with member previews
-    const updatedGroups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM groups WHERE id = ?",
-      [body.id]
-    );
+    const updatedGroup = await getGroupById(group.id, orgId);
 
-    const updatedGroup = updatedGroups[0] as Group;
+    if (!updatedGroup) {
+      // Should not happen after a successful update
+      return reply
+        .status(500)
+        .send(
+          createApiResponse(undefined, {
+            code: 500,
+            message: "Failed to retrieve updated group",
+          })
+        );
+    }
 
     // Get member previews
     const members = await db.queryDrive(
-      request.params.org_id,
-      `SELECT c.*, gi.id as invite_id, gi.role, gi.note as invite_note
+      orgId,
+      `SELECT c.*, cg.role, gi.id as invite_id, gi.note as invite_note
        FROM contact_groups cg
        JOIN contacts c ON cg.user_id = c.id
-       LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id
+       LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id AND gi.invitee_type = 'USER'
        WHERE cg.group_id = ?`,
-      [body.id]
+      [group.id]
+    );
+
+    // PERMIT: Get permission previews for the current user on the updated group record
+    const permissionPreviews = await checkSystemPermissions(
+      updatedGroup.id as SystemResourceID,
+      currentUserId,
+      orgId
     );
 
     const groupFE: GroupFE = {
@@ -580,12 +755,12 @@ export async function updateGroupHandler(
         name: m.name,
         avatar: m.avatar,
         note: m.invite_note,
-        group_id: body.id as GroupID,
-        is_admin: m.role === "ADMIN",
+        group_id: group.id as GroupID,
+        is_admin: m.role === GroupRole.ADMIN,
         invite_id: m.invite_id || "",
         last_online_ms: m.last_online_ms || 0,
       })),
-      permission_previews: [],
+      permission_previews: permissionPreviews,
     };
 
     return reply.status(200).send(createApiResponse(groupFE));
@@ -619,15 +794,13 @@ export async function deleteGroupHandler(
     }
 
     const body = request.body;
+    const currentUserId = requesterApiKey.user_id;
+    const orgId = request.params.org_id as DriveID;
 
     // Get the group to check permissions
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT * FROM groups WHERE id = ?",
-      [body.id]
-    );
+    const group = await getGroupById(body.id as GroupID, orgId);
 
-    if (!groups || groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -636,36 +809,60 @@ export async function deleteGroupHandler(
       );
     }
 
-    const group = groups[0] as Group;
+    // PERMIT: Check permissions - user must be the org owner, or have DELETE permission on the group record
+    const isOrgOwner =
+      (
+        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
+      )[0]?.owner_id === currentUserId; // Org owner check
+    const canDeleteGroupViaPermissions = (
+      await checkSystemPermissions(
+        group.id as SystemResourceID,
+        currentUserId,
+        orgId
+      )
+    ).includes(SystemPermissionType.DELETE);
 
-    // Check permissions
-    if (requesterApiKey.user_id !== group.owner) {
+    if (!isOrgOwner && !canDeleteGroupViaPermissions) {
       return reply
         .status(403)
         .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          createApiResponse(undefined, {
+            code: 403,
+            message: "Forbidden: Not allowed to delete this group",
+          })
         );
     }
 
     // Delete group and related data in transaction
-    await dbHelpers.transaction("drive", request.params.org_id, (database) => {
+    await dbHelpers.transaction("drive", orgId, (database) => {
       // Delete group invites
       database
         .prepare("DELETE FROM group_invites WHERE group_id = ?")
-        .run(body.id);
+        .run(group.id);
 
       // Delete group members
       database
         .prepare("DELETE FROM contact_groups WHERE group_id = ?")
-        .run(body.id);
+        .run(group.id);
 
-      // Delete group labels
+      // Delete group labels (assuming group_labels uses plain group_id)
       database
         .prepare("DELETE FROM group_labels WHERE group_id = ?")
-        .run(body.id);
+        .run(group.id);
 
       // Delete the group
-      database.prepare("DELETE FROM groups WHERE id = ?").run(body.id);
+      database.prepare("DELETE FROM groups WHERE id = ?").run(group.id);
+
+      // Also remove any system permissions associated with this group ID as a resource
+      database
+        .prepare("DELETE FROM permissions_system WHERE resource_identifier = ?")
+        .run(group.id);
+      // And remove any system permissions where this group ID was the grantee
+      database
+        .prepare(
+          "DELETE FROM permissions_system WHERE grantee_id = ? AND grantee_type = 'Group'"
+        )
+        .run(group.id);
     });
 
     const deletedData: IResponseDeleteGroup = {
@@ -699,15 +896,12 @@ export async function validateGroupMemberHandler(
   try {
     // This endpoint doesn't require authentication as it's used for cross-drive validation
     const body = request.body;
+    const orgId = request.params.org_id as DriveID;
 
     // Check if group exists
-    const groups = await db.queryDrive(
-      request.params.org_id,
-      "SELECT id FROM groups WHERE id = ?",
-      [body.group_id]
-    );
+    const group = await getGroupById(body.group_id as GroupID, orgId);
 
-    if (!groups || groups.length === 0) {
+    if (!group) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
@@ -717,13 +911,8 @@ export async function validateGroupMemberHandler(
     }
 
     // Check if user is a member
-    const membership = await db.queryDrive(
-      request.params.org_id,
-      "SELECT 1 FROM contact_groups WHERE user_id = ? AND group_id = ?",
-      [body.user_id, body.group_id]
-    );
-
-    const isMember = membership.length > 0;
+    // Using isUserOnLocalGroup is more accurate as this is a local validation endpoint
+    const isMember = await isUserOnLocalGroup(body.user_id, group, orgId);
 
     const responseData: IResponseValidateGroupMember = {
       ok: {

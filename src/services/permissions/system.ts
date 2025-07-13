@@ -1,119 +1,219 @@
-// src/services/permissions/system.ts
-
 import {
   UserID,
   GranteeID,
   SystemPermission,
   SystemPermissionType,
-  SystemResourceID as RustLikeSystemResourceID, // Renamed to avoid conflict with local SystemResourceID
-  SystemTableValueEnum, // Assuming this maps directly to SystemTableEnum
+  SystemResourceID, // Corrected import
+  SystemTableValueEnum,
   PermissionMetadata,
   PermissionMetadataTypeEnum,
   PermissionMetadataContent,
-  GroupID, // For group checks
+  GroupID,
+  IDPrefixEnum,
+  DriveID,
+  LabelValue, // Import IDPrefixEnum
 } from "@officexapp/types";
 import { db } from "../../services/database";
 import { getDriveOwnerId } from "../../routes/v1/types";
-import { isUserInGroup } from "../groups";
 import {
-  parsePermissionGranteeIDString, // Use the shared parser from directory.ts
-  PUBLIC_GRANTEE_ID_STRING,
-  USER_ID_PREFIX,
+  isUserInGroup,
+  extractPlainUserId,
+  extractPlainGroupId,
+} from "../groups";
+import { PUBLIC_GRANTEE_ID_STRING } from "./directory"; // Still using this common constant
+import {
+  getSystemPermissionsForRecord,
   GROUP_ID_PREFIX,
   PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX,
-} from "./directory"; // Import constants and parser from directory service
+  USER_ID_PREFIX,
+} from "../../routes/v1/drive/permissions/handlers";
+
+// Helper to extract the plain ID part from a SystemRecordIDEnum string
+// This function is generally not needed for DB queries as resource_identifier stores the full prefixed ID for records.
+// It might be useful if you need the UUID part for other logic.
+function extractPlainSystemRecordId(id: string): string {
+  if (id.startsWith(IDPrefixEnum.Drive))
+    return id.substring(IDPrefixEnum.Drive.length);
+  if (id.startsWith(IDPrefixEnum.Disk))
+    return id.substring(IDPrefixEnum.Disk.length);
+  if (id.startsWith(IDPrefixEnum.User))
+    return id.substring(IDPrefixEnum.User.length);
+  if (id.startsWith(IDPrefixEnum.Group))
+    return id.substring(IDPrefixEnum.Group.length);
+  if (id.startsWith(IDPrefixEnum.ApiKey))
+    return id.substring(IDPrefixEnum.ApiKey.length);
+  if (id.startsWith(IDPrefixEnum.SystemPermission))
+    return id.substring(IDPrefixEnum.SystemPermission.length);
+  if (id.startsWith(IDPrefixEnum.DirectoryPermission))
+    return id.substring(IDPrefixEnum.DirectoryPermission.length);
+  if (id.startsWith(IDPrefixEnum.Webhook))
+    return id.substring(IDPrefixEnum.Webhook.length);
+  if (id.startsWith(IDPrefixEnum.LabelID))
+    return id.substring(IDPrefixEnum.LabelID.length);
+  // Assuming "Unknown_" prefix for SystemRecordIDEnum.Unknown in Rust Display
+  if (id.startsWith("Unknown_")) return id.substring("Unknown_".length);
+  return id; // Fallback for cases like directly passed UUIDs or if it's already plain
+}
 
 // Helper to parse SystemResourceID from string.
-// This matches the Rust SystemResourceID enum's Display implementation:
-// SystemResourceID::Table -> "TABLE_TABLE_NAME"
-// SystemResourceID::Record -> "RECORD_RECORD_TYPE_ID" (e.g., "RECORD_DriveID_xyz", "RECORD_UserID_abc")
+// Rust's Display implementation:
+// SystemResourceID::Table(SystemTableEnum) => "TABLE_{}"
+// SystemResourceID::Record(SystemRecordIDEnum) => "{}" (which is something like DriveID_xyz or UserID_abc)
+// This function needs to extract the actual value for SQL queries.
 function parseSystemResourceIDString(idStr: string): {
   type: "Table" | "Record";
-  value: string;
+  value: string; // The actual ID or table enum value without its prefix for DB lookup
 } {
   if (idStr.startsWith("TABLE_")) {
     return { type: "Table", value: idStr.substring("TABLE_".length) };
-  } else if (idStr.startsWith("RECORD_")) {
-    return { type: "Record", value: idStr.substring("RECORD_".length) };
+  } else {
+    // If it's a Record, the `resource_identifier` in DB is the full prefixed ID.
+    // So, we just use the `idStr` directly as the value for the query.
+    return { type: "Record", value: idStr };
   }
-  // Fallback for unexpected formats, adjust as needed for error handling
-  throw new Error(`Invalid SystemResourceID format: ${idStr}`);
 }
 
-// Check if a user can CRUD the permission record
+// Utility to convert raw DB row to SystemPermission
+export function mapDbRowToSystemPermission(row: any): SystemPermission {
+  let grantedTo: GranteeID;
+  let granteeIdPart = row.grantee_id; // This is the ID without prefix from DB
+
+  switch (row.grantee_type) {
+    case "Public":
+      grantedTo = PUBLIC_GRANTEE_ID_STRING;
+      break;
+    case "User":
+      grantedTo = `${IDPrefixEnum.User}${granteeIdPart}` as UserID;
+      break;
+    case "Group":
+      grantedTo = `${IDPrefixEnum.Group}${granteeIdPart}` as GroupID;
+      break;
+    case "Placeholder":
+      grantedTo =
+        `${IDPrefixEnum.PlaceholderPermissionGrantee}${granteeIdPart}` as `PlaceholderPermissionGranteeID_${string}`;
+      break;
+    default:
+      console.warn(
+        `Unknown grantee_type: ${row.grantee_type}. Defaulting to Public.`
+      );
+      grantedTo = PUBLIC_GRANTEE_ID_STRING;
+      break;
+  }
+
+  // Reconstruct metadata if present
+  let metadata: PermissionMetadata | undefined;
+  if (
+    row.metadata_type &&
+    row.metadata_content !== null &&
+    row.metadata_content !== undefined
+  ) {
+    let content: PermissionMetadataContent;
+    switch (row.metadata_type) {
+      case PermissionMetadataTypeEnum.LABELS:
+        content = { Labels: row.metadata_content };
+        break;
+      case PermissionMetadataTypeEnum.DIRECTORY_PASSWORD:
+        content = { DirectoryPassword: row.metadata_content };
+        break;
+      default:
+        console.warn(
+          `Unknown metadata_type: ${row.metadata_type}. Skipping metadata.`
+        );
+        content = { Labels: "" }; // Fallback
+        break;
+    }
+    metadata = {
+      metadata_type: row.metadata_type as PermissionMetadataTypeEnum,
+      content: content,
+    };
+  }
+
+  // Reconstruct resource_id based on resource_type and resource_identifier from DB
+  let resourceIdWithPrefix: SystemResourceID;
+  if (row.resource_type === "Table") {
+    resourceIdWithPrefix =
+      `TABLE_${row.resource_identifier}` as SystemResourceID;
+  } else if (row.resource_type === "Record") {
+    resourceIdWithPrefix = row.resource_identifier as SystemResourceID; // resource_identifier is already the full prefixed ID from DB
+  } else {
+    throw new Error(`Unknown resource_type from DB: ${row.resource_type}`);
+  }
+
+  return {
+    id: row.id,
+    resource_id: resourceIdWithPrefix,
+    granted_to: grantedTo,
+    granted_by: `${IDPrefixEnum.User}${row.granted_by_user_id}` as UserID,
+    permission_types: (row.permission_types_list || "")
+      .split(",")
+      .filter(Boolean)
+      .map((typeStr: string) => typeStr.trim() as SystemPermissionType),
+    begin_date_ms: row.begin_date_ms,
+    expiry_date_ms: row.expiry_date_ms,
+    note: row.note,
+    created_at: row.created_at,
+    last_modified_at: row.last_modified_at,
+    redeem_code: row.redeem_code,
+    from_placeholder_grantee: row.from_placeholder_grantee,
+    metadata: metadata,
+    labels: [], // Labels explicitly skipped as per your request
+    external_id: undefined, // External ID explicitly skipped as per your request
+    external_payload: undefined, // External Payload explicitly skipped as per your request
+  };
+}
+
+/**
+ * Checks if a user has any permission on a specific system resource.
+ * @param resourceId The ID of the SystemResource (Table or Record) to check.
+ * @param requesterUserId The ID of the user attempting to access the resource.
+ * @param orgId The ID of the organization/drive.
+ * @returns A Promise that resolves to true if the user has any permission, false otherwise.
+ */
 export async function canUserAccessSystemPermission(
+  resourceId: SystemResourceID, // Corrected to take SystemResourceID
   requesterUserId: UserID,
-  permission: SystemPermission,
-  isOwner: boolean,
-  orgId: string
+  orgId: DriveID
 ): Promise<boolean> {
-  // System owner can access all permissions
+  const isOwner = (await getDriveOwnerId(orgId)) === requesterUserId;
+
   if (isOwner) {
     return true;
   }
 
-  // User who granted the permission can access it
-  if (permission.granted_by === requesterUserId) {
-    return true;
-  }
+  // Leverage the existing checkSystemPermissions function to get all applicable permissions
+  const permissions = await checkSystemPermissions(
+    resourceId,
+    requesterUserId, // Pass the user as the grantee
+    orgId
+  );
 
-  // Rust's `parse_permission_grantee_id` handles the string parsing.
-  // In TS, `permission.granted_to` is already the string representation.
-  const permissionGrantedTo = permission.granted_to;
-
-  // Check if user is the direct grantee
-  if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
-    return true; // Everyone can see public permissions
-  } else if (permissionGrantedTo.startsWith(USER_ID_PREFIX)) {
-    if (permissionGrantedTo === requesterUserId) {
-      return true;
-    }
-  } else if (permissionGrantedTo.startsWith(GROUP_ID_PREFIX)) {
-    if (
-      await isUserInGroup(
-        requesterUserId,
-        permissionGrantedTo as GroupID,
-        orgId
-      )
-    ) {
-      return true;
-    }
-  } else if (
-    permissionGrantedTo.startsWith(
-      PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-    )
-  ) {
-    // One-time links can only be accessed by the creator
-    return permission.granted_by === requesterUserId;
-  }
-  return false;
+  // If the user has any permission type (i.e., the array is not empty), return true.
+  return permissions.length > 0;
 }
 
 export async function hasSystemManagePermission(
   userId: UserID,
-  resourceId: RustLikeSystemResourceID,
-  orgId: string
+  resourceId: SystemResourceID,
+  orgId: DriveID // Ensure orgId is DriveID
 ): Promise<boolean> {
-  // Use our existing checkSystemPermissions which already handles group membership etc.
   const permissions = await checkSystemPermissions(resourceId, userId, orgId);
-  // Rust uses SystemPermissionType::Invite for has_system_manage_permission
   return permissions.includes(SystemPermissionType.INVITE);
 }
 
 // check what kind of permission a specific user has on a specific resource
 export async function checkSystemPermissions(
-  resourceId: RustLikeSystemResourceID,
+  resourceId: SystemResourceID,
   granteeId: GranteeID,
-  orgId: string
+  orgId: DriveID // Ensure orgId is DriveID
 ): Promise<SystemPermissionType[]> {
   const allPermissions = new Set<SystemPermissionType>();
 
-  // Check if the grantee is the owner of the drive
   const isOwner =
     (await getDriveOwnerId(orgId)) ===
-    (granteeId.startsWith(USER_ID_PREFIX) ? granteeId : "");
+    (granteeId.startsWith(IDPrefixEnum.User)
+      ? (granteeId as UserID)
+      : undefined);
   if (isOwner) {
-    // Owner gets all system permissions
     return [
       SystemPermissionType.CREATE,
       SystemPermissionType.VIEW,
@@ -123,8 +223,6 @@ export async function checkSystemPermissions(
     ];
   }
 
-  // First, check direct permissions for the grantee
-  // Rust calls `check_system_resource_permissions` with `resource_id` and `grantee_id`.
   const directPermissions = await checkSystemResourcePermissions(
     resourceId,
     granteeId,
@@ -132,8 +230,6 @@ export async function checkSystemPermissions(
   );
   directPermissions.forEach((p) => allPermissions.add(p));
 
-  // Always check public permissions (for any grantee type)
-  // Rust explicitly checks `PermissionGranteeID::Public`
   const publicPermissions = await checkSystemResourcePermissions(
     resourceId,
     PUBLIC_GRANTEE_ID_STRING,
@@ -141,49 +237,25 @@ export async function checkSystemPermissions(
   );
   publicPermissions.forEach((p) => allPermissions.add(p));
 
-  // If the grantee is a user, also check group permissions
-  // Rust checks `PermissionGranteeID::User` and then iterates through `GROUPS_BY_TIME_LIST`
-  // and `INVITES_BY_ID_HASHTABLE` to determine group membership.
-  if (granteeId.startsWith(USER_ID_PREFIX)) {
+  if (granteeId.startsWith(IDPrefixEnum.User)) {
     const userId = granteeId as UserID;
-    // Fetch all groups from the DB (Rust iterates GROUPS_BY_TIME_LIST)
-    const allGroups = await db.queryDrive(
+    const plainUserId = extractPlainUserId(userId);
+
+    // Get all groups the user is directly a member of via contact_groups table
+    const userGroupsRows = await db.queryDrive(
       orgId,
-      `SELECT id, name, owner_user_id, avatar, private_note, public_note, created_at, last_modified_at, drive_id, endpoint_url, external_id, external_payload FROM groups`
+      `SELECT group_id FROM contact_groups WHERE user_id = ?`,
+      [plainUserId]
     );
 
-    for (const groupRow of allGroups) {
-      // Create a simplified Group object for `isUserOnLocalGroup`
-      const group = {
-        id: groupRow.id,
-        name: groupRow.name,
-        owner: groupRow.owner_user_id,
-        avatar: groupRow.avatar,
-        private_note: groupRow.private_note,
-        public_note: groupRow.public_note,
-        admin_invites: [], // Not needed for isUserOnLocalGroup check in Rust
-        member_invites: [], // Not needed for isUserOnLocalGroup check in Rust
-        created_at: groupRow.created_at,
-        last_modified_at: groupRow.last_modified_at,
-        drive_id: groupRow.drive_id,
-        endpoint_url: groupRow.endpoint_url,
-        labels: [], // Not needed for isUserOnLocalGroup check in Rust
-        external_id: groupRow.external_id,
-        external_payload: groupRow.external_payload,
-      };
-
-      // `isUserOnLocalGroup` in Rust directly accesses `INVITES_BY_ID_HASHTABLE` and `USERS_INVITES_LIST_HASHTABLE`.
-      // We need to implement similar logic in TS using SQL queries.
-      // The `isUserInGroup` in `services/groups.ts` already handles this correctly by querying DB.
-      if (await isUserInGroup(userId, group.id as GroupID, orgId)) {
-        // Add this group's permissions
-        const groupPermissions = await checkSystemResourcePermissions(
-          resourceId,
-          group.id as GroupID, // Pass GroupID string as grantee
-          orgId
-        );
-        groupPermissions.forEach((p) => allPermissions.add(p));
-      }
+    for (const row of userGroupsRows) {
+      const groupId = `${IDPrefixEnum.Group}${row.group_id}` as GroupID;
+      const groupPermissions = await checkSystemResourcePermissions(
+        resourceId,
+        groupId,
+        orgId
+      );
+      groupPermissions.forEach((p) => allPermissions.add(p));
     }
   }
 
@@ -191,295 +263,45 @@ export async function checkSystemPermissions(
 }
 
 async function checkSystemResourcePermissions(
-  resourceId: RustLikeSystemResourceID, // This is the string representation like "TABLE_DRIVES" or "RECORD_UserID_abc"
-  granteeId: GranteeID, // This is the string representation like "PUBLIC", "USER_...", "GROUP_..."
-  orgId: string
-): Promise<SystemPermissionType[]> {
-  const permissionsSet = new Set<SystemPermissionType>();
-  const currentTime = Date.now();
-
-  // Parse the resourceId string back into its type and identifier for the SQL query
-  const parsedResourceId = parseSystemResourceIDString(resourceId);
-
-  // The SQL query needs to match the resource_type and resource_identifier
-  const rows = await db.queryDrive(
-    orgId,
-    `SELECT
-        ps.id,
-        ps.resource_type,
-        ps.resource_identifier,
-        ps.grantee_type,
-        ps.grantee_id,
-        ps.granted_by_user_id,
-        GROUP_CONCAT(pst.permission_type) AS permission_types_list,
-        ps.begin_date_ms,
-        ps.expiry_date_ms,
-        ps.note,
-        ps.created_at,
-        ps.last_modified_at,
-        ps.redeem_code,
-        ps.from_placeholder_grantee,
-        ps.metadata_type,
-        ps.metadata_content,
-        ps.external_id,
-        ps.external_payload
-      FROM permissions_system ps
-      JOIN permissions_system_types pst ON ps.id = pst.permission_id
-      WHERE ps.resource_type = ? AND ps.resource_identifier = ?
-      GROUP BY ps.id`,
-    [parsedResourceId.type, parsedResourceId.value]
-  );
-
-  for (const row of rows) {
-    // Reconstruct SystemPermission object from the row
-    const permission: SystemPermission = {
-      id: row.id,
-      resource_id: resourceId, // Keep the original string as it's the `SystemResourceID` type
-      granted_to:
-        row.grantee_type === "Public"
-          ? PUBLIC_GRANTEE_ID_STRING
-          : `${row.grantee_type.toUpperCase()}_${row.grantee_id}`,
-      granted_by: row.granted_by_user_id,
-      permission_types: (row.permission_types_list || "")
-        .split(",")
-        .filter(Boolean)
-        .map((typeStr: string) => typeStr.trim() as SystemPermissionType),
-      begin_date_ms: row.begin_date_ms,
-      expiry_date_ms: row.expiry_date_ms,
-      note: row.note,
-      created_at: row.created_at,
-      last_modified_at: row.last_modified_at,
-      redeem_code: row.redeem_code,
-      from_placeholder_grantee: row.from_placeholder_grantee,
-      metadata:
-        row.metadata_type && row.metadata_content
-          ? {
-              metadata_type: row.metadata_type,
-              content:
-                row.metadata_type === PermissionMetadataTypeEnum.LABELS
-                  ? { Labels: row.metadata_content }
-                  : { DirectoryPassword: row.metadata_content },
-            }
-          : undefined,
-      labels: [], // Not fetched by this query directly
-      external_id: row.external_id,
-      external_payload: row.external_payload,
-    };
-
-    // Skip if permission is expired or not yet active
-    if (
-      permission.expiry_date_ms > 0 &&
-      permission.expiry_date_ms <= currentTime
-    ) {
-      continue;
-    }
-    if (
-      permission.begin_date_ms > 0 &&
-      permission.begin_date_ms > currentTime
-    ) {
-      continue;
-    }
-
-    // Check if permission applies to this grantee
-    let applies = false;
-    const permissionGrantedTo = permission.granted_to; // Already string format
-
-    // Direct comparison of string representations matching Rust's logic
-    if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
-      applies = true;
-    } else if (
-      granteeId.startsWith(USER_ID_PREFIX) &&
-      permissionGrantedTo.startsWith(USER_ID_PREFIX)
-    ) {
-      applies = granteeId === permissionGrantedTo;
-    } else if (
-      granteeId.startsWith(GROUP_ID_PREFIX) &&
-      permissionGrantedTo.startsWith(GROUP_ID_PREFIX)
-    ) {
-      applies = granteeId === permissionGrantedTo;
-    } else if (
-      granteeId.startsWith(
-        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-      ) &&
-      permissionGrantedTo.startsWith(
-        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-      )
-    ) {
-      applies = granteeId === permissionGrantedTo;
-    }
-
-    if (applies) {
-      permission.permission_types.forEach((type) => permissionsSet.add(type));
-    }
-  }
-
-  return Array.from(permissionsSet);
-}
-
-// This is a helper function specifically for checking permissions table access
-export async function checkPermissionsTableAccess(
-  userId: UserID,
-  requiredPermission: SystemPermissionType,
-  isOwner: boolean,
-  orgId: string
-): Promise<boolean> {
-  if (isOwner) {
-    return true;
-  }
-
-  const permissions = await checkSystemPermissions(
-    `TABLE_${SystemTableValueEnum.PERMISSIONS}` as RustLikeSystemResourceID,
-    userId,
-    orgId
-  );
-  return permissions.includes(requiredPermission);
-}
-
-export async function checkSystemResourcePermissionsLabels(
-  resourceId: RustLikeSystemResourceID,
+  resourceId: SystemResourceID,
   granteeId: GranteeID,
-  labelStringValue: string,
-  orgId: string
-): Promise<SystemPermissionType[]> {
-  const permissionsSet = new Set<SystemPermissionType>();
-
-  // Get direct permissions
-  const directPermissions = await checkSystemResourcePermissionsLabelsInternal(
-    resourceId,
-    granteeId,
-    labelStringValue,
-    orgId
-  );
-  directPermissions.forEach((p) => permissionsSet.add(p));
-
-  // Always check public permissions
-  const publicPermissions = await checkSystemResourcePermissionsLabelsInternal(
-    resourceId,
-    PUBLIC_GRANTEE_ID_STRING,
-    labelStringValue,
-    orgId
-  );
-  publicPermissions.forEach((p) => permissionsSet.add(p));
-
-  // If the grantee is a user, also check group permissions
-  if (granteeId.startsWith(USER_ID_PREFIX)) {
-    const userId = granteeId as UserID;
-    const allGroups = await db.queryDrive(
-      orgId,
-      `SELECT id, name, owner_user_id, avatar, private_note, public_note, created_at, last_modified_at, drive_id, endpoint_url, external_id, external_payload FROM groups`
-    );
-
-    for (const groupRow of allGroups) {
-      const group = {
-        id: groupRow.id,
-        name: groupRow.name,
-        owner: groupRow.owner_user_id,
-        avatar: groupRow.avatar,
-        private_note: groupRow.private_note,
-        public_note: groupRow.public_note,
-        admin_invites: [],
-        member_invites: [],
-        created_at: groupRow.created_at,
-        last_modified_at: groupRow.last_modified_at,
-        drive_id: groupRow.drive_id,
-        endpoint_url: groupRow.endpoint_url,
-        labels: [],
-        external_id: groupRow.external_id,
-        external_payload: groupRow.external_payload,
-      };
-
-      if (await isUserInGroup(userId, group.id as GroupID, orgId)) {
-        // Add this group's permissions
-        const groupPermissions =
-          await checkSystemResourcePermissionsLabelsInternal(
-            resourceId,
-            group.id as GroupID,
-            labelStringValue,
-            orgId
-          );
-        groupPermissions.forEach((p) => permissionsSet.add(p));
-      }
-    }
-  }
-
-  return Array.from(permissionsSet);
-}
-
-async function checkSystemResourcePermissionsLabelsInternal(
-  resourceId: RustLikeSystemResourceID,
-  granteeId: GranteeID,
-  labelStringValue: string,
-  orgId: string
+  orgId: DriveID // Ensure orgId is DriveID
 ): Promise<SystemPermissionType[]> {
   const permissionsSet = new Set<SystemPermissionType>();
   const currentTime = Date.now();
 
   const parsedResourceId = parseSystemResourceIDString(resourceId);
 
+  // SQL query updated to exclude labels, external_id, external_payload
   const rows = await db.queryDrive(
     orgId,
     `SELECT
-        ps.id,
-        ps.resource_type,
-        ps.resource_identifier,
-        ps.grantee_type,
-        ps.grantee_id,
-        ps.granted_by_user_id,
-        GROUP_CONCAT(pst.permission_type) AS permission_types_list,
-        ps.begin_date_ms,
-        ps.expiry_date_ms,
-        ps.note,
-        ps.created_at,
-        ps.last_modified_at,
-        ps.redeem_code,
-        ps.from_placeholder_grantee,
-        ps.metadata_type,
-        ps.metadata_content,
-        ps.external_id,
-        ps.external_payload
-      FROM permissions_system ps
-      JOIN permissions_system_types pst ON ps.id = pst.permission_id
-      WHERE ps.resource_type = ? AND ps.resource_identifier = ?
-      GROUP BY ps.id`,
+      ps.id,
+      ps.resource_type,
+      ps.resource_identifier,
+      ps.grantee_type,
+      ps.grantee_id,
+      ps.granted_by_user_id,
+      GROUP_CONCAT(pst.permission_type) AS permission_types_list,
+      ps.begin_date_ms,
+      ps.expiry_date_ms,
+      ps.note,
+      ps.created_at,
+      ps.last_modified_at,
+      ps.redeem_code,
+      ps.from_placeholder_grantee,
+      ps.metadata_type,
+      ps.metadata_content
+    FROM permissions_system ps
+    JOIN permissions_system_types pst ON ps.id = pst.permission_id
+    WHERE ps.resource_type = ? AND ps.resource_identifier = ?
+    GROUP BY ps.id`,
     [parsedResourceId.type, parsedResourceId.value]
   );
 
   for (const row of rows) {
-    const permission: SystemPermission = {
-      id: row.id,
-      resource_id: resourceId,
-      granted_to:
-        row.grantee_type === "Public"
-          ? PUBLIC_GRANTEE_ID_STRING
-          : `${row.grantee_type.toUpperCase()}_${row.grantee_id}`,
-      granted_by: row.granted_by_user_id,
-      permission_types: (row.permission_types_list || "")
-        .split(",")
-        .filter(Boolean)
-        .map((typeStr: string) => typeStr.trim() as SystemPermissionType),
-      begin_date_ms: row.begin_date_ms,
-      expiry_date_ms: row.expiry_date_ms,
-      note: row.note,
-      created_at: row.created_at,
-      last_modified_at: row.last_modified_at,
-      redeem_code: row.redeem_code,
-      from_placeholder_grantee: row.from_placeholder_grantee,
-      metadata:
-        row.metadata_type && row.metadata_content
-          ? {
-              metadata_type: row.metadata_type,
-              content:
-                row.metadata_type === PermissionMetadataTypeEnum.LABELS
-                  ? { Labels: row.metadata_content }
-                  : { DirectoryPassword: row.metadata_content },
-            }
-          : undefined,
-      labels: [],
-      external_id: row.external_id,
-      external_payload: row.external_payload,
-    };
+    const permission: SystemPermission = mapDbRowToSystemPermission(row);
 
-    // Skip if permission is expired or not yet active
     if (
       permission.expiry_date_ms > 0 &&
       permission.expiry_date_ms <= currentTime
@@ -499,29 +321,185 @@ async function checkSystemResourcePermissionsLabelsInternal(
     if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
       applies = true;
     } else if (
-      granteeId.startsWith(USER_ID_PREFIX) &&
-      permissionGrantedTo.startsWith(USER_ID_PREFIX)
+      granteeId.startsWith(IDPrefixEnum.User) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.User)
     ) {
       applies = granteeId === permissionGrantedTo;
     } else if (
-      granteeId.startsWith(GROUP_ID_PREFIX) &&
-      permissionGrantedTo.startsWith(GROUP_ID_PREFIX)
+      granteeId.startsWith(IDPrefixEnum.Group) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.Group)
     ) {
       applies = granteeId === permissionGrantedTo;
     } else if (
-      granteeId.startsWith(
-        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-      ) &&
-      permissionGrantedTo.startsWith(
-        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-      )
+      granteeId.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee)
     ) {
       applies = granteeId === permissionGrantedTo;
     }
 
     if (applies) {
-      // Check for label metadata match
-      let labelMatch = true; // Assume true if no label metadata exists
+      permission.permission_types.forEach((type) => permissionsSet.add(type));
+    }
+  }
+
+  return Array.from(permissionsSet);
+}
+
+/**
+ * Checks if a user has a specific required permission for the 'Permissions' system table.
+ * This function performs its own owner check.
+ * @param userId The ID of the user to check.
+ * @param requiredPermission The specific SystemPermissionType required (e.g., VIEW, CREATE).
+ * @param orgId The ID of the organization/drive.
+ * @returns A Promise that resolves to true if the user has the required permission or is the owner, false otherwise.
+ */
+export async function checkPermissionsTableAccess(
+  userId: UserID,
+  requiredPermission: SystemPermissionType,
+  orgId: DriveID // Ensure orgId is DriveID, removed isOwner
+): Promise<boolean> {
+  const isOwner = (await getDriveOwnerId(orgId)) === userId;
+
+  if (isOwner) {
+    return true;
+  }
+
+  const permissions = await checkSystemPermissions(
+    `TABLE_${SystemTableValueEnum.PERMISSIONS}` as SystemResourceID,
+    userId,
+    orgId
+  );
+  return permissions.includes(requiredPermission);
+}
+
+export async function checkSystemResourcePermissionsLabels(
+  resourceId: SystemResourceID,
+  granteeId: GranteeID,
+  labelStringValue: string,
+  orgId: DriveID // Ensure orgId is DriveID
+): Promise<SystemPermissionType[]> {
+  const permissionsSet = new Set<SystemPermissionType>();
+
+  const directPermissions = await checkSystemResourcePermissionsLabelsInternal(
+    resourceId,
+    granteeId,
+    labelStringValue,
+    orgId
+  );
+  directPermissions.forEach((p) => permissionsSet.add(p));
+
+  const publicPermissions = await checkSystemResourcePermissionsLabelsInternal(
+    resourceId,
+    PUBLIC_GRANTEE_ID_STRING,
+    labelStringValue,
+    orgId
+  );
+  publicPermissions.forEach((p) => permissionsSet.add(p));
+
+  if (granteeId.startsWith(IDPrefixEnum.User)) {
+    const userId = granteeId as UserID;
+    const plainUserId = extractPlainUserId(userId);
+
+    const userGroupsRows = await db.queryDrive(
+      orgId,
+      `SELECT group_id FROM contact_groups WHERE user_id = ?`,
+      [plainUserId]
+    );
+
+    for (const row of userGroupsRows) {
+      const groupId = `${IDPrefixEnum.Group}${row.group_id}` as GroupID;
+      const groupPermissions =
+        await checkSystemResourcePermissionsLabelsInternal(
+          resourceId,
+          groupId,
+          labelStringValue,
+          orgId
+        );
+      groupPermissions.forEach((p) => permissionsSet.add(p));
+    }
+  }
+
+  return Array.from(permissionsSet);
+}
+
+async function checkSystemResourcePermissionsLabelsInternal(
+  resourceId: SystemResourceID,
+  granteeId: GranteeID,
+  labelStringValue: string,
+  orgId: DriveID // Ensure orgId is DriveID
+): Promise<SystemPermissionType[]> {
+  const permissionsSet = new Set<SystemPermissionType>();
+  const currentTime = Date.now();
+
+  const parsedResourceId = parseSystemResourceIDString(resourceId);
+
+  // SQL query updated to exclude labels, external_id, external_payload
+  const rows = await db.queryDrive(
+    orgId,
+    `SELECT
+      ps.id,
+      ps.resource_type,
+      ps.resource_identifier,
+      ps.grantee_type,
+      ps.grantee_id,
+      ps.granted_by_user_id,
+      GROUP_CONCAT(pst.permission_type) AS permission_types_list,
+      ps.begin_date_ms,
+      ps.expiry_date_ms,
+      ps.note,
+      ps.created_at,
+      ps.last_modified_at,
+      ps.redeem_code,
+      ps.from_placeholder_grantee,
+      ps.metadata_type,
+      ps.metadata_content
+    FROM permissions_system ps
+    JOIN permissions_system_types pst ON ps.id = pst.permission_id
+    WHERE ps.resource_type = ? AND ps.resource_identifier = ?
+    GROUP BY ps.id`,
+    [parsedResourceId.type, parsedResourceId.value]
+  );
+
+  for (const row of rows) {
+    const permission: SystemPermission = mapDbRowToSystemPermission(row);
+
+    if (
+      permission.expiry_date_ms > 0 &&
+      permission.expiry_date_ms <= currentTime
+    ) {
+      continue;
+    }
+    if (
+      permission.begin_date_ms > 0 &&
+      permission.begin_date_ms > currentTime
+    ) {
+      continue;
+    }
+
+    let applies = false;
+    const permissionGrantedTo = permission.granted_to;
+
+    if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
+      applies = true;
+    } else if (
+      granteeId.startsWith(IDPrefixEnum.User) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.User)
+    ) {
+      applies = granteeId === permissionGrantedTo;
+    } else if (
+      granteeId.startsWith(IDPrefixEnum.Group) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.Group)
+    ) {
+      applies = granteeId === permissionGrantedTo;
+    } else if (
+      granteeId.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee)
+    ) {
+      applies = granteeId === permissionGrantedTo;
+    }
+
+    if (applies) {
+      let labelMatch = true;
       if (
         permission.metadata &&
         permission.metadata.metadata_type === PermissionMetadataTypeEnum.LABELS
@@ -542,4 +520,156 @@ async function checkSystemResourcePermissionsLabelsInternal(
   }
 
   return Array.from(permissionsSet);
+}
+
+/**
+ * Utility to convert SystemPermission to SystemPermissionFE.
+ * @param permission A raw SystemPermission object.
+ * @param currentUserId The ID of the user for whom to cast (for previews/redaction).
+ * @param orgId The drive ID.
+ * @returns A fully populated SystemPermissionFE object.
+ */
+export async function castToSystemPermissionFE(
+  permission: SystemPermission,
+  currentUserId: UserID,
+  orgId: string
+): Promise<any> {
+  // SystemPermissionFE
+  const isOwner = (await getDriveOwnerId(orgId)) === currentUserId;
+
+  let granteeName: string | undefined;
+  let granteeAvatar: string | undefined;
+  if (permission.granted_to === PUBLIC_GRANTEE_ID_STRING) {
+    granteeName = "PUBLIC";
+  } else if (permission.granted_to.startsWith(USER_ID_PREFIX)) {
+    const contactInfo = await getContactInfo(
+      orgId,
+      permission.granted_to as UserID
+    );
+    granteeName = contactInfo?.name;
+    granteeAvatar = contactInfo?.avatar;
+    if (!granteeName) granteeName = `User: ${permission.granted_to}`;
+  } else if (permission.granted_to.startsWith(GROUP_ID_PREFIX)) {
+    const groupInfo = await getGroupInfo(
+      orgId,
+      permission.granted_to as GroupID
+    );
+    granteeName = groupInfo?.name;
+    granteeAvatar = groupInfo?.avatar;
+    if (!granteeName) granteeName = `Group: ${permission.granted_to}`;
+  } else if (
+    permission.granted_to.startsWith(
+      PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
+    )
+  ) {
+    granteeName = "Awaiting Anon";
+  }
+
+  const granterInfo = await getContactInfo(orgId, permission.granted_by);
+  const granterName = granterInfo?.name || `Granter: ${permission.granted_by}`;
+
+  const permissionPreviews = await getSystemPermissionsForRecord(
+    `RECORD_Permission_${permission.id}`,
+    currentUserId,
+    orgId
+  );
+
+  const castedPermission: any = {
+    // Use 'any' or define SystemPermissionFE more strictly
+    id: permission.id,
+    resource_id: permission.resource_id,
+    granted_to: permission.granted_to,
+    granted_by: permission.granted_by,
+    permission_types: permission.permission_types,
+    begin_date_ms: permission.begin_date_ms,
+    expiry_date_ms: permission.expiry_date_ms,
+    note: permission.note,
+    created_at: permission.created_at,
+    last_modified_at: permission.last_modified_at,
+    from_placeholder_grantee: permission.from_placeholder_grantee,
+    labels: permission.labels,
+    redeem_code: permission.redeem_code,
+    metadata: permission.metadata,
+    external_id: permission.external_id,
+    external_payload: permission.external_payload,
+    resource_name: permission.resource_id, // For system, resource_id is often the "name"
+    grantee_name: granteeName,
+    grantee_avatar: granteeAvatar,
+    granter_name: granterName,
+    permission_previews: permissionPreviews,
+  };
+
+  return redactSystemPermissionFE(
+    castedPermission,
+    currentUserId,
+    isOwner,
+    orgId
+  );
+}
+
+/**
+ * Function to redact SystemPermissionFE.
+ * @param permissionFe The frontend permission object to redact.
+ * @param userId The ID of the user for whom to redact.
+ * @param isOwner Whether the user is the drive owner.
+ * @param orgId The drive ID.
+ * @returns The redacted SystemPermissionFE.
+ */
+export async function redactSystemPermissionFE(
+  permissionFe: any, // SystemPermissionFE
+  userId: UserID,
+  isOwner: boolean,
+  orgId: DriveID
+): Promise<any> {
+  // SystemPermissionFE
+  const redacted = { ...permissionFe };
+
+  // Redaction logic for system permissions if any specific fields need it
+  // Similar to directory permissions, labels can be redacted
+  redacted.labels = (
+    await Promise.all(
+      redacted.labels.map(
+        async (labelValue: LabelValue) =>
+          await redactLabelValue(orgId, labelValue, userId)
+      )
+    )
+  ).filter((label): label is LabelValue => label !== null);
+
+  return redacted;
+}
+
+async function redactLabelValue(
+  orgId: DriveID,
+  labelValue: LabelValue,
+  userId: UserID
+): Promise<LabelValue | null> {
+  // In a real system, this would check user permissions for the label itself.
+  // For now, simply return the label value.
+  return labelValue;
+}
+
+// Helper to get contact name and avatar
+async function getContactInfo(
+  orgId: string,
+  contactId: UserID
+): Promise<{ name?: string; avatar?: string } | null> {
+  const rows = await db.queryDrive(
+    orgId,
+    "SELECT name, avatar FROM contacts WHERE id = ?",
+    [contactId]
+  );
+  return rows.length > 0 ? rows[0] : null;
+}
+
+// Helper to get group name and avatar
+async function getGroupInfo(
+  orgId: string,
+  groupId: GroupID
+): Promise<{ name?: string; avatar?: string } | null> {
+  const rows = await db.queryDrive(
+    orgId,
+    "SELECT name, avatar FROM groups WHERE id = ?",
+    [groupId]
+  );
+  return rows.length > 0 ? rows[0] : null;
 }

@@ -9,18 +9,20 @@ import {
   IDPrefixEnum,
   URLEndpoint,
   IResponseValidateGroupMember,
+  GroupInviteID,
+  GroupRole, // Assuming this type exists for external group validation response
 } from "@officexapp/types"; // Adjust this path to your actual types
 import { db } from "../../services/database"; // Adjust this path to your database service
-import { USER_ID_PREFIX } from "../permissions/directory"; // Import constants from permissions/directory
+import { getDriveOwnerId } from "../../routes/v1/types";
 
 /**
  * Represents a Group record as stored in the SQLite database.
  * This should match the `groups` table schema.
  */
 interface GroupDbRow {
-  id: string; // GroupID
+  id: string; // GroupID without prefix (just UUID part)
   name: string;
-  owner_user_id: string; // UserID
+  owner_user_id: string; // UserID without prefix (just UUID part)
   avatar?: string;
   private_note?: string;
   public_note?: string;
@@ -31,7 +33,6 @@ interface GroupDbRow {
   external_id?: string;
   external_payload?: string;
   // Note: admin_invites and member_invites are typically stored in a separate join table or derived
-  // For simplicity, we'll fetch them as needed or assume a denormalized JSON column if you added one.
 }
 
 /**
@@ -39,11 +40,11 @@ interface GroupDbRow {
  * This should match the `group_invites` table schema.
  */
 interface GroupInviteDbRow {
-  id: string; // GroupInviteID
-  group_id: string; // GroupID
-  inviter_user_id: string; // UserID
+  id: string; // GroupInviteID without prefix
+  group_id: string; // GroupID without prefix
+  inviter_user_id: string; // UserID without prefix
   invitee_type: string; // 'USER', 'PLACEHOLDER', 'PUBLIC'
-  invitee_id?: string; // UserID or PlaceholderID, NULL if public
+  invitee_id?: string; // UserID (without prefix) or PlaceholderID (without prefix), NULL if public
   role: string; // 'ADMIN', 'MEMBER'
   note: string;
   active_from: number;
@@ -57,8 +58,57 @@ interface GroupInviteDbRow {
 }
 
 /**
+ * Helper to extract plain ID from prefixed UserID string for DB queries.
+ * Handles cases where the ID might not have the prefix (e.g., direct from DB).
+ */
+export function extractPlainUserId(prefixedUserId: UserID): string {
+  if (prefixedUserId.startsWith(IDPrefixEnum.User)) {
+    return prefixedUserId.substring(IDPrefixEnum.User.length);
+  }
+  return prefixedUserId; // Return as is if no prefix (e.g., if it's already a plain UUID from DB)
+}
+
+/**
+ * Helper to extract plain ID from prefixed GroupID string for DB queries.
+ */
+export function extractPlainGroupId(prefixedGroupId: GroupID): string {
+  if (prefixedGroupId.startsWith(IDPrefixEnum.Group)) {
+    return prefixedGroupId.substring(IDPrefixEnum.Group.length);
+  }
+  return prefixedGroupId;
+}
+
+/**
+ * Helper to extract plain ID from prefixed GroupInviteID string for DB queries.
+ */
+export function extractPlainGroupInviteId(
+  prefixedGroupInviteId: string
+): string {
+  if (prefixedGroupInviteId.startsWith(IDPrefixEnum.GroupInvite)) {
+    return prefixedGroupInviteId.substring(IDPrefixEnum.GroupInvite.length);
+  }
+  return prefixedGroupInviteId;
+}
+
+/**
+ * Helper to extract plain ID from prefixed PlaceholderPermissionGranteeID string for DB queries.
+ */
+export function extractPlainPlaceholderGranteeId(
+  prefixedPlaceholderId: string
+): string {
+  if (
+    prefixedPlaceholderId.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee)
+  ) {
+    return prefixedPlaceholderId.substring(
+      IDPrefixEnum.PlaceholderPermissionGrantee.length
+    );
+  }
+  return prefixedPlaceholderId;
+}
+
+/**
  * Retrieves a group by its ID.
- * @param groupId The ID of the group.
+ * @param groupId The ID of the group (prefixed).
  * @param orgId The organization ID (drive ID) to query the correct database.
  * @returns The Group object if found, otherwise undefined.
  */
@@ -66,6 +116,7 @@ export async function getGroupById(
   groupId: GroupID,
   orgId: string
 ): Promise<Group | undefined> {
+  const plainGroupId = extractPlainGroupId(groupId); // Use helper to get plain ID
   const query = `
       SELECT
         id, name, owner_user_id, avatar, private_note, public_note,
@@ -74,7 +125,7 @@ export async function getGroupById(
       FROM groups
       WHERE id = ?;
     `;
-  const rows = await db.queryDrive(orgId, query, [groupId]);
+  const rows = await db.queryDrive(orgId, query, [plainGroupId]);
 
   if (rows.length === 0) {
     return undefined;
@@ -82,22 +133,15 @@ export async function getGroupById(
 
   const row = rows[0] as GroupDbRow;
 
-  // For `admin_invites` and `member_invites`, you'd typically fetch from `group_invites` table
-  // and filter by group_id and role. For this example, we'll keep it simple as empty arrays
-  // or add a more complete fetching if needed.
-  // In a real scenario, you might have `GROUP_CONCAT` for invite IDs or separate queries.
-  const adminInvites: string[] = []; // Placeholder
-  const memberInvites: string[] = []; // Placeholder
-
   return {
-    id: row.id,
+    id: `${IDPrefixEnum.Group}${row.id}` as GroupID, // Reconstruct prefixed ID
     name: row.name,
-    owner: row.owner_user_id,
+    owner: `${IDPrefixEnum.User}${row.owner_user_id}` as UserID, // Reconstruct prefixed UserID
     avatar: row.avatar || "",
     private_note: row.private_note,
     public_note: row.public_note,
-    admin_invites: adminInvites, // This would need actual data fetching if needed for the Group object itself
-    member_invites: memberInvites, // This would need actual data fetching if needed for the Group object itself
+    admin_invites: [], // As per your comment, these are placeholders or need separate fetching
+    member_invites: [], // As per your comment, these are placeholders or need separate fetching
     created_at: row.created_at,
     last_modified_at: row.last_modified_at,
     drive_id: row.drive_id,
@@ -110,9 +154,8 @@ export async function getGroupById(
 
 /**
  * Checks if a user is an admin of a specific group.
- * This function largely mirrors the `is_group_admin` in Rust.
- * @param userId The ID of the user.
- * @param groupId The ID of the group.
+ * @param userId The ID of the user (prefixed).
+ * @param groupId The ID of the group (prefixed).
  * @param orgId The organization ID (drive ID) to query the correct database.
  * @returns True if the user is an admin, false otherwise.
  */
@@ -123,7 +166,7 @@ export async function isGroupAdmin(
 ): Promise<boolean> {
   const group = await getGroupById(groupId, orgId);
   if (!group) {
-    return false; // Group not found
+    return false;
   }
 
   // 1. Check if user is the owner of the group
@@ -133,6 +176,9 @@ export async function isGroupAdmin(
 
   // 2. Check admin invites
   const currentTime = Date.now();
+  const plainUserId = extractPlainUserId(userId);
+  const plainGroupId = extractPlainGroupId(groupId);
+
   const adminInviteQuery = `
       SELECT
         gi.id, gi.group_id, gi.inviter_user_id, gi.invitee_type, gi.invitee_id,
@@ -146,8 +192,8 @@ export async function isGroupAdmin(
         AND gi.invitee_id = ?;
     `;
   const adminInviteRows = await db.queryDrive(orgId, adminInviteQuery, [
-    groupId,
-    userId.replace(USER_ID_PREFIX, ""), // Extract raw user ID if prefixed for DB storage
+    plainGroupId,
+    plainUserId,
   ]);
 
   for (const row of adminInviteRows) {
@@ -164,12 +210,73 @@ export async function isGroupAdmin(
 }
 
 /**
+ * Retrieves a group invite by its ID.
+ * @param inviteId The ID of the group invite (prefixed).
+ * @param orgId The organization ID (drive ID) to query the correct database.
+ * @returns The GroupInvite object if found, otherwise undefined.
+ */
+export async function getGroupInviteById(
+  inviteId: GroupInviteID,
+  orgId: string
+): Promise<GroupInvite | undefined> {
+  const plainInviteId = extractPlainGroupInviteId(inviteId);
+  const query = `
+      SELECT
+        id, group_id, inviter_id, invitee_type, invitee_id, role, note,
+        active_from, expires_at, created_at, last_modified_at,
+        redeem_code, from_placeholder_invitee, external_id, external_payload
+      FROM group_invites
+      WHERE id = ?;
+    `;
+  const rows = await db.queryDrive(orgId, query, [plainInviteId]);
+
+  if (rows.length === 0) {
+    return undefined;
+  }
+
+  const row = rows[0] as GroupInviteDbRow;
+
+  // Map invitee_id based on invitee_type
+  let inviteeFullId: GroupInviteeID;
+  if (row.invitee_type === "USER" && row.invitee_id) {
+    inviteeFullId = `${IDPrefixEnum.User}${row.invitee_id}` as UserID;
+  } else if (row.invitee_type === "PLACEHOLDER" && row.invitee_id) {
+    inviteeFullId = `${IDPrefixEnum.PlaceholderGroupInviteeID}${row.invitee_id}`;
+  } else if (row.invitee_type === "PUBLIC") {
+    inviteeFullId = "PUBLIC";
+  } else {
+    // Fallback or error, depending on expected strictness
+    console.warn(
+      `Unexpected invitee_type or missing invitee_id: ${row.invitee_type}, ID: ${row.invitee_id}`
+    );
+    inviteeFullId = "PUBLIC"; // Default to public for safety
+  }
+
+  return {
+    id: `${IDPrefixEnum.GroupInvite}${row.id}` as GroupInviteID,
+    group_id: `${IDPrefixEnum.Group}${row.group_id}` as GroupID,
+    inviter_id: `${IDPrefixEnum.User}${row.inviter_user_id}` as UserID,
+    invitee_id: inviteeFullId,
+    role: row.role as GroupRole,
+    note: row.note,
+    active_from: row.active_from,
+    expires_at: row.expires_at,
+    created_at: row.created_at,
+    last_modified_at: row.last_modified_at,
+    redeem_code: row.redeem_code,
+    from_placeholder_invitee: row.from_placeholder_invitee,
+    labels: [],
+    external_id: row.external_id,
+    external_payload: row.external_payload,
+  };
+}
+
+/**
  * Checks if a user is a member of a local group. This includes both admins and regular members.
- * This function largely mirrors the `is_user_on_local_group` in Rust.
  *
  * IMPORTANT: This function assumes the group is "local" (i.e., on the same drive).
  * It does NOT make HTTP calls to external drives.
- * @param userId The ID of the user.
+ * @param userId The ID of the user (prefixed).
  * @param group The Group object to check membership against.
  * @param orgId The organization ID (drive ID) to query the correct database.
  * @returns True if the user is a member of the group, false otherwise.
@@ -184,13 +291,11 @@ export async function isUserOnLocalGroup(
     return true;
   }
 
-  // 2. Check all member invites (which include admin invites in Rust)
+  // 2. Check all member invites
   const currentTime = Date.now();
+  const plainUserId = extractPlainUserId(userId);
+  const plainGroupId = extractPlainGroupId(group.id);
 
-  // Fetch all invites for this user that are active and associated with this group
-  // Rust: `USERS_INVITES_LIST_HASHTABLE` maps `GroupInviteeID` to `GroupInviteIDList`
-  // and `INVITES_BY_ID_HASHTABLE` for invite details.
-  // We need to query `group_invites` table.
   const userInvitesQuery = `
       SELECT
         gi.id, gi.group_id, gi.inviter_user_id, gi.invitee_type, gi.invitee_id,
@@ -204,8 +309,8 @@ export async function isUserOnLocalGroup(
     `;
 
   const inviteRows = await db.queryDrive(orgId, userInvitesQuery, [
-    group.id,
-    userId.replace(USER_ID_PREFIX, ""), // Extract raw user ID if prefixed for DB storage
+    plainGroupId,
+    plainUserId,
   ]);
 
   for (const row of inviteRows) {
@@ -223,9 +328,8 @@ export async function isUserOnLocalGroup(
 
 /**
  * Checks if a user is a member of any group, including local and potentially external groups.
- * This function largely mirrors the `is_user_on_group` in Rust.
- * @param userId The ID of the user.
- * @param groupId The ID of the group.
+ * @param userId The ID of the user (prefixed).
+ * @param groupId The ID of the group (prefixed).
  * @param orgId The organization ID (drive ID) to query the correct database.
  * @returns True if the user is a member of the group, false otherwise.
  */
@@ -239,14 +343,6 @@ export async function isUserInGroup(
     return false; // Group not found
   }
 
-  // Rust's `URL_ENDPOINT.with(|url| url.borrow().get().clone())` is your current drive's endpoint.
-  // You'll need to pass or retrieve your local drive's URL endpoint to compare.
-  // For simplicity, let's assume getDriveOwnerId provides enough info for local checks,
-  // or you have a way to get the local drive's URL.
-  // For this example, I'll mock `getLocalDriveEndpointUrl`. In your real app,
-  // this should come from your `about_drive` table or a configuration.
-  // Or even better, if `orgId` *is* the local drive ID, then any group fetched from `db.queryDrive(orgId, ...)`
-  // is inherently a "local" group.
   const localDriveInfo = await db.queryDrive(
     orgId,
     `SELECT url_endpoint FROM about_drive LIMIT 1;`
@@ -259,11 +355,10 @@ export async function isUserInGroup(
     return isUserOnLocalGroup(userId, group, orgId);
   } else {
     // It's an external group, make HTTP call to their validate endpoint
-    // This part requires an HTTP client and handling external API calls.
-    // The Rust code uses `ic_cdk::api::management_canister::http_request`.
-    // In Node.js, you'd use `axios` or `fetch`.
-
-    const validationUrl = `${group.endpoint_url.replace(/\/+$/, "")}/groups/validate`; // Remove trailing slash
+    const validationUrl = `${group.endpoint_url.replace(
+      /\/+$/,
+      ""
+    )}/groups/validate`;
 
     try {
       const response = await fetch(validationUrl, {
@@ -272,8 +367,8 @@ export async function isUserInGroup(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          group_id: groupId, // Rust sends groupId.0, assuming raw string
-          user_id: userId, // Rust sends userId.0, assuming raw string
+          group_id: extractPlainGroupId(groupId), // Send plain ID for external API
+          user_id: extractPlainUserId(userId), // Send plain ID for external API
         }),
       });
 
@@ -286,19 +381,10 @@ export async function isUserInGroup(
 
       const result =
         (await response.json()) as unknown as IResponseValidateGroupMember;
-      // Assuming ValidateGroupResponseData from Rust which has `is_member: boolean`
-      return result.ok.data.is_member === true; // Ensure it's explicitly true
+      return result.ok.data.is_member === true;
     } catch (e) {
       console.error(`External group validation request failed: ${e}`);
       return false;
     }
   }
-}
-
-// Helper to extract plain ID from prefixed UserID string for DB queries
-function extractPlainUserId(prefixedUserId: UserID): string {
-  if (prefixedUserId.startsWith(IDPrefixEnum.User)) {
-    return prefixedUserId.substring(IDPrefixEnum.User.length);
-  }
-  return prefixedUserId; // Return as is if no prefix, or handle error
 }

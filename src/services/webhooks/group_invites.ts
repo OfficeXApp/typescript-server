@@ -5,34 +5,6 @@ import { Webhook, WebhookEventLabel, GroupID } from "@officexapp/types";
 import fetch from "node-fetch";
 
 /**
- * Gets all active webhooks for a group invite event
- * @param groupId The ID of the group to get webhooks for
- * @param event The webhook event type
- * @returns Array of active webhooks matching the criteria
- */
-export async function get_active_group_invite_webhooks(
-  groupId: GroupID,
-  event: WebhookEventLabel
-): Promise<Webhook[]> {
-  try {
-    // Get all webhooks for this group's alt_index
-    const webhooks = await db.queryDrive(
-      // TODO: GROUP Need to determine drive ID from group ID - this may require a service we don't have yet
-      // For now, we'll assume the webhooks table is in the factory DB
-      "factory",
-      `SELECT * FROM webhooks 
-       WHERE alt_index = ? AND event = ? AND is_active = 1`,
-      [groupId, event]
-    );
-
-    return webhooks as Webhook[];
-  } catch (error) {
-    console.error("Error getting active group invite webhooks:", error);
-    return [];
-  }
-}
-
-/**
  * Fires group invite webhooks to their configured URLs
  * @param event The webhook event type
  * @param webhooks Array of webhooks to fire

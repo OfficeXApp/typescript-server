@@ -338,6 +338,7 @@ CREATE TABLE contact_id_superswap_history (
 CREATE TABLE contact_groups (
     user_id TEXT NOT NULL,
     group_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'MEMBER', 
     PRIMARY KEY (user_id, group_id),
     FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE,
     FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
