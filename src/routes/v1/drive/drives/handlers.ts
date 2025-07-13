@@ -31,6 +31,7 @@ import {
 
 // Import the redactLabelValue from the labels handler
 import { redactLabelValue } from "../../drive/labels/handlers";
+import { validateIcpPrincipal } from "../../../../services/validation";
 
 // Helper to cast Drive to DriveFE and apply redaction logic
 async function castDriveToFE(
@@ -240,10 +241,11 @@ export async function listDrivesHandler(
     const whereClauses: string[] = [];
 
     if (filters) {
-      // TODO: REDACT Implement more sophisticated filtering logic based on the Rust `filters` implementation.
-      // For now, a basic name filter.
-      whereClauses.push("name LIKE ?");
-      params.push(`%${filters}%`);
+      // TODO: FEATURE Implement more sophisticated filtering logic based on the Rust `filters` implementation.
+      // for now just ignore and log feature not yet implemented
+      request.log.warn(
+        `[TODO: FEATURE] Filtering by '${filters}' is not yet implemented.`
+      );
     }
 
     if (whereClauses.length > 0) {
@@ -366,7 +368,6 @@ export async function createDriveHandler(
     } = request.body;
 
     // Validate request body
-    // TODO: VALIDATE Check if valid icp principal
     if (id && !id.startsWith(IDPrefixEnum.Drive)) {
       // Basic UUID check
       return reply.status(400).send(
@@ -392,7 +393,15 @@ export async function createDriveHandler(
         })
       );
     }
-    // TODO: VALIDATE Add more specific validation for icp_principal format if needed
+    const icpPrincipalValidation = validateIcpPrincipal(icp_principal);
+    if (!icpPrincipalValidation.success) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: icpPrincipalValidation.error.message,
+        })
+      );
+    }
     if (public_note && public_note.length > 8192) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -472,7 +481,7 @@ export async function createDriveHandler(
         newDrive.external_payload
       );
 
-      // TODO: VALIDATE Update external ID mapping in about_drive table (Rust's `update_external_id_mapping`)
+      // TODO: UUID Update external ID mapping in about_drive table (Rust's `update_external_id_mapping`)
       // This part assumes that `EXTERNAL_ID_MAPPINGS` in Rust is a separate stable structure.
       // In SQLite, this would typically be handled as part of the `drives` table or a separate `external_id_mappings` table.
       // For now, we'll assume `external_id` is stored directly in the `drives` table.
@@ -662,7 +671,7 @@ export async function updateDriveHandler(
       );
       stmt.run(...values);
 
-      // TODO: VALIDATE Handle update to external ID mapping, similar to Rust's `update_external_id_mapping`
+      // TODO: UUID Handle update to external ID mapping, similar to Rust's `update_external_id_mapping`
       // This would involve updating a separate `external_id_mappings` table if one exists.
       // If `external_id` is just a field on `drives` table, the update query above handles it.
       // If the old_external_id was present and new one is different or null, you might need to remove old entries from a mapping table.
@@ -764,7 +773,7 @@ export async function deleteDriveHandler(
       const stmt = database.prepare("DELETE FROM drives WHERE id = ?");
       stmt.run(id);
 
-      // TODO: VALIDATE Handle deletion from external ID mapping if a separate table exists
+      // TODO: UUID Handle deletion from external ID mapping if a separate table exists
       // If `external_id` was stored in a separate mapping table, delete corresponding entries here.
     });
 

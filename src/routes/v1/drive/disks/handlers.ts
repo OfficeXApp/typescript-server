@@ -53,15 +53,11 @@ interface OrgIdParams {
   org_id: DriveID;
 }
 
-// --- Internal Helper Functions (Adapted from Rust) ---
-
 // Helper function to validate request body for creating a disk
 function validateCreateDiskRequest(body: IRequestCreateDisk): {
   valid: boolean;
   error?: string;
 } {
-  // TODO: VALIDATE Implement more comprehensive validation based on Rust's `CreateDiskRequestBody::validate_body`
-  // Placeholder for now
   if (!body.name || body.name.length === 0 || body.name.length > 256) {
     return {
       valid: false,
@@ -83,9 +79,8 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
         error: `Disk ID must start with '${IDPrefixEnum.Disk}'.`,
       };
     }
-    // TODO: VALIDATE Implement `validate_unclaimed_uuid` equivalent (check if ID already exists in DB)
+    // TODO: UUID Implement `validate_unclaimed_uuid` equivalent (check if ID already exists in DB)
   }
-
   // Validate notes
   if (body.public_note && body.public_note.length > 8192) {
     return {
@@ -138,18 +133,36 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
       return { valid: false, error: "Auth JSON is not valid JSON." };
     }
   }
-
-  // TODO: VALIDATE validate `external_id`, `external_payload`, `endpoint` based on Rust's `validate_external_id`, `validate_external_payload`, `validate_url`
+  if (body.external_id && body.external_id.length > 256) {
+    return {
+      valid: false,
+      error: "External ID must be 256 characters or less.",
+    };
+  }
+  if (body.external_payload && body.external_payload.length > 8192) {
+    return {
+      valid: false,
+      error: "External payload must be 8,192 characters or less.",
+    };
+  }
+  if (body.endpoint && body.endpoint.length > 2048) {
+    return {
+      valid: false,
+      error: "Endpoint must be 2048 characters or less.",
+    };
+  }
 
   return { valid: true };
 }
 
 // Helper function to validate request body for updating a disk
-function validateUpdateDiskRequest(body: IRequestUpdateDisk): {
+async function validateUpdateDiskRequest(
+  body: IRequestUpdateDisk,
+  orgID: DriveID
+): Promise<{
   valid: boolean;
   error?: string;
-} {
-  // TODO: VALIDATE Implement comprehensive validation based on Rust's `UpdateDiskRequestBody::validate_body`
+}> {
   if (!body.id || !body.id.startsWith(IDPrefixEnum.Disk)) {
     return {
       valid: false,
@@ -180,11 +193,63 @@ function validateUpdateDiskRequest(body: IRequestUpdateDisk): {
     };
   }
 
-  // TODO: VALIDATE Re-validate auth_json structure if provided, similar to create. Requires fetching existing disk type.
+  // Re-validate auth_json structure if provided, similar to create. Requires fetching existing disk type.
   // This will need to fetch the existing disk to know its `disk_type`.
-  // For now, assume it's structurally valid if present.
+  const disks = await db.queryDrive(orgID, "SELECT * FROM disks WHERE id = ?", [
+    body.id,
+  ]);
 
-  // TODO: VALIDATE validate `external_id`, `external_payload`, `endpoint`
+  if (!disks || disks.length === 0) {
+    return {
+      valid: false,
+      error: "Disk not found.",
+    };
+  }
+
+  const disk = disks[0];
+
+  if (
+    (disk.disk_type === DiskTypeEnum.AwsBucket && body.auth_json) ||
+    (disk.disk_type === DiskTypeEnum.StorjWeb3 && body.auth_json)
+  ) {
+    try {
+      const auth = JSON.parse(body.auth_json);
+      if (
+        !auth.endpoint ||
+        !auth.access_key ||
+        !auth.secret_key ||
+        !auth.bucket ||
+        !auth.region
+      ) {
+        return {
+          valid: false,
+          error:
+            "Auth JSON for AWS_BUCKET must contain endpoint, access_key, secret_key, bucket, and region.",
+        };
+      }
+    } catch (e) {
+      return { valid: false, error: "Auth JSON is not valid JSON." };
+    }
+  }
+
+  if (body.external_id && body.external_id.length > 256) {
+    return {
+      valid: false,
+      error: "External ID must be 256 characters or less.",
+    };
+  }
+  if (body.external_payload && body.external_payload.length > 8192) {
+    return {
+      valid: false,
+      error: "External payload must be 8,192 characters or less.",
+    };
+  }
+  if (body.endpoint && body.endpoint.length > 2048) {
+    return {
+      valid: false,
+      error: "Endpoint must be 2048 characters or less.",
+    };
+  }
 
   return { valid: true };
 }
@@ -194,7 +259,6 @@ function validateDeleteDiskRequest(body: IRequestDeleteDisk): {
   valid: boolean;
   error?: string;
 } {
-  // TODO: VALIDATE Implement comprehensive validation based on Rust's `DeleteDiskRequest::validate_body`
   if (!body.id || !body.id.startsWith(IDPrefixEnum.Disk)) {
     return {
       valid: false,
@@ -670,7 +734,7 @@ export async function ensureDiskRootAndTrashFolder(
   });
 }
 
-// TODO: VALIDATE: Implement `update_external_id_mapping` equivalent
+// TODO: UUID: Implement `update_external_id_mapping` equivalent
 // This function would manage a mapping of external IDs to internal IDs.
 // It's likely updating a separate table for external ID lookups.
 async function updateExternalIdMapping(
@@ -681,7 +745,7 @@ async function updateExternalIdMapping(
 ): Promise<void> {
   // This might involve a dedicated `external_id_mappings` table.
   console.log(
-    `[TODO: VALIDATE] Simulating external ID mapping update for org ${orgId}: ${oldExternalId} -> ${newExternalId} for internal ID ${internalId}`
+    `[TODO: UUID] Simulating external ID mapping update for org ${orgId}: ${oldExternalId} -> ${newExternalId} for internal ID ${internalId}`
   );
   // Example implementation if `external_id_mappings` table exists
   await dbHelpers.transaction("drive", orgId, async (tx) => {
@@ -700,12 +764,12 @@ async function updateExternalIdMapping(
   });
 }
 
-// TODO: VALIDATE: Implement `mark_claimed_uuid` equivalent
+// TODO: UUID: Implement `mark_claimed_uuid` equivalent
 // This function would mark a generated UUID as "claimed" to prevent reuse.
 async function markClaimedUuid(orgId: DriveID, uuid: string): Promise<void> {
-  // TODO: VALIDATE Implement logic to store claimed UUIDs, possibly in a dedicated table or a set.
+  // TODO: UUID Implement logic to store claimed UUIDs, possibly in a dedicated table or a set.
   console.log(
-    `[TODO: VALIDATE] Simulating marking UUID as claimed for org ${orgId}: ${uuid}`
+    `[TODO: UUID] Simulating marking UUID as claimed for org ${orgId}: ${uuid}`
   );
   // Example implementation if `claimed_uuids` table exists
   await dbHelpers.transaction("drive", orgId, async (tx) => {
@@ -824,7 +888,7 @@ export async function getDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: REDACT: Implement label redaction logic (requiring `redact_label` equivalent)
+    // TODO: LABEL: Implement label redaction logic (requiring `redact_label` equivalent)
     diskFE.labels = []; // Placeholder for labels after redaction. Needs actual implementation.
 
     return reply.status(200).send(createApiResponse(diskFE));
@@ -910,13 +974,13 @@ export async function listDisksHandler(
       }
     }
 
-    // TODO: REDACT: Implement filtering based on `body.filters`. This requires parsing the filter string.
+    // TODO: FEATURE: Implement filtering based on `body.filters`. This requires parsing the filter string.
     // For now, assuming no filters are applied to the SQL directly.
     if (body.filters && body.filters.length > 0) {
       // This is a placeholder. Real filtering logic would be complex.
       // E.g., `sql += " WHERE name LIKE ?"`, `params.push(`%${body.filters}%`)`
       request.log.warn(
-        `[TODO: REDACT] Filtering by '${body.filters}' is not yet implemented.`
+        `[TODO: FEATURE] Filtering by '${body.filters}' is not yet implemented.`
       );
     }
 
@@ -989,7 +1053,7 @@ export async function listDisksHandler(
           diskFE.auth_json = undefined;
           diskFE.private_note = undefined;
         }
-        // TODO: REDACT: Implement label redaction
+        // TODO: LABEL: Implement label redaction
         diskFE.labels = []; // Placeholder for labels after redaction
         return diskFE;
       })
@@ -1157,7 +1221,7 @@ export async function createDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: REDACT: Implement label redaction
+    // TODO: LABEL: Implement label redaction
     diskFE.labels = []; // Placeholder for labels after redaction
 
     return reply.status(200).send(createApiResponse(diskFE));
@@ -1193,7 +1257,7 @@ export async function updateDiskHandler(
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
     // Validate request body
-    const validation = validateUpdateDiskRequest(body);
+    const validation = await validateUpdateDiskRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -1266,7 +1330,6 @@ export async function updateDiskHandler(
       values.push(body.private_note);
     }
     if (body.auth_json !== undefined) {
-      // TODO: VALIDATE Re-validate auth_json based on `existingDisk.disk_type`
       updates.push("auth_json = ?");
       values.push(body.auth_json);
     }
@@ -1355,7 +1418,7 @@ export async function updateDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: REDACT: Implement label redaction
+    // TODO: LABEL: Implement label redaction
     diskFE.labels = []; // Placeholder for labels after redaction
 
     return reply.status(200).send(createApiResponse(diskFE));

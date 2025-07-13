@@ -28,37 +28,3 @@ export interface ValidationError {
   field: string;
   message: string;
 }
-
-export function validateIcpPrincipal(
-  principal: string
-): { success: true } | { success: false; error: ValidationError } {
-  const trimmedPrincipal = principal ? principal.trim() : ""; // Handle null/undefined input gracefully
-
-  // Check if empty after trimming
-  if (trimmedPrincipal === "") {
-    return {
-      success: false,
-      error: {
-        field: "icpPrincipal",
-        message: "ICP principal cannot be empty",
-      },
-    };
-  }
-
-  // Validate as ICP principal using the official @dfinity/principal library
-  try {
-    // The fromText method of @dfinity/principal will throw an error
-    // if the string is not a valid principal.
-    Principal.fromText(trimmedPrincipal);
-    return { success: true };
-  } catch (e: any) {
-    // The error message from Principal.fromText will typically be quite informative.
-    return {
-      success: false,
-      error: {
-        field: "icpPrincipal",
-        message: `Invalid ICP principal format: ${e.message || "Unknown validation error"}`,
-      },
-    };
-  }
-}

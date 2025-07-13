@@ -328,7 +328,7 @@ export async function redactDirectoryPermissionFE(
     redacted.resource_path = "" as DriveClippedFilePath;
   }
 
-  // TODO: REDACT - Labels explicitly skipped for now, but keeping the structure for future
+  // TODO: LABEL - Labels explicitly skipped for now, but keeping the structure for future
   // redacted.labels = (
   //   await Promise.all(
   //     redacted.labels.map(

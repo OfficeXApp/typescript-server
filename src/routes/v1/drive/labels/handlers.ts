@@ -37,6 +37,15 @@ import {
   checkSystemPermissions,
   checkSystemResourcePermissionsLabels,
 } from "../../../../services/permissions/system";
+import {
+  validateColor,
+  validateDescription,
+  validateExternalId,
+  validateExternalPayload,
+  validateIdString,
+  validateLabelValue,
+  validateShortString,
+} from "../../../../services/validation";
 
 interface GetLabelParams extends OrgIdParams {
   label_id: string; // Can be LabelID or LabelValue
@@ -67,121 +76,6 @@ function createApiResponse<T>(
 
 // The mock `checkSystemPermissions` is replaced by the actual import from `../../../../services/permissions/system`
 // so this mock function is no longer needed.
-
-// --- Validation Functions (adapted from Rust) ---
-
-function validateIdString(
-  id: string,
-  fieldName: string
-): { valid: boolean; error?: string } {
-  if (!id || id.length === 0 || id.length > 256) {
-    // Max size from LabelID Storable bound in Rust
-    return {
-      valid: false,
-      error: `${fieldName} is required and must be less than 256 characters.`,
-    };
-  }
-  return { valid: true };
-}
-
-function validateShortString(
-  str: string,
-  fieldName: string
-): { valid: boolean; error?: string } {
-  if (!str || str.length === 0 || str.length > 256) {
-    // Max size from LabelStringValue Storable bound
-    return {
-      valid: false,
-      error: `${fieldName} is required and must be less than 256 characters.`,
-    };
-  }
-  return { valid: true };
-}
-
-function validateDescription(
-  str: string,
-  fieldName: string
-): { valid: boolean; error?: string } {
-  if (str.length > 1024) {
-    // Assuming a larger max size for description/note
-    return {
-      valid: false,
-      error: `${fieldName} must be less than 1024 characters.`,
-    };
-  }
-  return { valid: true };
-}
-
-function validateExternalId(id: string): { valid: boolean; error?: string } {
-  if (id.length > 256) {
-    return {
-      valid: false,
-      error: "external_id must be less than 256 characters.",
-    };
-  }
-  return { valid: true };
-}
-
-function validateExternalPayload(payload: string): {
-  valid: boolean;
-  error?: string;
-} {
-  // In Rust it's a String, so assuming it can be long, but validate a reasonable max.
-  if (payload.length > 4096) {
-    // Arbitrary large limit
-    return {
-      valid: false,
-      error: "external_payload must be less than 4096 characters.",
-    };
-  }
-  return { valid: true };
-}
-
-function validateLabelValue(labelValue: string): {
-  valid: boolean;
-  error?: string;
-  validatedValue?: LabelValue;
-} {
-  if (labelValue.length === 0) {
-    return { valid: false, error: "Label cannot be empty" };
-  }
-  if (labelValue.length > 64) {
-    return { valid: false, error: "Label cannot exceed 64 characters" };
-  }
-  // Check characters: alphanumeric and underscores only
-  if (!/^[a-zA-Z0-9_]+$/.test(labelValue)) {
-    return {
-      valid: false,
-      error: "Label can only contain alphanumeric characters and underscores",
-    };
-  }
-  return {
-    valid: true,
-    validatedValue: labelValue.toLowerCase() as LabelValue,
-  }; // Convert to lowercase
-}
-
-function validateColor(color: string): {
-  valid: boolean;
-  error?: string;
-  validatedColor?: string;
-} {
-  if (color.length === 0) {
-    return { valid: false, error: "Color cannot be empty" };
-  }
-  // Allow 4-char (#RGB) or 7-char (#RRGGBB) hex codes
-  if (!color.startsWith("#") || !(color.length === 4 || color.length === 7)) {
-    return {
-      valid: false,
-      error:
-        "Color must start with '#' and be 4 or 7 characters long (e.g., #RRGGBB or #RGB)",
-    };
-  }
-  if (!/^[0-9A-Fa-f]+$/.test(color.substring(1))) {
-    return { valid: false, error: "Color must be a valid hex code" };
-  }
-  return { valid: true, validatedColor: color.toUpperCase() }; // Convert to uppercase for consistency
-}
 
 // From Rust `parse_label_resource_id`
 function parseLabelResourceID(idStr: string): {
@@ -226,7 +120,7 @@ function parseLabelResourceID(idStr: string): {
   };
 }
 
-// TODO: VALIDATE Implement placeholder for `update_external_id_mapping`
+// TODO: UUID Implement placeholder for `update_external_id_mapping`
 async function updateExternalIdMapping(
   oldExternalId: string | null | undefined,
   newExternalId: string | null | undefined,
@@ -238,7 +132,7 @@ async function updateExternalIdMapping(
   // or store external_id directly on the main record and ensure uniqueness via unique index.
   // For now, this is a no-op placeholder.
   console.log(
-    `TODO: VALIDATE Implement updateExternalIdMapping for org ${orgId}: old=${oldExternalId}, new=${newExternalId}, internal=${internalId}`
+    `TODO: UUID Implement updateExternalIdMapping for org ${orgId}: old=${oldExternalId}, new=${newExternalId}, internal=${internalId}`
   );
 }
 
@@ -548,9 +442,9 @@ export async function listLabelsHandler(
       }
     }
     if (requestBody.cursor !== undefined) {
-      const validation = validateIdString(requestBody.cursor, "cursor");
-      if (!validation.valid) {
-        validationErrors.push(validation.error!);
+      const isValid = validateIdString(requestBody.cursor);
+      if (!isValid) {
+        validationErrors.push("cursor must be a valid ID string");
       }
     }
 
@@ -677,7 +571,7 @@ export async function listLabelsHandler(
     const totalCount = totalResult.length > 0 ? totalResult[0].count : 0;
 
     // Apply redaction to the final list of labels (already done inside loop via redactLabelValue and castLabelToLabelFE)
-    // TODO: REDACT
+    // TODO: LABEL
     const paginatedLabelsFE: LabelFE[] = labels.map((label) => ({
       ...label,
       permission_previews: [],
@@ -762,13 +656,13 @@ export async function createLabelHandler(
     }
     // Validate external_id
     if (createReq.external_id !== undefined) {
-      const validation = validateExternalId(createReq.external_id);
-      if (!validation.valid) validationErrors.push(validation.error!);
+      const isValid = validateExternalId(createReq.external_id);
+      if (!isValid) validationErrors.push("Invalid external_id");
     }
     // Validate external_payload
     if (createReq.external_payload !== undefined) {
-      const validation = validateExternalPayload(createReq.external_payload);
-      if (!validation.valid) validationErrors.push(validation.error!);
+      const isValid = validateExternalPayload(createReq.external_payload);
+      if (!isValid) validationErrors.push("Invalid external_payload");
     }
 
     if (validationErrors.length > 0) {
@@ -857,7 +751,7 @@ export async function createLabelHandler(
       request.log.debug(`Created label ${newLabel.id}`);
     });
 
-    // TODO: VALIDATE update_external_id_mapping (Rust had this)
+    // TODO: UUID update_external_id_mapping (Rust had this)
     await updateExternalIdMapping(
       null,
       newLabel.external_id,
@@ -904,8 +798,8 @@ export async function updateLabelHandler(
 
     const validationErrors: string[] = [];
     // Validate label ID
-    const idValidation = validateIdString(updateReq.id, "id");
-    if (!idValidation.valid) validationErrors.push(idValidation.error!);
+    const isValid = validateIdString(updateReq.id);
+    if (!isValid) validationErrors.push("Invalid label ID");
 
     // Validate optional fields if provided
     if (updateReq.value !== undefined) {
@@ -924,12 +818,12 @@ export async function updateLabelHandler(
       if (!validation.valid) validationErrors.push(validation.error!);
     }
     if (updateReq.external_id !== undefined) {
-      const validation = validateExternalId(updateReq.external_id);
-      if (!validation.valid) validationErrors.push(validation.error!);
+      const isValid = validateExternalId(updateReq.external_id);
+      if (!isValid) validationErrors.push("Invalid external_id");
     }
     if (updateReq.external_payload !== undefined) {
-      const validation = validateExternalPayload(updateReq.external_payload);
-      if (!validation.valid) validationErrors.push(validation.error!);
+      const isValid = validateExternalPayload(updateReq.external_payload);
+      if (!isValid) validationErrors.push("Invalid external_payload");
     }
 
     if (validationErrors.length > 0) {
@@ -1158,12 +1052,12 @@ export async function deleteLabelHandler(
     const body = request.body;
 
     // Validate request body
-    const validation = validateIdString(body.id, "id");
-    if (!validation.valid) {
+    const isValid = validateIdString(body.id);
+    if (!isValid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: validation.error!,
+          message: "Invalid label ID",
         })
       );
     }
@@ -1270,7 +1164,7 @@ export async function deleteLabelHandler(
       request.log.debug(`Deleted label ${labelId} from labels table.`);
     });
 
-    // TODO: VALIDATE Update external ID mapping (Rust had this as `update_external_id_mapping(old_external_id, None, old_internal_id)`)
+    // TODO: UUID Update external ID mapping (Rust had this as `update_external_id_mapping(old_external_id, None, old_internal_id)`)
     await updateExternalIdMapping(oldExternalId, null, oldInternalId, org_id);
 
     return reply.status(200).send(
@@ -1310,10 +1204,10 @@ export async function labelResourceHandler(
 
     // Validate request body
     const validationErrors: string[] = [];
-    let validation = validateIdString(body.label_id, "label_id");
-    if (!validation.valid) validationErrors.push(validation.error!);
-    validation = validateIdString(body.resource_id, "resource_id");
-    if (!validation.valid) validationErrors.push(validation.error!);
+    let validation = validateIdString(body.label_id);
+    if (!validation) validationErrors.push("Invalid label ID");
+    validation = validateIdString(body.resource_id);
+    if (!validation) validationErrors.push("Invalid resource ID");
 
     if (validationErrors.length > 0) {
       return reply.status(400).send(
