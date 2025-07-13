@@ -465,6 +465,17 @@ CREATE TABLE label_labels (
     FOREIGN KEY(child_label_id) REFERENCES labels(id) ON DELETE CASCADE
 );
 
+-- Table: external_id_mappings
+-- Description: Stores mappings from an ExternalID to a list of internal IDs (e.g., DriveID, FileID, FolderID, etc.)
+CREATE TABLE external_id_mappings (
+    external_id TEXT PRIMARY KEY NOT NULL, -- Corresponds to ExternalID
+    internal_ids TEXT NOT NULL -- JSON string of StringVec.items (Vec<String>)
+);
+
+CREATE TABLE uuid_claimed (
+    uuid TEXT PRIMARY KEY NOT NULL,
+    claimed INTEGER NOT NULL DEFAULT 1 -- 1 for true (claimed), 0 for false
+);
 
 -- =============================================
 -- Indexes for Performance
@@ -495,3 +506,7 @@ CREATE INDEX idx_permissions_system_grantee ON permissions_system(grantee_type, 
 
 CREATE INDEX idx_webhooks_alt_index ON webhooks(alt_index);
 CREATE INDEX idx_webhooks_event ON webhooks(event);
+
+CREATE INDEX idx_external_id_mappings ON external_id_mappings(external_id);
+CREATE INDEX idx_uuid_claimed ON uuid_claimed(external_id);
+

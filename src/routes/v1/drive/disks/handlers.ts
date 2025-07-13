@@ -42,6 +42,11 @@ import {
   deriveBreadcrumbVisibilityPreviews,
 } from "../../../../services/permissions/directory";
 import { clipDirectoryPath } from "../../../../services/directory/internals";
+import {
+  claimUUID,
+  isUUIDClaimed,
+  updateExternalIDMapping,
+} from "../../../../services/external";
 
 // --- Helper Types for Request Params ---
 
@@ -54,10 +59,13 @@ interface OrgIdParams {
 }
 
 // Helper function to validate request body for creating a disk
-function validateCreateDiskRequest(body: IRequestCreateDisk): {
+async function validateCreateDiskRequest(
+  body: IRequestCreateDisk,
+  orgID: DriveID
+): Promise<{
   valid: boolean;
   error?: string;
-} {
+}> {
   if (!body.name || body.name.length === 0 || body.name.length > 256) {
     return {
       valid: false,
@@ -79,7 +87,14 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
         error: `Disk ID must start with '${IDPrefixEnum.Disk}'.`,
       };
     }
-    // TODO: UUID Implement `validate_unclaimed_uuid` equivalent (check if ID already exists in DB)
+    // Check if the provided ID is already claimed (Rust's `validate_unclaimed_uuid`)
+    const alreadyClaimed = await isUUIDClaimed(orgID, body.id);
+    if (alreadyClaimed) {
+      return {
+        valid: false,
+        error: `Provided Disk ID '${body.id}' is already claimed.`,
+      };
+    }
   }
   // Validate notes
   if (body.public_note && body.public_note.length > 8192) {
@@ -150,6 +165,11 @@ function validateCreateDiskRequest(body: IRequestCreateDisk): {
       valid: false,
       error: "Endpoint must be 2048 characters or less.",
     };
+  }
+
+  // mark it claimed
+  if (body.id) {
+    await claimUUID(orgID, body.id);
   }
 
   return { valid: true };
@@ -734,51 +754,6 @@ export async function ensureDiskRootAndTrashFolder(
   });
 }
 
-// TODO: UUID: Implement `update_external_id_mapping` equivalent
-// This function would manage a mapping of external IDs to internal IDs.
-// It's likely updating a separate table for external ID lookups.
-async function updateExternalIdMapping(
-  orgId: DriveID,
-  oldExternalId: string | null | undefined,
-  newExternalId: string | null | undefined,
-  internalId: string
-): Promise<void> {
-  // This might involve a dedicated `external_id_mappings` table.
-  console.log(
-    `[TODO: UUID] Simulating external ID mapping update for org ${orgId}: ${oldExternalId} -> ${newExternalId} for internal ID ${internalId}`
-  );
-  // Example implementation if `external_id_mappings` table exists
-  await dbHelpers.transaction("drive", orgId, async (tx) => {
-    if (oldExternalId) {
-      await tx
-        .prepare("DELETE FROM external_id_mappings WHERE external_id = ?")
-        .run(oldExternalId);
-    }
-    if (newExternalId) {
-      await tx
-        .prepare(
-          "INSERT OR REPLACE INTO external_id_mappings (external_id, internal_id) VALUES (?, ?)"
-        )
-        .run(newExternalId, internalId);
-    }
-  });
-}
-
-// TODO: UUID: Implement `mark_claimed_uuid` equivalent
-// This function would mark a generated UUID as "claimed" to prevent reuse.
-async function markClaimedUuid(orgId: DriveID, uuid: string): Promise<void> {
-  // TODO: UUID Implement logic to store claimed UUIDs, possibly in a dedicated table or a set.
-  console.log(
-    `[TODO: UUID] Simulating marking UUID as claimed for org ${orgId}: ${uuid}`
-  );
-  // Example implementation if `claimed_uuids` table exists
-  await dbHelpers.transaction("drive", orgId, async (tx) => {
-    await tx
-      .prepare("INSERT OR IGNORE INTO claimed_uuids (uuid) VALUES (?)")
-      .run(uuid);
-  });
-}
-
 // TODO: SNAPSHOT: Implement `snapshot_prestate` and `snapshot_poststate` equivalent
 // These are likely for state diffing/auditing. In a Fastify server, this might be
 // less about canister state snapshots and more about database transaction logging or
@@ -1100,7 +1075,7 @@ export async function createDiskHandler(
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
     // Validate request body
-    const validation = validateCreateDiskRequest(body);
+    const validation = await validateCreateDiskRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -1174,13 +1149,13 @@ export async function createDiskHandler(
       );
     });
 
-    await updateExternalIdMapping(
+    await updateExternalIDMapping(
       org_id,
-      undefined, // Old external ID is undefined for creation
+      undefined,
       newDisk.external_id,
       newDisk.id
     );
-    await markClaimedUuid(org_id, newDisk.id);
+    await claimUUID(org_id, newDisk.id);
 
     snapshotPoststate(
       prestate,
@@ -1336,7 +1311,7 @@ export async function updateDiskHandler(
     if (body.external_id !== undefined) {
       updates.push("external_id = ?");
       values.push(body.external_id);
-      await updateExternalIdMapping(
+      await updateExternalIDMapping(
         org_id,
         existingDisk.external_id,
         body.external_id,
@@ -1510,7 +1485,7 @@ export async function deleteDiskHandler(
     });
 
     if (externalIdToDelete) {
-      await updateExternalIdMapping(
+      await updateExternalIDMapping(
         org_id,
         externalIdToDelete,
         undefined, // New external ID is undefined for deletion

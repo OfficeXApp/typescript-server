@@ -32,6 +32,11 @@ import {
 // Import the redactLabelValue from the labels handler
 import { redactLabelValue } from "../../drive/labels/handlers";
 import { validateIcpPrincipal } from "../../../../services/validation";
+import {
+  claimUUID,
+  isUUIDClaimed,
+  updateExternalIDMapping,
+} from "../../../../services/external";
 
 // Helper to cast Drive to DriveFE and apply redaction logic
 async function castDriveToFE(
@@ -368,14 +373,25 @@ export async function createDriveHandler(
     } = request.body;
 
     // Validate request body
-    if (id && !id.startsWith(IDPrefixEnum.Drive)) {
-      // Basic UUID check
-      return reply.status(400).send(
-        createApiResponse(undefined, {
-          code: 400,
-          message: "Invalid Drive ID format",
-        })
-      );
+    if (id) {
+      if (!id.startsWith(IDPrefixEnum.Drive)) {
+        return reply.status(400).send(
+          createApiResponse(undefined, {
+            code: 400,
+            message: `Drive ID must start with '${IDPrefixEnum.Drive}'.`,
+          })
+        );
+      }
+      // Check if the provided ID is already claimed (Rust's `validate_unclaimed_uuid` check)
+      const alreadyClaimed = await isUUIDClaimed(orgId, id);
+      if (alreadyClaimed) {
+        return reply.status(400).send(
+          createApiResponse(undefined, {
+            code: 400,
+            message: `Provided Drive ID '${id}' is already claimed.`,
+          })
+        );
+      }
     }
     if (!name || name.length > 256) {
       return reply.status(400).send(
@@ -462,7 +478,7 @@ export async function createDriveHandler(
       created_at: createdAt,
     };
 
-    await dbHelpers.transaction("drive", orgId, (database) => {
+    await dbHelpers.transaction("drive", orgId, async (database) => {
       // Insert into drives table
       const stmt = database.prepare(
         `INSERT INTO drives (id, name, icp_principal, public_note, private_note, endpoint_url, last_indexed_ms, created_at, external_id, external_payload)
@@ -481,11 +497,24 @@ export async function createDriveHandler(
         newDrive.external_payload
       );
 
-      // TODO: UUID Update external ID mapping in about_drive table (Rust's `update_external_id_mapping`)
-      // This part assumes that `EXTERNAL_ID_MAPPINGS` in Rust is a separate stable structure.
-      // In SQLite, this would typically be handled as part of the `drives` table or a separate `external_id_mappings` table.
-      // For now, we'll assume `external_id` is stored directly in the `drives` table.
-      // If a separate mapping table is needed, create it and add inserts here.
+      if (newDrive.external_id) {
+        // Update external ID mapping as per Rust's `update_external_id_mapping`
+        await updateExternalIDMapping(
+          orgId,
+          undefined, // No old external ID for creation
+          newDrive.external_id,
+          newDrive.id
+        );
+      }
+
+      // Mark the generated/provided DriveID as claimed in the `uuid_claimed` table.
+      const successfullyClaimed = await claimUUID(orgId, newDrive.id);
+      if (!successfullyClaimed) {
+        // This should ideally not be reached if validation is perfect, but provides a safeguard.
+        throw new Error(
+          `Failed to claim UUID for new drive '${newDrive.id}'. It might have been claimed concurrently.`
+        );
+      }
     });
 
     const driveFE = await castDriveToFE(newDrive, requesterUserId, orgId);
@@ -665,16 +694,21 @@ export async function updateDriveHandler(
 
     values.push(id); // The ID for the WHERE clause
 
-    await dbHelpers.transaction("drive", orgId, (database) => {
+    await dbHelpers.transaction("drive", orgId, async (database) => {
       const stmt = database.prepare(
         `UPDATE drives SET ${updates.join(", ")} WHERE id = ?`
       );
       stmt.run(...values);
 
-      // TODO: UUID Handle update to external ID mapping, similar to Rust's `update_external_id_mapping`
-      // This would involve updating a separate `external_id_mappings` table if one exists.
-      // If `external_id` is just a field on `drives` table, the update query above handles it.
-      // If the old_external_id was present and new one is different or null, you might need to remove old entries from a mapping table.
+      if (external_id !== undefined || oldExternalId !== undefined) {
+        // Check if `external_id` was involved in the update
+        await updateExternalIDMapping(
+          orgId,
+          oldExternalId, // The external_id before the update
+          external_id, // The new external_id from the request body
+          id // The internal DriveID
+        );
+      }
     });
 
     const updatedDrives = await db.queryDrive(

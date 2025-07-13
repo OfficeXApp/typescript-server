@@ -1548,6 +1548,48 @@ export async function deleteDirectoryPermissionsHandler(
   }
 }
 
+export async function checkDirectoryPermissionsHandler(
+  request: FastifyRequest<{
+    Params: { org_id: string };
+    Body: IRequestCheckDirectoryPermissions;
+  }>,
+  reply: FastifyReply
+) {
+  const { org_id } = request.params;
+  const { resource_id, grantee_id } = request.body;
+  const requesterId: UserID = getRequesterId(request);
+
+  try {
+    if (!resource_id || !grantee_id) {
+      reply.status(400).send({
+        err: {
+          code: 400,
+          message: "resource_id and grantee_id are required.",
+        },
+      });
+      return;
+    }
+
+    // The core logic for checking directory permissions including inheritance
+    // is already implemented in the `checkDirectoryPermissions` service function.
+    const permissions = await checkDirectoryPermissions(
+      resource_id,
+      grantee_id,
+      org_id
+    );
+
+    reply.send({
+      ok: {
+        data: { resource_id, grantee_id, permissions },
+      } as IResponseCheckDirectoryPermissions["ok"],
+    });
+  } catch (error: any) {
+    reply.status(500).send({
+      err: { code: 500, message: error.message || "Internal server error." },
+    });
+  }
+}
+
 export async function redeemDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };

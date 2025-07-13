@@ -20,10 +20,11 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers, initDriveDB } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { isValidID, validateIcpPrincipal } from "../../../../api/helpers";
+import { isValidID } from "../../../../api/helpers";
 import { generateMnemonic, mnemonicToSeed } from "bip39";
 import { getPublicKeyAsync } from "@noble/ed25519";
 import { Principal } from "@dfinity/principal";
+import { validateIcpPrincipal } from "../../../../services/validation";
 
 // Type definitions for route params
 interface GetGiftcardSpawnOrgParams {

@@ -18,7 +18,8 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { isValidID, validateIcpPrincipal } from "../../../../api/helpers";
+import { isValidID } from "../../../../api/helpers";
+import { validateIcpPrincipal } from "../../../../services/validation";
 
 // Type definitions for route params
 interface GetGiftcardRefuelParams {
