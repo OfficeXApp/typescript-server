@@ -27,10 +27,9 @@ import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 import {
   checkSystemPermissions,
   canUserAccessSystemPermission,
+  redactLabelValue,
 } from "../../../../services/permissions/system";
 
-// Import the redactLabelValue from the labels handler
-import { redactLabelValue } from "../../drive/labels/handlers";
 import { validateIcpPrincipal } from "../../../../services/validation";
 import {
   claimUUID,
@@ -71,7 +70,7 @@ async function castDriveToFE(
         async (label) => await redactLabelValue(orgId, label, userId)
       )
     )
-  ).filter((label): label is string => label !== null);
+  ).filter((label: any) => label !== null) as string[];
 
   return {
     ...drive,

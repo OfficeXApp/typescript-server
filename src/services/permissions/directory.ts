@@ -29,10 +29,9 @@ import {
   extractPlainPlaceholderGranteeId,
 } from "../groups"; // Import helpers from groups service
 import { getFolderMetadata, getFileMetadata } from "../directory/drive";
-import { checkSystemPermissions } from "./system";
+import { checkSystemPermissions, redactLabelValue } from "./system";
 
 import { getDriveOwnerId } from "../../routes/v1/types";
-import { redactLabelValue } from "../../routes/v1/drive/labels/handlers";
 
 // Constants
 export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
@@ -328,15 +327,18 @@ export async function redactDirectoryPermissionFE(
     redacted.resource_path = "" as DriveClippedFilePath;
   }
 
-  // TODO: LABEL - Labels explicitly skipped for now, but keeping the structure for future
-  // redacted.labels = (
-  //   await Promise.all(
-  //     redacted.labels.map(
-  //       async (label) => await redactLabelValue(orgId, label, userId)
-  //     )
-  //   )
-  // ).filter((label): label is LabelValue => label !== null);
-  redacted.labels = []; // Clear labels as per skipping request
+  const directoryPermissionLabelsRaw = await db.queryDrive(
+    orgId,
+    `SELECT T2.value FROM permission_directory_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.permission_id = ?`,
+    [permissionFe.id]
+  );
+  redacted.labels = (
+    await Promise.all(
+      directoryPermissionLabelsRaw.map((row: any) =>
+        redactLabelValue(orgId, row.value, userId)
+      )
+    )
+  ).filter((label: any): label is LabelValue => label !== null);
 
   redacted.external_id = undefined; // Clear external_id as per skipping request
   redacted.external_payload = undefined; // Clear external_payload as per skipping request

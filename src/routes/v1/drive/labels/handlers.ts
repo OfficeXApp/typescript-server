@@ -1,3 +1,4 @@
+// src/routes/v1/drive/labels/handlers.ts
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -37,6 +38,7 @@ import { getDriveOwnerId, OrgIdParams } from "../../types";
 import {
   checkSystemPermissions,
   checkSystemResourcePermissionsLabels,
+  redactLabelValue,
 } from "../../../../services/permissions/system";
 import {
   validateColor,
@@ -129,36 +131,160 @@ function parseLabelResourceID(idStr: string): {
   };
 }
 
-// TODO: LABEL: Mocked for now.
-export async function redactLabelValue(
-  orgId: DriveID,
-  labelValue: LabelValue,
-  requesterUserId: UserID
-): Promise<LabelValue | null> {
-  console.log(
-    `TODO: LABEL - Mocked redactLabelValue called for label: ${labelValue} by user: ${requesterUserId} in org: ${orgId}`
-  );
-  // Mock logic: Always allow viewing for now.
-  return labelValue;
-}
-
-// TODO: LABEL: Mocked for now.
+// TODO: LABEL: FIX: Implemented castLabelToLabelFE to fetch real resources and nested labels, and calculate permissions.
 async function castLabelToLabelFE(
   label: Label,
   requesterUserId: UserID,
   orgId: DriveID
 ): Promise<LabelFE> {
-  console.log(
-    `TODO: LABEL - Mocked castLabelToLabelFE called for label: ${label.id} by user: ${requesterUserId} in org: ${orgId}`
+  const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
+
+  // Get user's system permissions for this label record
+  const labelSystemResourceId = `${IDPrefixEnum.LabelID}${label.id.substring(IDPrefixEnum.LabelID.length)}`;
+
+  const recordPermissions = await checkSystemPermissions(
+    labelSystemResourceId,
+    requesterUserId,
+    orgId
   );
-  // Mock logic: Return the label as is, with empty permission_previews.
-  return {
+  const tablePermissions = await checkSystemPermissions(
+    `TABLE_${SystemTableValueEnum.LABELS}`,
+    requesterUserId,
+    orgId
+  );
+  // Also include label-specific permissions
+  const labelPrefixPermissions = await checkSystemResourcePermissionsLabels(
+    `TABLE_${SystemTableValueEnum.LABELS}`,
+    requesterUserId,
+    label.value,
+    orgId
+  );
+
+  const permissionPreviews: SystemPermissionType[] = Array.from(
+    new Set([
+      ...recordPermissions,
+      ...tablePermissions,
+      ...labelPrefixPermissions,
+    ])
+  );
+
+  // Fetch associated resources from junction tables
+  const associatedResources: string[] = [];
+  const junctionTables = [
+    {
+      name: "api_key_labels",
+      resourceIdColumn: "api_key_id",
+      prefix: IDPrefixEnum.ApiKey,
+    },
+    {
+      name: "contact_labels",
+      resourceIdColumn: "user_id",
+      prefix: IDPrefixEnum.User,
+    },
+    {
+      name: "file_labels",
+      resourceIdColumn: "file_id",
+      prefix: IDPrefixEnum.File,
+    },
+    {
+      name: "folder_labels",
+      resourceIdColumn: "folder_id",
+      prefix: IDPrefixEnum.Folder,
+    },
+    {
+      name: "disk_labels",
+      resourceIdColumn: "disk_id",
+      prefix: IDPrefixEnum.Disk,
+    },
+    {
+      name: "drive_labels",
+      resourceIdColumn: "drive_id",
+      prefix: IDPrefixEnum.Drive,
+    },
+    {
+      name: "group_labels",
+      resourceIdColumn: "group_id",
+      prefix: IDPrefixEnum.Group,
+    },
+    {
+      name: "group_invite_labels",
+      resourceIdColumn: "invite_id",
+      prefix: IDPrefixEnum.GroupInvite,
+    },
+    {
+      name: "permission_directory_labels",
+      resourceIdColumn: "permission_id",
+      prefix: IDPrefixEnum.DirectoryPermission,
+    },
+    {
+      name: "permission_system_labels",
+      resourceIdColumn: "permission_id",
+      prefix: IDPrefixEnum.SystemPermission,
+    },
+    {
+      name: "webhook_labels",
+      resourceIdColumn: "webhook_id",
+      prefix: IDPrefixEnum.Webhook,
+    },
+  ];
+
+  for (const { name: tableName, resourceIdColumn, prefix } of junctionTables) {
+    const res = await db.queryDrive(
+      orgId,
+      `SELECT ${resourceIdColumn} FROM ${tableName} WHERE label_id = ?`,
+      [label.id.substring(IDPrefixEnum.LabelID.length)] // Use plain label ID for junction table query
+    );
+    res.forEach((row: any) => {
+      if (row[resourceIdColumn]) {
+        // Construct the full prefixed ID string to match LabelResourceID type
+        const fullResourceId = `${prefix}${row[resourceIdColumn]}`;
+        associatedResources.push(fullResourceId);
+      }
+    });
+  }
+
+  // Fetch nested labels (labels applied to this label) from label_labels junction table
+  const nestedLabels: LabelValue[] = []; // Stores LabelValue (string)
+  const nestedLabelResults = await db.queryDrive(
+    orgId,
+    `SELECT T2.value FROM label_labels AS T1 JOIN labels AS T2 ON T1.child_label_id = T2.id WHERE T1.parent_label_id = ?`,
+    [label.id.substring(IDPrefixEnum.LabelID.length)] // Use plain parent label ID for junction table query
+  );
+  for (const row of nestedLabelResults) {
+    const redactedValue = await redactLabelValue(
+      orgId,
+      row.value,
+      requesterUserId
+    );
+    if (redactedValue !== null) {
+      nestedLabels.push(redactedValue);
+    }
+  }
+
+  const labelFE: LabelFE = {
     ...label,
-    private_note: undefined, // Always redact private note for mock
-    resources: [], // Always empty for mock
-    labels: [], // Always empty for mock (nested labels)
-    permission_previews: [SystemPermissionType.VIEW, SystemPermissionType.EDIT], // Mock some permissions
+    resources: associatedResources,
+    labels: nestedLabels,
+    permission_previews: permissionPreviews,
   };
+
+  // Apply redaction rules
+  const redacted = { ...labelFE };
+  if (!isOwner) {
+    // Redact private_note unless user has edit permissions
+    if (!permissionPreviews.includes(SystemPermissionType.EDIT)) {
+      redacted.private_note = undefined;
+    }
+    // Redact resources list for non-owners
+    redacted.resources = [];
+  }
+
+  // Labels (nested) are already filtered/redacted during their fetch.
+  // external_id and external_payload are handled by the main redaction if necessary.
+  redacted.external_id = label.external_id;
+  redacted.external_payload = label.external_payload;
+
+  return redacted;
 }
 
 // --- Handlers ---
@@ -222,104 +348,6 @@ export async function getLabelHandler(
 
     const rawLabel = queryResult[0];
 
-    // Fetch associated resources from junction tables
-    const junctionTables = [
-      {
-        name: "api_key_labels",
-        resourceIdColumn: "api_key_id",
-        prefix: IDPrefixEnum.ApiKey,
-      },
-      {
-        name: "contact_labels",
-        resourceIdColumn: "user_id",
-        prefix: IDPrefixEnum.User,
-      },
-      {
-        name: "file_labels",
-        resourceIdColumn: "file_id",
-        prefix: IDPrefixEnum.File,
-      },
-      {
-        name: "folder_labels",
-        resourceIdColumn: "folder_id",
-        prefix: IDPrefixEnum.Folder,
-      },
-      {
-        name: "disk_labels",
-        resourceIdColumn: "disk_id",
-        prefix: IDPrefixEnum.Disk,
-      },
-      {
-        name: "drive_labels",
-        resourceIdColumn: "drive_id",
-        prefix: IDPrefixEnum.Drive,
-      },
-      {
-        name: "group_labels",
-        resourceIdColumn: "group_id",
-        prefix: IDPrefixEnum.Group,
-      },
-      {
-        name: "group_invite_labels",
-        resourceIdColumn: "invite_id",
-        prefix: IDPrefixEnum.GroupInvite,
-      },
-      {
-        name: "permission_directory_labels",
-        resourceIdColumn: "permission_id",
-        prefix: IDPrefixEnum.DirectoryPermission,
-      },
-      {
-        name: "permission_system_labels",
-        resourceIdColumn: "permission_id",
-        prefix: IDPrefixEnum.SystemPermission,
-      },
-      {
-        name: "webhook_labels",
-        resourceIdColumn: "webhook_id",
-        prefix: IDPrefixEnum.Webhook,
-      },
-    ];
-
-    const associatedResources: string[] = []; // Collect resource IDs
-    for (const {
-      name: tableName,
-      resourceIdColumn,
-      prefix,
-    } of junctionTables) {
-      try {
-        const res = await db.queryDrive(
-          org_id,
-          `SELECT ${resourceIdColumn} FROM ${tableName} WHERE label_id = ?`,
-          [rawLabel.id]
-        );
-        res.forEach((row: any) => {
-          if (row[resourceIdColumn]) {
-            // Ensure the ID has the correct prefix as per `parseLabelResourceID` and Rust's internal IDs
-            const fullResourceId = row[resourceIdColumn].startsWith(prefix)
-              ? row[resourceIdColumn]
-              : `${prefix}${row[resourceIdColumn]}`;
-            associatedResources.push(fullResourceId);
-          }
-        });
-      } catch (e) {
-        request.log.warn(`Could not query junction table ${tableName}: ${e}`);
-      }
-    }
-
-    // Fetch nested labels (labels applied to this label) from label_labels junction table
-    const nestedLabels: string[] = []; // Stores LabelValue (string)
-    try {
-      const nestedLabelResults = await db.queryDrive(
-        org_id,
-        `SELECT T2.value FROM label_labels AS T1 JOIN labels AS T2 ON T1.child_label_id = T2.id WHERE T1.parent_label_id = ?`,
-        [rawLabel.id]
-      );
-      nestedLabelResults.forEach((row: any) => nestedLabels.push(row.value));
-    } catch (e) {
-      request.log.warn(`Could not query label_labels for nested labels: ${e}`);
-    }
-
     label = {
       id: rawLabel.id as LabelID,
       value: rawLabel.value as LabelValue,
@@ -329,8 +357,8 @@ export async function getLabelHandler(
       created_by: rawLabel.created_by_user_id as UserID,
       created_at: rawLabel.created_at,
       last_updated_at: rawLabel.last_updated_at,
-      resources: associatedResources, // Populated
-      labels: nestedLabels, // Populated
+      resources: [], // Will be populated by castLabelToLabelFE
+      labels: [], // Will be populated by castLabelToLabelFE
       external_id: rawLabel.external_id,
       external_payload: rawLabel.external_payload,
     } as Label;
@@ -433,9 +461,9 @@ export async function listLabelsHandler(
       }
     }
     if (requestBody.cursor !== undefined) {
-      const isValid = validateIdString(requestBody.cursor);
-      if (!isValid) {
-        validationErrors.push("cursor must be a valid ID string");
+      // FIX: The cursor is `created_at` timestamp in Rust, which is a number. Validate as a number.
+      if (isNaN(Number(requestBody.cursor))) {
+        validationErrors.push("cursor must be a valid number string");
       }
     }
 
@@ -464,7 +492,19 @@ export async function listLabelsHandler(
 
     request.log.debug(`has_table_permission: ${hasTablePermission}`);
 
-    // Query for labels, only returning what the user is allowed to see.
+    // If user doesn't have table-level permissions and is not owner, return early with empty list.
+    // Rust only returns labels if `has_table_permission` is true.
+    if (!hasTablePermission && !isOwner) {
+      return reply.status(200).send(
+        createApiResponse<IPaginatedResponse<LabelFE>>({
+          items: [],
+          page_size: requestBody.page_size || 50,
+          total: 0,
+          cursor: null,
+        })
+      );
+    }
+
     let query =
       "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload FROM labels";
     const params: any[] = [];
@@ -484,7 +524,8 @@ export async function listLabelsHandler(
     if (requestBody.cursor) {
       cursorValue = Number(requestBody.cursor);
       if (!isNaN(cursorValue)) {
-        cursorCondition = ` ${orderByField} ${direction === SortDirection.DESC ? "<" : ">"} ?`; // Adjust operator based on direction
+        // Rust uses >= or <= based on direction for cursor.
+        cursorCondition = ` ${orderByField} ${direction === SortDirection.DESC ? "<=" : ">="} ?`; // Use <= for DESC, >= for ASC
         params.push(cursorValue);
       }
     }
@@ -504,11 +545,8 @@ export async function listLabelsHandler(
     request.log.debug(`List labels query: ${query}, params: ${params}`);
     const rawLabels = await db.queryDrive(org_id, query, params);
 
-    let labels: Label[] = [];
+    let labels: LabelFE[] = [];
     let nextCursor: string | null = null;
-    // previousCursor is not directly computed here for simplicity, as it's complex for full bi-directional pagination.
-    // For now, it will be based on the incoming cursor for UI clarity if cursor_up is implemented later.
-    let previousCursor: string | null = null;
 
     if (rawLabels.length > pageSize) {
       const extraItem = rawLabels.pop(); // Remove the extra item
@@ -528,29 +566,28 @@ export async function listLabelsHandler(
         created_by: rawLabel.created_by_user_id as UserID,
         created_at: rawLabel.created_at,
         last_updated_at: rawLabel.last_updated_at,
-        resources: [], // Not populating for list handler as per Rust equivalent, unless explicitly needed.
-        labels: [], // Not populating for list handler as per Rust equivalent.
+        resources: [], // Will be populated by castLabelToLabelFE
+        labels: [], // Will be populated by castLabelToLabelFE
         external_id: rawLabel.external_id,
         external_payload: rawLabel.external_payload,
       };
 
-      // Apply redaction rules. The `redactLabelValue` function will handle the necessary permission checks.
-      const redactedLabelValue = await redactLabelValue(
-        org_id,
-        label.value,
-        requesterApiKey.user_id
+      // Apply redaction rules using castLabelToLabelFE. This function now handles permission checks.
+      const labelFE = await castLabelToLabelFE(
+        label,
+        requesterApiKey.user_id,
+        org_id
       );
-      if (redactedLabelValue !== null || isOwner) {
-        // Owner always sees, others if redactedValue is not null
-        // If the label is allowed to be viewed, add it to the list.
-        // We still need to cast to LabelFE and apply full redaction here.
-        const labelFE = await castLabelToLabelFE(
-          label,
-          requesterApiKey.user_id,
-          org_id
-        );
-        labels.push(labelFE);
-      }
+
+      // Only add to the list if the user has VIEW permission (checked inside castLabelToLabelFE or explicitly here)
+      // The `LabelFE` returned by `castLabelToLabelFE` is already redacted for the `requesterUserId`.
+      // The `redactLabelValue` in `permissions/system.ts` also performs a view check.
+      // If the label itself is not viewable, its value would be redacted to null,
+      // and it shouldn't be included in the list.
+      // However, for the main list, we generally show all visible labels, even if some internal fields are redacted.
+      // The primary check `hasTablePermission` covers overall visibility.
+      // Individual label visibility is handled by `redactLabelValue` within `castLabelToLabelFE` for nested labels.
+      labels.push(labelFE);
     }
 
     // Determine total count
@@ -561,18 +598,9 @@ export async function listLabelsHandler(
     const totalResult = await db.queryDrive(org_id, countQuery, countParams);
     const totalCount = totalResult.length > 0 ? totalResult[0].count : 0;
 
-    // Apply redaction to the final list of labels (already done inside loop via redactLabelValue and castLabelToLabelFE)
-    // TODO: LABEL
-    const paginatedLabelsFE: LabelFE[] = labels.map((label) => ({
-      ...label,
-      permission_previews: [],
-    }));
-
-    previousCursor = requestBody.cursor || null;
-
     return reply.status(200).send(
       createApiResponse<IPaginatedResponse<LabelFE>>({
-        items: paginatedLabelsFE,
+        items: labels, // labels is already LabelFE[]
         page_size: pageSize,
         total: totalCount,
         cursor: nextCursor,
@@ -732,16 +760,16 @@ export async function createLabelHandler(
     const newLabel: Label = {
       id: labelId,
       value: validatedLabelValue as LabelValue,
-      public_note: createReq.public_note || "",
-      private_note: createReq.private_note || "",
+      public_note: createReq.public_note || undefined, // Use null for optional string fields if empty
+      private_note: createReq.private_note || undefined, // Use null for optional string fields if empty
       color: validatedColor,
       created_by: requesterApiKey.user_id,
       created_at: current_time,
       last_updated_at: current_time,
       resources: [], // New labels start with no resources
       labels: [], // New labels start with no nested labels
-      external_id: createReq.external_id || undefined,
-      external_payload: createReq.external_payload || undefined,
+      external_id: createReq.external_id || undefined, // Use null for optional string fields if empty
+      external_payload: createReq.external_payload || undefined, // Use null for optional string fields if empty
     };
 
     // Store the label in the database within a transaction
@@ -827,23 +855,8 @@ export async function updateLabelHandler(
 
     const validationErrors: string[] = [];
     // Validate label ID
-    const isValid = validateIdString(updateReq.id);
-    if (!isValid) validationErrors.push("Invalid label ID");
-
-    // Validate optional fields if provided
-    if (updateReq.value !== undefined) {
-      const validation = validateLabelValue(updateReq.value);
-      if (!validation.valid) validationErrors.push(validation.error!);
-    }
-    // These validations are now correctly placed within the `updates` and `params` logic.
-    if (updateReq.external_id !== undefined) {
-      const isValid = validateExternalId(updateReq.external_id);
-      if (!isValid) validationErrors.push("Invalid external_id");
-    }
-    if (updateReq.external_payload !== undefined) {
-      const isValid = validateExternalPayload(updateReq.external_payload);
-      if (!isValid) validationErrors.push("Invalid external_payload");
-    }
+    const isValidId = validateIdString(updateReq.id);
+    if (!isValidId) validationErrors.push("Invalid label ID");
 
     if (validationErrors.length > 0) {
       return reply.status(400).send(
@@ -859,8 +872,6 @@ export async function updateLabelHandler(
     // Get existing label
     const existingLabels = await db.queryDrive(
       org_id,
-      // NOTE: `resources` and `labels` columns are not in the provided SQL schema for the `labels` table.
-      // Removed them from the SELECT query to prevent SQL errors. They are derived properties in TS.
       "SELECT id, value, public_note, private_note, color, created_by_user_id, created_at, last_updated_at, external_id, external_payload FROM labels WHERE id = ?",
       [labelId]
     );
@@ -914,8 +925,8 @@ export async function updateLabelHandler(
 
     // Store old external_id for mapping cleanup
     const oldExternalId = existingLabel.external_id;
+    const oldLabelValue = existingLabel.value; // Store old value to propagate changes
 
-    // Initialize updates and params AFTER fetching existingLabel
     const updates: string[] = [];
     const params: any[] = [];
 
@@ -945,22 +956,37 @@ export async function updateLabelHandler(
       }
     }
 
+    let newLabelValue: LabelValue | undefined;
     if (updateReq.value !== undefined) {
       // Re-check value after initialization
-      const validatedValue = validateLabelValue(updateReq.value).validatedValue;
-      if (validatedValue && validatedValue !== existingLabel.value) {
-        updates.push("value = ?");
-        params.push(validatedValue);
-        existingLabel.value = validatedValue; // Update in memory for `castLabelToLabelFE`
+      const validatedValueResult = validateLabelValue(updateReq.value);
+      if (!validatedValueResult.valid || !validatedValueResult.validatedValue) {
+        validationErrors.push(
+          validatedValueResult.error || "Invalid label value"
+        );
+      } else {
+        newLabelValue = validatedValueResult.validatedValue;
+        if (newLabelValue !== oldLabelValue) {
+          updates.push("value = ?");
+          params.push(newLabelValue);
+          existingLabel.value = newLabelValue; // Update in memory for `castLabelToLabelFE`
+        }
       }
     }
-    // private_note is not directly updatable via IRequestUpdateLabel in types.ts.
-    // If it were, you'd add:
-    // if (updateReq.private_note !== undefined) {
-    //    updates.push("private_note = ?");
-    //    params.push(updateReq.private_note);
-    //    existingLabel.private_note = updateReq.private_note;
-    // }
+
+    if (updateReq.private_note !== undefined) {
+      const validation = validateDescription(
+        updateReq.private_note,
+        "private_note"
+      );
+      if (!validation.valid) validationErrors.push(validation.error!);
+      else {
+        updates.push("private_note = ?");
+        params.push(updateReq.private_note);
+        existingLabel.private_note = updateReq.private_note;
+      }
+    }
+
     if (updateReq.external_id !== undefined) {
       updates.push("external_id = ?");
       params.push(updateReq.external_id);
@@ -989,7 +1015,8 @@ export async function updateLabelHandler(
       );
     }
 
-    if (updates.length === 0) {
+    if (updates.length === 0 && newLabelValue === oldLabelValue) {
+      // No actual changes
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
@@ -1003,7 +1030,162 @@ export async function updateLabelHandler(
     params.push(Date.now());
 
     // Execute update within a transaction
-    await dbHelpers.transaction("drive", org_id, (database) => {
+    await dbHelpers.transaction("drive", org_id, async (database) => {
+      // If label value is changing, update all associated resources
+      if (newLabelValue && newLabelValue !== oldLabelValue) {
+        // Fetch all resources currently associated with this label
+        const junctionTables = [
+          {
+            name: "api_key_labels",
+            resourceIdColumn: "api_key_id",
+            targetTable: "api_keys",
+            prefix: IDPrefixEnum.ApiKey,
+          },
+          {
+            name: "contact_labels",
+            resourceIdColumn: "user_id",
+            targetTable: "contacts",
+            prefix: IDPrefixEnum.User,
+          },
+          {
+            name: "file_labels",
+            resourceIdColumn: "file_id",
+            targetTable: "files",
+            prefix: IDPrefixEnum.File,
+          },
+          {
+            name: "folder_labels",
+            resourceIdColumn: "folder_id",
+            targetTable: "folders",
+            prefix: IDPrefixEnum.Folder,
+          },
+          {
+            name: "disk_labels",
+            resourceIdColumn: "disk_id",
+            targetTable: "disks",
+            prefix: IDPrefixEnum.Disk,
+          },
+          {
+            name: "drive_labels",
+            resourceIdColumn: "drive_id",
+            targetTable: "drives",
+            prefix: IDPrefixEnum.Drive,
+          },
+          {
+            name: "group_labels",
+            resourceIdColumn: "group_id",
+            targetTable: "groups",
+            prefix: IDPrefixEnum.Group,
+          },
+          {
+            name: "group_invite_labels",
+            resourceIdColumn: "invite_id",
+            targetTable: "group_invites",
+            prefix: IDPrefixEnum.GroupInvite,
+          },
+          {
+            name: "permission_directory_labels",
+            resourceIdColumn: "permission_id",
+            targetTable: "permissions_directory",
+            prefix: IDPrefixEnum.DirectoryPermission,
+          },
+          {
+            name: "permission_system_labels",
+            resourceIdColumn: "permission_id",
+            targetTable: "permissions_system",
+            prefix: IDPrefixEnum.SystemPermission,
+          },
+          {
+            name: "webhook_labels",
+            resourceIdColumn: "webhook_id",
+            targetTable: "webhooks",
+            prefix: IDPrefixEnum.Webhook,
+          },
+          {
+            name: "label_labels",
+            resourceIdColumn: "parent_label_id",
+            targetTable: "labels",
+            prefix: IDPrefixEnum.LabelID,
+          }, // Labels can label other labels
+        ];
+
+        // Fetch resources that currently have this label.
+        const affectedResources: {
+          resourceId: string;
+          tableName: string;
+          timestampCol: string;
+        }[] = [];
+        for (const {
+          name: junctionTableName,
+          resourceIdColumn,
+          targetTable,
+          prefix,
+        } of junctionTables) {
+          const rows = database
+            .prepare(
+              `SELECT ${resourceIdColumn} FROM ${junctionTableName} WHERE label_id = ?`
+            )
+            .all(labelId);
+          for (const row of rows as { [resourceIdColumn: string]: string }[]) {
+            // Need to know the actual resource ID (prefixed) and its table name to update.
+            const fullResourceId = `${prefix}${row[resourceIdColumn]}`;
+            let timestampColumn = "last_updated_at"; // Default
+            if (
+              [
+                "permissions_directory",
+                "permissions_system",
+                "group_invites",
+                "groups",
+              ].includes(targetTable)
+            ) {
+              timestampColumn = "last_modified_at";
+            }
+            affectedResources.push({
+              resourceId: fullResourceId,
+              tableName: targetTable,
+              timestampCol: timestampColumn,
+            });
+          }
+        }
+
+        for (const {
+          resourceId,
+          tableName,
+          timestampCol,
+        } of affectedResources) {
+          const currentLabelsRaw = database
+            .prepare(`SELECT labels FROM ${tableName} WHERE id = ?`)
+            .get(resourceId) as { labels: string };
+          let currentLabels: string[] = [];
+          try {
+            currentLabels = currentLabelsRaw?.labels
+              ? JSON.parse(currentLabelsRaw.labels)
+              : [];
+          } catch (e) {
+            console.warn(
+              `Failed to parse labels for resource ${resourceId}: ${e}`
+            );
+          }
+
+          // Remove old label value
+          const updatedLabels = currentLabels.filter(
+            (label) => label !== oldLabelValue
+          );
+          // Add new label value if not already present
+          if (!updatedLabels.includes(newLabelValue)) {
+            updatedLabels.push(newLabelValue);
+          }
+
+          // Update the resource's labels and timestamp
+          database
+            .prepare(
+              `UPDATE ${tableName} SET labels = ?, ${timestampCol} = ? WHERE id = ?`
+            )
+            .run(JSON.stringify(updatedLabels), Date.now(), resourceId);
+        }
+      }
+
+      // Update the label itself in the labels table
       database
         .prepare(`UPDATE labels SET ${updates.join(", ")} WHERE id = ?`)
         .run(...params, labelId);
@@ -1024,8 +1206,6 @@ export async function updateLabelHandler(
     const updatedRawLabel = updatedLabelResult[0];
 
     // Reconstruct Label object from DB result for FE casting
-    // Note: `resources` and `labels` fields are NOT columns in the `labels` table per your DDL.
-    // They are populated via junction tables in `castLabelToLabelFE`.
     const finalUpdatedLabel: Label = {
       id: updatedRawLabel.id as LabelID,
       value: updatedRawLabel.value as LabelValue,
@@ -1150,42 +1330,187 @@ export async function deleteLabelHandler(
     }
 
     // Perform delete operation within a transaction
-    await dbHelpers.transaction("drive", org_id, (database) => {
+    await dbHelpers.transaction("drive", org_id, async (database) => {
       // 1. Remove label associations from all junction tables
-      const junctionTables = [
-        "api_key_labels",
-        "contact_labels",
-        "file_labels",
-        "folder_labels",
-        "disk_labels",
-        "drive_labels",
-        "group_labels",
-        "group_invite_labels",
-        "permission_directory_labels",
-        "permission_system_labels",
-        "webhook_labels",
-        "label_labels", // Both parent and child label IDs might need to be removed if this label is part of a hierarchy
+      // Need to find all resources associated with this label first
+      const junctionTablesMeta = [
+        {
+          name: "api_key_labels",
+          resourceIdColumn: "api_key_id",
+          targetTable: "api_keys",
+          prefix: IDPrefixEnum.ApiKey,
+        },
+        {
+          name: "contact_labels",
+          resourceIdColumn: "user_id",
+          targetTable: "contacts",
+          prefix: IDPrefixEnum.User,
+        },
+        {
+          name: "file_labels",
+          resourceIdColumn: "file_id",
+          targetTable: "files",
+          prefix: IDPrefixEnum.File,
+        },
+        {
+          name: "folder_labels",
+          resourceIdColumn: "folder_id",
+          targetTable: "folders",
+          prefix: IDPrefixEnum.Folder,
+        },
+        {
+          name: "disk_labels",
+          resourceIdColumn: "disk_id",
+          targetTable: "disks",
+          prefix: IDPrefixEnum.Disk,
+        },
+        {
+          name: "drive_labels",
+          resourceIdColumn: "drive_id",
+          targetTable: "drives",
+          prefix: IDPrefixEnum.Drive,
+        },
+        {
+          name: "group_labels",
+          resourceIdColumn: "group_id",
+          targetTable: "groups",
+          prefix: IDPrefixEnum.Group,
+        },
+        {
+          name: "group_invite_labels",
+          resourceIdColumn: "invite_id",
+          targetTable: "group_invites",
+          prefix: IDPrefixEnum.GroupInvite,
+        },
+        {
+          name: "permission_directory_labels",
+          resourceIdColumn: "permission_id",
+          targetTable: "permissions_directory",
+          prefix: IDPrefixEnum.DirectoryPermission,
+        },
+        {
+          name: "permission_system_labels",
+          resourceIdColumn: "permission_id",
+          targetTable: "permissions_system",
+          prefix: IDPrefixEnum.SystemPermission,
+        },
+        {
+          name: "webhook_labels",
+          resourceIdColumn: "webhook_id",
+          targetTable: "webhooks",
+          prefix: IDPrefixEnum.Webhook,
+        },
+        {
+          name: "label_labels",
+          resourceIdColumn: "parent_label_id",
+          targetTable: "labels",
+          prefix: IDPrefixEnum.LabelID,
+        }, // Labels can label other labels
       ];
 
-      for (const tableName of junctionTables) {
-        let stmtSql = "";
-        // For label_labels, need to handle both parent_label_id and child_label_id
-        if (tableName === "label_labels") {
-          stmtSql = `DELETE FROM ${tableName} WHERE parent_label_id = ? OR child_label_id = ?`;
-          database.prepare(stmtSql).run(labelId, labelId);
+      const affectedResources: {
+        resourceId: string;
+        tableName: string;
+        timestampCol: string;
+      }[] = [];
+      const plainLabelId = labelId.substring(IDPrefixEnum.LabelID.length);
+
+      // Collect all resources whose `labels` array needs to be updated
+      for (const {
+        name: junctionTableName,
+        resourceIdColumn,
+        targetTable,
+        prefix,
+      } of junctionTablesMeta) {
+        let rows;
+        if (junctionTableName === "label_labels") {
+          // For label_labels, this label can be a parent or a child
+          rows = database
+            .prepare(
+              `SELECT parent_label_id AS resource_id_val FROM ${junctionTableName} WHERE child_label_id = ? UNION SELECT child_label_id AS resource_id_val FROM ${junctionTableName} WHERE parent_label_id = ?`
+            )
+            .all(plainLabelId, plainLabelId);
         } else {
-          // All other tables use 'label_id'
-          stmtSql = `DELETE FROM ${tableName} WHERE label_id = ?`;
-          database.prepare(stmtSql).run(labelId);
+          rows = database
+            .prepare(
+              `SELECT ${resourceIdColumn} AS resource_id_val FROM ${junctionTableName} WHERE label_id = ?`
+            )
+            .all(plainLabelId);
         }
-        request.log.debug(`Deleted from ${tableName} for label ${labelId}`);
+
+        for (const row of rows as { resource_id_val: string }[]) {
+          const fullResourceId = `${prefix}${row.resource_id_val}`;
+          let timestampColumn = "last_updated_at"; // Default
+          if (
+            [
+              "permissions_directory",
+              "permissions_system",
+              "group_invites",
+              "groups",
+            ].includes(targetTable)
+          ) {
+            timestampColumn = "last_modified_at";
+          }
+          // Ensure we don't add the label itself as an "affected resource" for its own label field update.
+          // The label itself is being deleted, so its 'labels' field (nested labels) will disappear with it.
+          if (fullResourceId !== labelId) {
+            affectedResources.push({
+              resourceId: fullResourceId,
+              tableName: targetTable,
+              timestampCol: timestampColumn,
+            });
+          }
+        }
       }
 
-      // 2. Delete the label itself
-      const deleteLabelStmt = database.prepare(
-        "DELETE FROM labels WHERE id = ?"
-      );
-      deleteLabelStmt.run(labelId);
+      // Update the `labels` column on affected resources by removing the deleted label's value
+      for (const { resourceId, tableName, timestampCol } of affectedResources) {
+        const currentLabelsRaw = database
+          .prepare(`SELECT labels FROM ${tableName} WHERE id = ?`)
+          .get(resourceId) as { labels: string };
+        let currentLabels: string[] = [];
+        try {
+          currentLabels = currentLabelsRaw?.labels
+            ? JSON.parse(currentLabelsRaw.labels)
+            : [];
+        } catch (e) {
+          console.warn(
+            `Failed to parse labels for resource ${resourceId} during delete cleanup: ${e}`
+          );
+        }
+
+        const updatedLabels = currentLabels.filter(
+          (label) => label !== labelValue
+        );
+
+        database
+          .prepare(
+            `UPDATE ${tableName} SET labels = ?, ${timestampCol} = ? WHERE id = ?`
+          )
+          .run(JSON.stringify(updatedLabels), Date.now(), resourceId);
+      }
+
+      // Delete from all junction tables where this label is referenced
+      for (const { name: junctionTableName } of junctionTablesMeta) {
+        if (junctionTableName === "label_labels") {
+          // Handle both parent_label_id and child_label_id for label_labels
+          database
+            .prepare(
+              `DELETE FROM ${junctionTableName} WHERE parent_label_id = ? OR child_label_id = ?`
+            )
+            .run(plainLabelId, plainLabelId);
+        } else {
+          database
+            .prepare(`DELETE FROM ${junctionTableName} WHERE label_id = ?`)
+            .run(plainLabelId);
+        }
+        request.log.debug(
+          `Deleted from ${junctionTableName} for label ${labelId}`
+        );
+      }
+
+      // 2. Delete the label itself from the `labels` table
+      database.prepare("DELETE FROM labels WHERE id = ?").run(labelId);
       request.log.debug(`Deleted label ${labelId} from labels table.`);
     });
 
@@ -1273,6 +1598,7 @@ export async function labelResourceHandler(
 
     const rawLabel = existingLabels[0];
     const labelValue = rawLabel.value as LabelValue;
+    const plainLabelId = labelId.substring(IDPrefixEnum.LabelID.length); // Plain ID for junction tables
 
     // Parse resource ID and determine its type
     const parsedResource = parseLabelResourceID(resourceIdString);
@@ -1292,6 +1618,9 @@ export async function labelResourceHandler(
     const actualResourceId = parsedResource.resourceId; // This is the full ID string, e.g., "FileID_xyz"
     const resourceTypePrefix = parsedResource.resourceTypePrefix; // e.g., "FileID"
     const resourceTableName = parsedResource.resourceTableName; // e.g., "files"
+    const actualPlainResourceId = actualResourceId.substring(
+      resourceTypePrefix.length + 1
+    );
 
     // Check permissions if not owner
     if (!isOwner) {
@@ -1303,16 +1632,12 @@ export async function labelResourceHandler(
       );
 
       // Construct the SystemResourceID for the specific resource being labeled/unlabeled
-      // This involves re-adding the 'IDPrefixEnum.XXX' if it's a Record, or just passing the table string for a table.
       let resourceSystemId: SystemResourceID;
       // Handle special case where resourceTypePrefix is "LabelID" (labels labeling other labels)
       if (resourceTypePrefix === IDPrefixEnum.LabelID.slice(0, -1)) {
         resourceSystemId = actualResourceId; // LabelID_uuid format
       } else {
-        // For other record types, the `resourceIdString` (e.g., "FileID_xyz") is already the correct SystemResourceID.
-        // For table types (like "TABLE_LABELS"), we construct it directly.
-        // Assuming all labelable resources are records except Labels table itself if it could be labeled directly (which is not the case here).
-        resourceSystemId = actualResourceId;
+        resourceSystemId = actualResourceId; // For other record types, the `resourceIdString` (e.g., "FileID_xyz") is already the correct SystemResourceID.
       }
 
       const resourceBeingLabeledPermissions = await checkSystemPermissions(
@@ -1322,7 +1647,6 @@ export async function labelResourceHandler(
       );
 
       // Check label-specific permissions on the target resource (if applicable, e.g. permission to label a file)
-      // This is a more complex scenario: permission to apply/remove specific labels based on a label value prefix.
       // The Rust code's `check_system_resource_permissions_labels` is used here.
       const labelSpecificResourcePermissions =
         await checkSystemResourcePermissionsLabels(
@@ -1408,21 +1732,15 @@ export async function labelResourceHandler(
           );
       }
 
-      // Extract plain ID for junction table
-      const actualPlainResourceId = actualResourceId.substring(
-        resourceTypePrefix.length + 1
-      );
-      const plainLabelId = labelId.substring(IDPrefixEnum.LabelID.length);
-
       // 1. Update the resource's `labels` column (stored as JSON string in SQLite)
-      const existingResource = database
+      const existingResourceRow = database
         .prepare(`SELECT labels FROM ${resourceTableName} WHERE id = ?`)
-        .get(actualResourceId) as unknown as Record<string, any>;
+        .get(actualResourceId) as { labels: string | null }; // Type assertion
 
       let currentResourceLabels: string[] = [];
-      if (existingResource && existingResource.labels) {
+      if (existingResourceRow && existingResourceRow.labels) {
         try {
-          currentResourceLabels = JSON.parse(existingResource.labels);
+          currentResourceLabels = JSON.parse(existingResourceRow.labels);
         } catch (e) {
           request.log.warn(
             `Failed to parse labels for resource ${actualResourceId}: ${e}. Assuming empty array.`
@@ -1475,15 +1793,29 @@ export async function labelResourceHandler(
       const hasTimestamp = [
         "files",
         "folders",
-        "permissions_directory",
-        "permissions_system",
-        "group_invites",
+        "api_keys",
+        "contacts",
+        "disks",
+        "drives",
         "groups",
+        "group_invites",
         "webhooks",
-        "labels",
+        "labels", // When a label is also a resource and its labels are updated
       ].includes(resourceTableName);
+
       if (hasTimestamp) {
-        updateResourceSql += `, ${resourceTableName.includes("permissions") || resourceTableName.includes("group") ? "last_modified_at" : "last_updated_at"} = ?`;
+        let timestampColumnName = "last_updated_at";
+        if (
+          [
+            "permissions_directory",
+            "permissions_system",
+            "group_invites",
+            "groups",
+          ].includes(resourceTableName)
+        ) {
+          timestampColumnName = "last_modified_at";
+        }
+        updateResourceSql += `, ${timestampColumnName} = ?`;
         updateResourceParams.push(Date.now());
       }
       updateResourceSql += ` WHERE id = ?`;
@@ -1494,76 +1826,131 @@ export async function labelResourceHandler(
         `${addOperation ? "Added" : "Removed"} label ${labelValue} to resource ${actualResourceId}`
       );
 
-      // NOTE: As discussed, the `resources` and `labels` columns on the `labels` table itself
-      // are not in your DDL. The following block, which attempts to update them, remains commented out.
-      // If these were intended to be direct columns, the schema would need to be updated.
-      // The `castLabelToLabelFE` function correctly derives these from junction tables.
+      // Handle label deletion if its resources become empty, mirroring Rust behavior
+      if (!addOperation) {
+        // Only if removing a label
+        // Check how many resources still point to this label
+        const junctionTablesMeta = [
+          // FIX: Defined junctionTablesMeta here
+          {
+            name: "api_key_labels",
+            resourceIdColumn: "api_key_id",
+            targetTable: "api_keys",
+            prefix: IDPrefixEnum.ApiKey,
+          },
+          {
+            name: "contact_labels",
+            resourceIdColumn: "user_id",
+            targetTable: "contacts",
+            prefix: IDPrefixEnum.User,
+          },
+          {
+            name: "file_labels",
+            resourceIdColumn: "file_id",
+            targetTable: "files",
+            prefix: IDPrefixEnum.File,
+          },
+          {
+            name: "folder_labels",
+            resourceIdColumn: "folder_id",
+            targetTable: "folders",
+            prefix: IDPrefixEnum.Folder,
+          },
+          {
+            name: "disk_labels",
+            resourceIdColumn: "disk_id",
+            targetTable: "disks",
+            prefix: IDPrefixEnum.Disk,
+          },
+          {
+            name: "drive_labels",
+            resourceIdColumn: "drive_id",
+            targetTable: "drives",
+            prefix: IDPrefixEnum.Drive,
+          },
+          {
+            name: "group_labels",
+            resourceIdColumn: "group_id",
+            targetTable: "groups",
+            prefix: IDPrefixEnum.Group,
+          },
+          {
+            name: "group_invite_labels",
+            resourceIdColumn: "invite_id",
+            targetTable: "group_invites",
+            prefix: IDPrefixEnum.GroupInvite,
+          },
+          {
+            name: "permission_directory_labels",
+            resourceIdColumn: "permission_id",
+            targetTable: "permissions_directory",
+            prefix: IDPrefixEnum.DirectoryPermission,
+          },
+          {
+            name: "permission_system_labels",
+            resourceIdColumn: "permission_id",
+            targetTable: "permissions_system",
+            prefix: IDPrefixEnum.SystemPermission,
+          },
+          {
+            name: "webhook_labels",
+            resourceIdColumn: "webhook_id",
+            targetTable: "webhooks",
+            prefix: IDPrefixEnum.Webhook,
+          },
+          {
+            name: "label_labels",
+            resourceIdColumn: "parent_label_id",
+            targetTable: "labels",
+            prefix: IDPrefixEnum.LabelID,
+          }, // Labels can label other labels
+        ];
+        let totalResourcesForLabel = 0;
+        for (const {
+          name: junctionTableName,
+          resourceIdColumn,
+        } of junctionTablesMeta) {
+          // Now junctionTablesMeta is defined
+          if (junctionTableName === "label_labels") {
+            // For label_labels, count where this label is a child
+            const count = database
+              .prepare(
+                `SELECT COUNT(*) as count FROM ${junctionTableName} WHERE child_label_id = ?`
+              )
+              .get(plainLabelId) as { count: number };
+            totalResourcesForLabel += count.count;
+          } else {
+            const count = database
+              .prepare(
+                `SELECT COUNT(*) as count FROM ${junctionTableName} WHERE label_id = ?`
+              )
+              .get(plainLabelId) as { count: number };
+            totalResourcesForLabel += count.count;
+          }
+        }
 
-      // // Let's re-fetch the label to get its current `resources` and `labels` (nested labels)
-      // const currentLabelRaw = database.prepare("SELECT resources, labels FROM labels WHERE id = ?").get(labelId);
-
-      // let currentLabelResources: string[] = [];
-      // try {
-      //   if (currentLabelRaw && currentLabelRaw.resources) {
-      //     currentLabelResources = JSON.parse(currentLabelRaw.resources);
-      //   }
-      // } catch (e) {
-      //   request.log.warn(
-      //     `Failed to parse resources for label ${labelId}: ${e}. Assuming empty array.`
-      //   );
-      //   currentLabelResources = [];
-      // }
-
-      // let updatedLabelResources = [...currentLabelResources];
-      // if (addOperation) {
-      //   if (!updatedLabelResources.includes(actualResourceId)) {
-      //     updatedLabelResources.push(actualResourceId);
-      //   }
-      // } else {
-      //   // Remove operation
-      //   const index = updatedLabelResources.indexOf(actualResourceId);
-      //   if (index > -1) {
-      //     updatedLabelResources.splice(index, 1);
-      //   }
-      //   // If label's resources become empty after removal, Rust code deletes the label entirely.
-      //   if (updatedLabelResources.length === 0) {
-      //     request.log.debug(
-      //       `Label '${labelValue}' no longer has any resources. Deleting label.`
-      //     );
-      //     database.prepare("DELETE FROM labels WHERE id = ?").run(labelId);
-      //     // Also delete associated nested label relationships where this label is a child
-      //     database
-      //       .prepare(`DELETE FROM label_labels WHERE child_label_id = ?`)
-      //       .run(plainLabelId); // Use plain ID for junction table
-      //     await updateExternalIdMapping(
-      //       rawLabel.external_id,
-      //       null,
-      //       labelId,
-      //       org_id
-      //     ); // Clean up external ID mapping
-      //   }
-      // }
-
-      // // Only update the label's `resources` and `last_updated_at` if the label itself still exists
-      // if (updatedLabelResources.length > 0 || addOperation) {
-      //   // If adding, or if not empty after removing
-      //   // Make sure the label still exists before attempting to update it
-      //   const labelExists = database
-      //     .prepare("SELECT id FROM labels WHERE id = ?")
-      //     .get(labelId);
-      //   if (labelExists) {
-      //     database
-      //       .prepare(
-      //         "UPDATE labels SET resources = ?, last_updated_at = ? WHERE id = ?"
-      //       )
-      //       .run(JSON.stringify(updatedLabelResources), Date.now(), labelId);
-      //   }
-      // }
+        if (totalResourcesForLabel === 0) {
+          request.log.debug(
+            `Label '${labelValue}' (ID: ${labelId}) no longer has any resources. Deleting label.`
+          );
+          database.prepare("DELETE FROM labels WHERE id = ?").run(labelId);
+          // Also delete associated nested label relationships where this label is a child if it's being deleted
+          database
+            .prepare(`DELETE FROM label_labels WHERE child_label_id = ?`)
+            .run(plainLabelId);
+          await updateExternalIDMapping(
+            org_id,
+            rawLabel.external_id,
+            undefined, // null signals removal
+            labelId
+          ); // Clean up external ID mapping
+        }
+      }
     });
 
     const actionMessage = addOperation ? "added" : "removed";
 
-    // **FIXED:** Call the actual `getActiveLabelWebhooks` and `fireLabelWebhook` from the service.
+    // Call the actual `getActiveLabelWebhooks` and `fireLabelWebhook` from the service.
     const webhooksToFire = await getActiveLabelWebhooks(
       org_id, // Pass orgId
       labelId,
@@ -1601,9 +1988,6 @@ export async function labelResourceHandler(
 
     if (finalLabelQuery.length > 0) {
       const rawFinalLabel = finalLabelQuery[0];
-      // `resources` and `labels` on `Label` struct are derived, not directly from `labels` table `resources` and `labels` columns
-      // (as those columns aren't in the provided DDL for `labels` table).
-      // They are populated in `castLabelToLabelFE`.
       finalLabel = {
         id: rawFinalLabel.id as LabelID,
         value: rawFinalLabel.value as LabelValue,

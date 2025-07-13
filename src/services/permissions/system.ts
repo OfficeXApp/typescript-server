@@ -638,7 +638,7 @@ export async function redactSystemPermissionFE(
   return redacted;
 }
 
-async function redactLabelValue(
+export async function redactLabelValue(
   orgId: DriveID,
   labelValue: LabelValue,
   userId: UserID

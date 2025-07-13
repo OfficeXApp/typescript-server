@@ -36,6 +36,7 @@ import { getDriveOwnerId } from "../../types";
 import {
   checkSystemPermissions as checkSystemPermissionsService,
   canUserAccessSystemPermission as canUserAccessSystemPermissionService,
+  redactLabelValue,
 } from "../../../../services/permissions/system";
 import {
   checkDirectoryPermissions,
@@ -863,8 +864,18 @@ export async function getDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: LABEL: Implement label redaction logic (requiring `redact_label` equivalent)
-    diskFE.labels = []; // Placeholder for labels after redaction. Needs actual implementation.
+    const diskLabelsRaw = await db.queryDrive(
+      org_id,
+      `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+      [disk.id]
+    );
+    diskFE.labels = (
+      await Promise.all(
+        diskLabelsRaw.map((row: any) =>
+          redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+        )
+      )
+    ).filter((label): label is string => label !== null);
 
     return reply.status(200).send(createApiResponse(diskFE));
   } catch (error) {
@@ -1028,8 +1039,18 @@ export async function listDisksHandler(
           diskFE.auth_json = undefined;
           diskFE.private_note = undefined;
         }
-        // TODO: LABEL: Implement label redaction
-        diskFE.labels = []; // Placeholder for labels after redaction
+        const listDiskLabelsRaw = await db.queryDrive(
+          org_id,
+          `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+          [disk.id]
+        );
+        diskFE.labels = (
+          await Promise.all(
+            listDiskLabelsRaw.map((row: any) =>
+              redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+            )
+          )
+        ).filter((label): label is string => label !== null);
         return diskFE;
       })
     );
@@ -1196,8 +1217,18 @@ export async function createDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: LABEL: Implement label redaction
-    diskFE.labels = []; // Placeholder for labels after redaction
+    const createDiskLabelsRaw = await db.queryDrive(
+      org_id,
+      `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+      [newDisk.id]
+    );
+    diskFE.labels = (
+      await Promise.all(
+        createDiskLabelsRaw.map((row: any) =>
+          redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+        )
+      )
+    ).filter((label): label is string => label !== null);
 
     return reply.status(200).send(createApiResponse(diskFE));
   } catch (error) {
@@ -1393,8 +1424,18 @@ export async function updateDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
-    // TODO: LABEL: Implement label redaction
-    diskFE.labels = []; // Placeholder for labels after redaction
+    const updateDiskLabelsRaw = await db.queryDrive(
+      org_id,
+      `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
+      [updatedDisk.id]
+    );
+    diskFE.labels = (
+      await Promise.all(
+        updateDiskLabelsRaw.map((row: any) =>
+          redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+        )
+      )
+    ).filter((label): label is string => label !== null);
 
     return reply.status(200).send(createApiResponse(diskFE));
   } catch (error) {
