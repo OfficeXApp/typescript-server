@@ -19,46 +19,40 @@ const organizationRoutes: FastifyPluginAsync = async (
   opts
 ): Promise<void> => {
   // GET /v1/drive/:org_id/organization/about
-  fastify.get(`/organization/about`, aboutDriveHandler);
+  fastify.get(`/about`, aboutDriveHandler);
 
   // GET /v1/drive/:org_id/organization/snapshot
-  fastify.get(`/organization/snapshot`, snapshotDriveHandler);
+  fastify.get(`/snapshot`, snapshotDriveHandler);
 
   // POST /v1/drive/:org_id/organization/replay
-  fastify.post(`/organization/replay`, replayDriveHandler);
+  fastify.post(`/replay`, replayDriveHandler);
 
   // POST /v1/drive/:org_id/organization/search
-  fastify.post(`/organization/search`, searchDriveHandler);
+  fastify.post(`/search`, searchDriveHandler);
 
   // POST /v1/drive/:org_id/organization/reindex
-  fastify.post(`/organization/reindex`, reindexDriveHandler);
+  fastify.post(`/reindex`, reindexDriveHandler);
 
   // POST /v1/drive/:org_id/organization/external_id
-  fastify.post(`/organization/external_id`, externalIdDriveHandler);
+  fastify.post(`/external_id`, externalIdDriveHandler);
 
   // POST /v1/drive/:org_id/organization/transfer_ownership
-  fastify.post(
-    `/organization/transfer_ownership`,
-    transferOwnershipDriveHandler
-  );
+  fastify.post(`/transfer_ownership`, transferOwnershipDriveHandler);
 
   // POST /v1/drive/:org_id/organization/update_allowed_domains
-  fastify.post(
-    `/organization/update_allowed_domains`,
-    updateAllowedDomainsDriveHandler
-  );
+  fastify.post(`/update_allowed_domains`, updateAllowedDomainsDriveHandler);
 
   // GET /v1/drive/:org_id/organization/whoami
-  fastify.get(`/organization/whoami`, whoAmIDriveHandler);
+  fastify.get(`/whoami`, whoAmIDriveHandler);
 
   // POST /v1/drive/:org_id/organization/superswap_user
-  fastify.post(`/organization/superswap_user`, superswapUserIdDriveHandler);
+  fastify.post(`/superswap_user`, superswapUserIdDriveHandler);
 
   // POST /v1/drive/:org_id/organization/redeem
-  fastify.post(`/organization/redeem`, redeemOrganizationDriveHandler);
+  fastify.post(`/redeem`, redeemOrganizationDriveHandler);
 
   // POST /v1/drive/:org_id/organization/inbox
-  fastify.post(`/organization/inbox`, inboxDriveHandler);
+  fastify.post(`/inbox`, inboxDriveHandler);
 };
 
 export default organizationRoutes;

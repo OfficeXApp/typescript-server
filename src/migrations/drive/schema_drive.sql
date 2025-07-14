@@ -22,7 +22,9 @@ CREATE TABLE about_drive (
     transfer_owner_id TEXT NOT NULL,           -- Corresponds to TRANSFER_OWNER_ID
     spawn_redeem_code TEXT NOT NULL,           -- Corresponds to SPAWN_REDEEM_CODE
     spawn_note TEXT NOT NULL,                  -- Corresponds to SPAWN_NOTE
-    nonce_uuid_generated INTEGER NOT NULL      -- Corresponds to NONCE_UUID_GENERATED
+    nonce_uuid_generated INTEGER NOT NULL,     -- Corresponds to NONCE_UUID_GENERATED
+    external_id TEXT,
+    external_payload TEXT
 );
 
 -- Table: contacts
@@ -183,6 +185,8 @@ CREATE TABLE file_versions (
     file_size INTEGER NOT NULL,
     raw_url TEXT NOT NULL,
     notes TEXT,
+    external_id TEXT,
+    external_payload TEXT,
     FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,
     FOREIGN KEY(prior_version_id) REFERENCES file_versions(version_id) ON DELETE SET NULL,
     FOREIGN KEY(created_by_user_id) REFERENCES contacts(id),
@@ -197,8 +201,8 @@ CREATE TABLE groups (
     name TEXT NOT NULL,
     owner_user_id TEXT NOT NULL,
     avatar TEXT,
-    private_note TEXT,
     public_note TEXT,
+    private_note TEXT,
     created_at INTEGER NOT NULL,
     last_modified_at INTEGER NOT NULL,
     drive_id TEXT NOT NULL,
@@ -508,5 +512,4 @@ CREATE INDEX idx_webhooks_alt_index ON webhooks(alt_index);
 CREATE INDEX idx_webhooks_event ON webhooks(event);
 
 CREATE INDEX idx_external_id_mappings ON external_id_mappings(external_id);
-CREATE INDEX idx_uuid_claimed ON uuid_claimed(external_id);
-
+CREATE INDEX idx_uuid_claimed ON uuid_claimed(uuid);

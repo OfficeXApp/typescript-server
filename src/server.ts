@@ -1,4 +1,11 @@
 // src/server.ts
+
+// Add this to handle BigInt serialization
+// @ts-ignore
+BigInt.prototype.toJSON = function () {
+  return this.toString();
+};
+
 import { fastify } from "fastify";
 import { app } from "./app";
 

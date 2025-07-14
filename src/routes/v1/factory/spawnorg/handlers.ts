@@ -141,7 +141,7 @@ function validateRedeemGiftcardSpawnOrgRequest(
 }
 
 // Helper to determine URL endpoint (mimics Rust's get_appropriate_url_endpoint)
-function getAppropriateUrlEndpoint(request: FastifyRequest): string {
+export function getAppropriateUrlEndpoint(request: FastifyRequest): string {
   if (process.env.SERVER_DOMAIN) {
     // If SERVER_DOMAIN is provided, use it directly without port
     // Ensure it's a valid URL base, default to https if not specified
@@ -157,7 +157,7 @@ function getAppropriateUrlEndpoint(request: FastifyRequest): string {
     const hostname = request.hostname;
     // For local dev, rely on process.env.PORT which Fastify often binds to,
     // or a sensible default.
-    const port = process.env.PORT || 3000;
+    const port = process.env.PORT || 8888;
 
     // If it's localhost, include the port
     if (hostname.includes("localhost") || hostname.includes("127.0.0.1")) {
