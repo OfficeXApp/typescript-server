@@ -39,7 +39,7 @@ export interface FactoryStateSnapshot {
   giftcard_by_id: Record<GiftcardSpawnOrgID, GiftcardSpawnOrg>;
 
   // Timestamp
-  timestamp_ns: bigint; // Corresponds to u64 in Rust (nanoseconds)
+  timestamp_ns: string; // Corresponds to u64 in Rust (nanoseconds)
 }
 
 interface AboutFactoryRecord {
@@ -310,7 +310,7 @@ export async function getFactorySnapshot(
 
     // Timestamp - Rust uses `ic_cdk::api::time()` which is nanoseconds.
     // Date.now() returns milliseconds, so convert to nanoseconds.
-    timestamp_ns: BigInt(Date.now()) * 1_000_000n,
+    timestamp_ns: (BigInt(Date.now()) * 1_000_000n).toString(),
   };
 
   return stateSnapshot;

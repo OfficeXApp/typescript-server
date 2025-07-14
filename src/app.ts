@@ -47,7 +47,9 @@ const app: FastifyPluginAsync<AppOptions> = async (
 
   if (ownerFromEnv) {
     if (!isValidUserId(ownerFromEnv)) {
-      throw new Error("Invalid owner ID provided in environment variable.");
+      throw new Error(
+        `Invalid owner ID provided in environment variable: ${ownerFromEnv}`
+      );
     }
     // Check if ownerFromEnv matches any existing admin
     const ownerMatchesExistingAdmin = existingAdmins.some(
