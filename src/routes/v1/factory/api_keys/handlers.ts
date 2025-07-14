@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import {
   FactoryApiKey,
-  FactoryApiResponse,
+  ApiResponse,
   FactoryCreateApiKeyRequestBody,
   FactoryUpdateApiKeyRequestBody,
   FactoryUpsertApiKeyRequestBody,
@@ -101,14 +101,13 @@ function validateDeleteRequest(body: FactoryDeleteApiKeyRequestBody): {
 }
 
 function createApiResponse<T>(
-  data?: T,
+  data: T,
   error?: { code: number; message: string }
-): FactoryApiResponse<T> {
+): ApiResponse<T> {
   return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
+    ok: {
+      data,
+    },
   };
 }
 

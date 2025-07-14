@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
-  FactoryApiResponse,
+  ApiResponse,
   IRequestReplayDrive,
   SearchDriveRequestBody,
   IResponseReplayDrive,
@@ -29,7 +29,7 @@ import {
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 import { DriveID, UserID, IDPrefixEnum } from "@officexapp/types";
-import { getDriveOwnerId, OrgIdParams } from "../../types";
+import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 import {
   checkSystemPermissions,
   checkPermissionsTableAccess,
@@ -39,19 +39,6 @@ import {
   DriveStateSnapshot,
   getDriveSnapshot,
 } from "../../../../services/snapshot/drive";
-
-// Helper for consistent API response structure
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): FactoryApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
-  };
-}
 
 /**
  * Handles the /organization/about route.

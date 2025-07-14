@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import {
   ApiKey,
-  FactoryApiResponse,
+  ApiResponse,
   IRequestCreateApiKey,
   IRequestUpdateApiKey,
   IRequestDeleteApiKey,
@@ -12,7 +12,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
-import { getDriveOwnerId, OrgIdParams } from "../../types";
+import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 
 // Type definitions for route params
 interface GetApiKeyParams extends OrgIdParams {
@@ -86,18 +86,6 @@ function validateDeleteRequest(body: IRequestDeleteApiKey): {
   }
 
   return { valid: true };
-}
-
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): FactoryApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
-  };
 }
 
 export async function getApiKeyHandler(

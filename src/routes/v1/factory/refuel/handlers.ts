@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
-  FactoryApiResponse,
+  ApiResponse,
   CreateGiftcardRefuelRequestBody,
   UpdateGiftcardRefuelRequestBody,
   UpsertGiftcardRefuelRequestBody,
@@ -20,23 +20,11 @@ import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
 import { isValidID } from "../../../../api/helpers";
 import { validateIcpPrincipal } from "../../../../services/validation";
+import { createApiResponse } from "../../types";
 
 // Type definitions for route params
 interface GetGiftcardRefuelParams {
   giftcard_id: string;
-}
-
-// Helper function for API response
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): FactoryApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
-  };
 }
 
 // Helper function to validate CreateGiftcardRefuelRequestBody
