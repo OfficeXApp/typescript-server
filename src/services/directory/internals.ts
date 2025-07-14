@@ -696,7 +696,7 @@ export function formatFileAssetPath(
   fileId: FileID,
   extension: string
 ): string {
-  const baseUrl = process.env.BASE_URL || "http://localhost:3000";
+  const baseUrl = process.env.BASE_URL || "http://localhost:8888";
   return `${baseUrl}/v1/drives/${driveId}/directory/asset/${fileId}.${extension}`;
 }
 

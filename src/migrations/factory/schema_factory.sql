@@ -1,5 +1,8 @@
 -- src/migrations/factory/schema_factory.sql
 
+
+
+
 -- Table: factory_admins
 -- Description: Logs administrative notes and the user ID of the administrator.
 CREATE TABLE factory_admins (
@@ -100,3 +103,4 @@ CREATE TABLE user_giftcard_refuels (
     PRIMARY KEY (user_id, giftcard_id),
     FOREIGN KEY(giftcard_id) REFERENCES giftcard_refuels(id) ON DELETE CASCADE
 );
+

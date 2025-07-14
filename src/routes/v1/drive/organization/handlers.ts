@@ -34,6 +34,11 @@ import {
   checkSystemPermissions,
   checkPermissionsTableAccess,
 } from "../../../../services/permissions/system"; // Import permission checks
+import { getFactorySnapshot } from "../../../../services/snapshot/factory";
+import {
+  DriveStateSnapshot,
+  getDriveSnapshot,
+} from "../../../../services/snapshot/drive";
 
 // Helper for consistent API response structure
 function createApiResponse<T>(
@@ -46,13 +51,6 @@ function createApiResponse<T>(
     error,
     timestamp: Date.now(),
   };
-}
-
-function isLocalEnvironment(): boolean {
-  // Implement logic to determine if the environment is local (e.g., check process.env.NODE_ENV)
-  return (
-    process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
-  );
 }
 
 /**
@@ -142,88 +140,6 @@ export async function aboutDriveHandler(
     reply.status(200).send(createApiResponse(responseData));
   } catch (error) {
     request.log.error("Error in aboutDriveHandler:", error);
-    reply.status(500).send(
-      createApiResponse(undefined, {
-        code: 500,
-        message: "Internal server error",
-      })
-    );
-  }
-}
-
-/**
- * Handles the /organization/snapshot route.
- * Returns a snapshot of the entire drive state.
- */
-export async function snapshotDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams }>,
-  reply: FastifyReply
-): Promise<void> {
-  try {
-    const { org_id } = request.params;
-
-    // Authenticate request (disabled for local environment testing in Rust, replicating that behavior)
-    if (!isLocalEnvironment()) {
-      const requesterApiKey = await authenticateRequest(
-        request,
-        "drive",
-        org_id
-      );
-      if (!requesterApiKey) {
-        return reply
-          .status(401)
-          .send(
-            createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-          );
-      }
-      const isOwner =
-        requesterApiKey.user_id === (await getDriveOwnerId(org_id));
-      if (!isOwner) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
-    }
-
-    // DRIVE: Implement snapshot_entire_state and convert_state_to_serializable.
-    // This will involve reading all relevant tables from the drive's SQLite DB.
-    // For now, return a mock snapshot.
-    const mockSnapshot = {
-      // System info
-      canister_id: "mock_canister_id",
-      version: "mock_version",
-      owner_id: "UserID_mock_owner",
-      endpoint_url: "https://mock.icp0.io",
-      // API keys state
-      apikeys_by_value: { mock_api_value: "ApiKeyID_mock_id" },
-      apikeys_by_id: {
-        ApiKeyID_mock_id: {
-          id: "ApiKeyID_mock_id",
-          value: "mock_api_value",
-          user_id: "UserID_mock_user",
-          name: "Mock API Key",
-          created_at: Date.now(),
-          expires_at: -1,
-          is_revoked: false,
-        },
-      },
-      users_apikeys: { UserID_mock_user: ["ApiKeyID_mock_id"] },
-      apikeys_history: [],
-      // GiftcardSpawnOrg state
-      deployments_by_giftcard_id: {},
-      historical_giftcards: [],
-      drive_to_giftcard_hashtable: {},
-      user_to_giftcards_hashtable: {},
-      giftcard_by_id: {},
-      // Timestamp
-      timestamp_ns: Date.now() * 1_000_000,
-    };
-
-    reply.status(200).send(createApiResponse(mockSnapshot));
-  } catch (error) {
-    request.log.error("Error in snapshotDriveHandler:", error);
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
@@ -1291,5 +1207,69 @@ export async function inboxDriveHandler(
         message: "Internal server error",
       })
     );
+  }
+}
+
+export async function snapshotDriveHandler(
+  request: FastifyRequest<{ Params: OrgIdParams }>,
+  reply: FastifyReply
+): Promise<void> {
+  const { org_id: driveId } = request.params; // org_id maps to DriveID
+
+  try {
+    request.log.info(`Incoming snapshot request for drive: ${driveId}`);
+
+    // Authenticate request and check if owner
+    const requesterApiKey = await authenticateRequest(
+      request,
+      "drive",
+      driveId
+    );
+    if (!requesterApiKey) {
+      return reply.status(401).send(
+        createApiResponse<undefined>(undefined, {
+          code: 401,
+          message: "Unauthorized",
+        })
+      );
+    }
+    const isOwner =
+      requesterApiKey.user_id === (await getDriveOwnerId(driveId));
+
+    if (!isOwner) {
+      return reply.status(403).send(
+        createApiResponse<undefined>(undefined, {
+          code: 403,
+          message: "Forbidden",
+        })
+      );
+    }
+
+    // Call the refactored function to get the full snapshot
+    const stateSnapshot: DriveStateSnapshot = await getDriveSnapshot(
+      driveId as DriveID // Cast to DriveID as it comes from params
+    );
+
+    reply
+      .status(200)
+      .send(createApiResponse<DriveStateSnapshot>(stateSnapshot));
+  } catch (error: any) {
+    request.log.error("Error in snapshotDriveHandler:", error);
+    // Differentiate between authorization errors and other internal errors
+    if (error.message.includes("Forbidden")) {
+      reply.status(403).send(
+        createApiResponse<undefined>(undefined, {
+          code: 403,
+          message: error.message,
+        })
+      );
+    } else {
+      reply.status(500).send(
+        createApiResponse<undefined>(undefined, {
+          code: 500,
+          message: "Internal server error",
+        })
+      );
+    }
   }
 }

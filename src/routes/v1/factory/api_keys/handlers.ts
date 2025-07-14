@@ -9,12 +9,20 @@ import {
   FactoryUpsertApiKeyRequestBody,
   FactoryDeleteApiKeyRequestBody,
   FactoryDeletedApiKeyData,
-  FactoryStateSnapshot,
   FactorySnapshotResponse,
   IDPrefixEnum,
+  DriveID,
+  UserID,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
-import { authenticateRequest } from "../../../../services/auth";
+import { authenticateRequest, generateApiKey } from "../../../../services/auth";
+import { OrgIdParams } from "../../types";
+import {
+  getFactorySnapshot,
+  FactoryStateSnapshot,
+} from "../../../../services/snapshot/factory";
+import { LOCAL_DEV_MODE } from "../../../../constants";
+import { getAppropriateUrlEndpoint } from "../spawnorg/handlers";
 
 // Import the database service
 
@@ -25,16 +33,6 @@ interface GetApiKeyParams {
 
 interface ListApiKeysParams {
   user_id: string;
-}
-
-// Helper function to generate API key value
-function generateApiKey(): string {
-  return crypto.randomBytes(32).toString("base64url");
-}
-
-// Helper function to generate UUID with prefix
-function generateUuidv4(prefix: string): string {
-  return `${prefix}_${uuidv4()}`;
 }
 
 // Helper function to validate request body
@@ -485,5 +483,52 @@ export async function deleteApiKeyHandler(
         message: "Internal server error",
       })
     );
+  }
+}
+
+export async function snapshotFactoryHandler(
+  request: FastifyRequest<{}>,
+  reply: FastifyReply
+): Promise<void> {
+  try {
+    if (!LOCAL_DEV_MODE) {
+      // Authenticate request and check if owner
+      const requesterApiKey = await authenticateRequest(request, "factory");
+      if (!requesterApiKey) {
+        return reply.status(401).send(
+          createApiResponse<undefined>(undefined, {
+            code: 401,
+            message: "Unauthorized",
+          })
+        );
+      }
+    }
+
+    // Call the refactored function to get the full snapshot
+    const endpoint = getAppropriateUrlEndpoint(request);
+    const stateSnapshot: FactoryStateSnapshot =
+      await getFactorySnapshot(endpoint);
+
+    reply
+      .status(200)
+      .send(createApiResponse<FactoryStateSnapshot>(stateSnapshot));
+  } catch (error: any) {
+    request.log.error("Error in snapshotFactoryHandler:", error);
+    // Differentiate between authorization errors and other internal errors
+    if (error.message.includes("Forbidden")) {
+      reply.status(403).send(
+        createApiResponse<undefined>(undefined, {
+          code: 403,
+          message: error.message,
+        })
+      );
+    } else {
+      reply.status(500).send(
+        createApiResponse<undefined>(undefined, {
+          code: 500,
+          message: "Internal server error",
+        })
+      );
+    }
   }
 }
