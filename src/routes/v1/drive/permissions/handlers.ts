@@ -61,7 +61,7 @@ import {
   deriveBreadcrumbVisibilityPreviews,
   mapDbRowToDirectoryPermission,
 } from "../../../../services/permissions/directory";
-import { getDriveOwnerId } from "../../types";
+import { createApiResponse, getDriveOwnerId } from "../../types";
 import {
   getFileMetadata,
   getFolderMetadata,
@@ -70,6 +70,7 @@ import {
   castToSystemPermissionFE,
   mapDbRowToSystemPermission,
 } from "../../../../services/permissions/system";
+import { authenticateRequest } from "../../../../services/auth";
 
 // Constants for ID prefixes to match Rust enum variants in string format
 export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
@@ -855,17 +856,20 @@ export async function listSystemPermissions(options: {
   let total = 0;
   let newCursor: string | null = null;
 
-  const isOwner = (await getDriveOwnerId(orgId)) === requesterId;
-  const canListPermissions =
-    (
-      await getSystemPermissionsForRecord(
-        `TABLE_${SystemTableValueEnum.PERMISSIONS}`,
-        requesterId,
-        orgId
-      )
-    ).includes(SystemPermissionType.VIEW) || isOwner;
+  console.log(
+    `listSystemPermissions: orgId: ${orgId}, requesterId: ${requesterId}... `
+  );
 
-  if (!canListPermissions) {
+  const isOwner = (await getDriveOwnerId(orgId)) === requesterId;
+  const canListPermissions = (
+    await getSystemPermissionsForRecord(
+      `TABLE_${SystemTableValueEnum.PERMISSIONS}`,
+      requesterId,
+      orgId
+    )
+  ).includes(SystemPermissionType.VIEW);
+
+  if (!isOwner && !canListPermissions) {
     return { items: [], total: 0, authorized: false };
   }
 
@@ -1337,15 +1341,6 @@ export async function redeemSystemPermission(
   });
 }
 
-// --- Fastify Route Handlers ---
-
-// Utility to get requester ID (replace with actual auth logic)
-function getRequesterId(request: FastifyRequest): UserID {
-  // IMPORTANT: Replace this with actual user ID extraction from your authentication system.
-  // For example: `(request as any).user.id` if using a Fastify auth plugin.
-  return "mock_requester_id";
-}
-
 // Directory Permissions Handlers
 
 export async function getDirectoryPermissionsHandler(
@@ -1355,7 +1350,16 @@ export async function getDirectoryPermissionsHandler(
   reply: FastifyReply
 ) {
   const { org_id, directory_permission_id } = request.params;
-  const requesterId: UserID = getRequesterId(request);
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const permission = await getDirectoryPermissionById(
@@ -1393,7 +1397,17 @@ export async function listDirectoryPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const { filters, page_size, direction, cursor } = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     if (!filters?.resource_id) {
@@ -1452,7 +1466,17 @@ export async function createDirectoryPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const data = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const createdPermissionFE = await createDirectoryPermission(
@@ -1481,7 +1505,17 @@ export async function updateDirectoryPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const data = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const updatedPermissionFE = await updateDirectoryPermission(
@@ -1519,7 +1553,17 @@ export async function deleteDirectoryPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const { permission_id } = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const deletedId = await deleteDirectoryPermission(
@@ -1557,7 +1601,17 @@ export async function checkDirectoryPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const { resource_id, grantee_id } = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     if (!resource_id || !grantee_id) {
@@ -1599,7 +1653,17 @@ export async function redeemDirectoryPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const data = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const result = await redeemDirectoryPermission(org_id, {
@@ -1636,7 +1700,17 @@ export async function getSystemPermissionsHandler(
   reply: FastifyReply
 ) {
   const { org_id, system_permission_id } = request.params;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const permission = await getSystemPermissionById(
@@ -1674,7 +1748,17 @@ export async function listSystemPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const { filters, page_size, direction, cursor } = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const result = await listSystemPermissions({
@@ -1722,7 +1806,17 @@ export async function createSystemPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const data = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const createdPermissionFE = await createSystemPermission(
@@ -1751,7 +1845,17 @@ export async function updateSystemPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const data = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const updatedPermissionFE = await updateSystemPermission(
@@ -1789,7 +1893,17 @@ export async function deleteSystemPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const { permission_id } = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const deletedId = await deleteSystemPermission(
@@ -1827,7 +1941,17 @@ export async function checkSystemPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const { resource_id, grantee_id } = request.body;
-  const requesterId: UserID = getRequesterId(request); // Not strictly needed for check, but good practice
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     if (!resource_id || !grantee_id) {
@@ -1866,7 +1990,17 @@ export async function redeemSystemPermissionsHandler(
 ) {
   const { org_id } = request.params;
   const data = request.body;
-  const requesterId: UserID = getRequesterId(request);
+
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    return reply
+      .status(401)
+      .send(
+        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+      );
+  }
+
+  const requesterId = requesterApiKey.user_id;
 
   try {
     const result = await redeemSystemPermission(org_id, {

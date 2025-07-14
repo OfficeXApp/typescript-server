@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
-  FactoryApiResponse,
+  ApiResponse,
   CreateGiftcardSpawnOrgRequestBody,
   UpdateGiftcardSpawnOrgRequestBody,
   UpsertGiftcardSpawnOrgRequestBody,
@@ -25,6 +25,7 @@ import { generateMnemonic, mnemonicToSeed } from "bip39";
 import { getPublicKeyAsync } from "@noble/ed25519";
 import { Principal } from "@dfinity/principal";
 import { validateIcpPrincipal } from "../../../../services/validation";
+import { FREE_MODE } from "../../../../constants";
 
 // Type definitions for route params
 interface GetGiftcardSpawnOrgParams {
@@ -33,14 +34,13 @@ interface GetGiftcardSpawnOrgParams {
 
 // Helper function for API response
 function createApiResponse<T>(
-  data?: T,
+  data: T,
   error?: { code: number; message: string }
-): FactoryApiResponse<T> {
+): ApiResponse<T> {
   return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
+    ok: {
+      data,
+    },
   };
 }
 
@@ -400,22 +400,28 @@ export async function upsertGiftcardSpawnOrgHandler(
   reply: FastifyReply
 ): Promise<void> {
   try {
-    const requesterApiKey = await authenticateRequest(request, "factory");
-    if (!requesterApiKey) {
-      return reply
-        .status(401)
-        .send(
-          createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-        );
-    }
+    let userId: string;
+    if (FREE_MODE) {
+      userId = "Free_Mode_Anonymous_User";
+    } else {
+      const requesterApiKey = await authenticateRequest(request, "factory");
+      if (!requesterApiKey) {
+        return reply
+          .status(401)
+          .send(
+            createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+          );
+      }
 
-    const isOwner = request.server.factory_owner === requesterApiKey.user_id;
-    if (!isOwner) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+      const isOwner = request.server.factory_owner === requesterApiKey.user_id;
+      if (!isOwner) {
+        return reply
+          .status(403)
+          .send(
+            createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          );
+      }
+      userId = requesterApiKey.user_id;
     }
 
     const body = request.body;
@@ -463,7 +469,8 @@ export async function upsertGiftcardSpawnOrgHandler(
         const userGiftcardStmt = database.prepare(
           `INSERT INTO user_giftcard_spawn_orgs (user_id, giftcard_id) VALUES (?, ?)`
         );
-        userGiftcardStmt.run(requesterApiKey.user_id, newGiftcard.id);
+
+        userGiftcardStmt.run(userId, newGiftcard.id);
       });
 
       return reply.status(200).send(createApiResponse(newGiftcard));
@@ -741,7 +748,7 @@ export async function redeemGiftcardSpawnOrgHandler(
 
       insertContactStmt.run(
         ownerId,
-        body.owner_name || "Owner", // Use owner_name or a default
+        "Owner", // Use owner_name or a default
         null, // avatar
         null, // email
         null, // notifications_url

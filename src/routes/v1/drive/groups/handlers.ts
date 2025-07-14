@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import {
   Group,
   GroupFE,
-  FactoryApiResponse,
+  ApiResponse,
   IRequestCreateGroup,
   IRequestUpdateGroup,
   IRequestDeleteGroup,
@@ -21,7 +21,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { OrgIdParams } from "../../types";
+import { createApiResponse, OrgIdParams } from "../../types";
 import {
   checkSystemPermissions,
   hasSystemManagePermission,
@@ -41,18 +41,6 @@ interface ListGroupsBody {
   page_size?: number;
   direction?: "ASC" | "DESC";
   cursor?: string;
-}
-
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): FactoryApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
-  };
 }
 
 function validateCreateRequest(body: IRequestCreateGroup): {
@@ -266,14 +254,12 @@ export async function listGroupsHandler(
     ).includes(SystemPermissionType.VIEW);
 
     if (!isOrgOwner && !canViewGroupsTable) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, {
-            code: 403,
-            message: "Forbidden: Not authorized to list groups",
-          })
-        );
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not authorized to list groups",
+        })
+      );
     }
 
     // Build query with cursor-based pagination
@@ -418,14 +404,12 @@ export async function createGroupHandler(
     ).includes(SystemPermissionType.CREATE);
 
     if (!isOrgOwner && !canCreateGroup) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, {
-            code: 403,
-            message: "Forbidden: Not allowed to create groups",
-          })
-        );
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not allowed to create groups",
+        })
+      );
     }
 
     const now = Date.now();
@@ -651,14 +635,12 @@ export async function updateGroupHandler(
     ).includes(SystemPermissionType.EDIT);
 
     if (!isOrgOwner && !canEditGroupViaPermissions) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, {
-            code: 403,
-            message: "Forbidden: Not allowed to edit this group",
-          })
-        );
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not allowed to edit this group",
+        })
+      );
     }
 
     // Build update query dynamically
@@ -720,14 +702,12 @@ export async function updateGroupHandler(
 
     if (!updatedGroup) {
       // Should not happen after a successful update
-      return reply
-        .status(500)
-        .send(
-          createApiResponse(undefined, {
-            code: 500,
-            message: "Failed to retrieve updated group",
-          })
-        );
+      return reply.status(500).send(
+        createApiResponse(undefined, {
+          code: 500,
+          message: "Failed to retrieve updated group",
+        })
+      );
     }
 
     // Get member previews
@@ -823,14 +803,12 @@ export async function deleteGroupHandler(
     ).includes(SystemPermissionType.DELETE);
 
     if (!isOrgOwner && !canDeleteGroupViaPermissions) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, {
-            code: 403,
-            message: "Forbidden: Not allowed to delete this group",
-          })
-        );
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden: Not allowed to delete this group",
+        })
+      );
     }
 
     // Delete group and related data in transaction

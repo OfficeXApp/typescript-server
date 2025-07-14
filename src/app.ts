@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import AutoLoad, { AutoloadPluginOptions } from "@fastify/autoload";
+import fastifyCors from "@fastify/cors";
 import {
   FastifyPluginAsync,
   FastifyServerOptions,
@@ -23,6 +24,13 @@ const app: FastifyPluginAsync<AppOptions> = async (
   fastify,
   opts
 ): Promise<void> => {
+  // Register CORS
+  await fastify.register(fastifyCors, {
+    origin: "*", // Allow all origins
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Allowed methods
+    allowedHeaders: ["Content-Type", "Authorization"], // Allowed headers
+  });
+
   fastify.decorate("officex_version", "OfficeX.Web2_Beta.1.0");
 
   // Init factory db - this is crucial to ensure factoryDbInstance is set in database.ts
@@ -39,7 +47,9 @@ const app: FastifyPluginAsync<AppOptions> = async (
 
   if (ownerFromEnv) {
     if (!isValidUserId(ownerFromEnv)) {
-      throw new Error("Invalid owner ID provided in environment variable.");
+      throw new Error(
+        `Invalid owner ID provided in environment variable: ${ownerFromEnv}`
+      );
     }
     // Check if ownerFromEnv matches any existing admin
     const ownerMatchesExistingAdmin = existingAdmins.some(

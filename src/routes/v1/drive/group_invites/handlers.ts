@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import {
   GroupInvite,
   GroupInviteFE,
-  FactoryApiResponse,
+  ApiResponse,
   IRequestCreateGroupInvite,
   IRequestUpdateGroupInvite,
   IRequestDeleteGroupInvite,
@@ -23,7 +23,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { OrgIdParams } from "../../types";
+import { createApiResponse, OrgIdParams } from "../../types";
 import {
   checkSystemPermissions,
   hasSystemManagePermission,
@@ -44,18 +44,6 @@ interface ListGroupInvitesBody {
   page_size?: number;
   direction?: "ASC" | "DESC";
   cursor?: string;
-}
-
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): FactoryApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
-  };
 }
 
 function validateCreateRequest(body: IRequestCreateGroupInvite): {

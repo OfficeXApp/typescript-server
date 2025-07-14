@@ -1,4 +1,4 @@
-import { ApiResponse, DriveID, UserID } from "@officexapp/types";
+import { ApiError, ApiResponse, DriveID, UserID } from "@officexapp/types";
 import { db } from "../../services/database";
 
 export interface OrgIdParams {
@@ -9,12 +9,24 @@ export interface OrgIdParams {
 export function createApiResponse<T>(
   data?: T,
   error?: { code: number; message: string }
-): ApiResponse<T> {
+): ApiResponse<T> | ApiError {
+  if (error) {
+    return {
+      err: error,
+    };
+  }
+  if (data) {
+    return {
+      ok: {
+        data,
+      },
+    };
+  }
   return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
+    err: {
+      code: 500,
+      message: "No data provided",
+    },
   };
 }
 

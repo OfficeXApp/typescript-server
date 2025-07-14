@@ -31,22 +31,22 @@ const permissionRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/drive/permissions/directory/list/:org_id
-  fastify.post("/directory/list/:org_id", listDirectoryPermissionsHandler);
+  fastify.post("/directory/list", listDirectoryPermissionsHandler);
 
   // POST /v1/drive/permissions/directory/create/:org_id
-  fastify.post("/directory/create/:org_id", createDirectoryPermissionsHandler);
+  fastify.post("/directory/create", createDirectoryPermissionsHandler);
 
   // POST /v1/drive/permissions/directory/update/:org_id
-  fastify.post("/directory/update/:org_id", updateDirectoryPermissionsHandler);
+  fastify.post("/directory/update", updateDirectoryPermissionsHandler);
 
   // POST /v1/drive/permissions/directory/delete/:org_id
-  fastify.post("/directory/delete/:org_id", deleteDirectoryPermissionsHandler);
+  fastify.post("/directory/delete", deleteDirectoryPermissionsHandler);
 
   // POST /v1/drive/permissions/directory/check/:org_id
-  fastify.post("/directory/check/:org_id", checkDirectoryPermissionsHandler);
+  fastify.post("/directory/check", checkDirectoryPermissionsHandler);
 
   // POST /v1/drive/permissions/directory/redeem/:org_id
-  fastify.post("/directory/redeem/:org_id", redeemDirectoryPermissionsHandler);
+  fastify.post("/directory/redeem", redeemDirectoryPermissionsHandler);
 
   // System Permissions
   // GET /v1/drive/permissions/system/get/:org_id/:system_permission_id
@@ -56,22 +56,22 @@ const permissionRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/drive/permissions/system/list/:org_id
-  fastify.post("/system/list/:org_id", listSystemPermissionsHandler);
+  fastify.post("/system/list", listSystemPermissionsHandler);
 
   // POST /v1/drive/permissions/system/create/:org_id
-  fastify.post("/system/create/:org_id", createSystemPermissionsHandler);
+  fastify.post("/system/create", createSystemPermissionsHandler);
 
   // POST /v1/drive/permissions/system/update/:org_id
-  fastify.post("/system/update/:org_id", updateSystemPermissionsHandler);
+  fastify.post("/system/update", updateSystemPermissionsHandler);
 
   // POST /v1/drive/permissions/system/delete/:org_id
-  fastify.post("/system/delete/:org_id", deleteSystemPermissionsHandler);
+  fastify.post("/system/delete", deleteSystemPermissionsHandler);
 
   // POST /v1/drive/permissions/system/check/:org_id
-  fastify.post("/system/check/:org_id", checkSystemPermissionsHandler);
+  fastify.post("/system/check", checkSystemPermissionsHandler);
 
   // POST /v1/drive/permissions/system/redeem/:org_id
-  fastify.post("/system/redeem/:org_id", redeemSystemPermissionsHandler);
+  fastify.post("/system/redeem", redeemSystemPermissionsHandler);
 };
 
 export default permissionRoutes;

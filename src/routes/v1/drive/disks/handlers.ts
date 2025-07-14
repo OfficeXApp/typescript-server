@@ -32,7 +32,7 @@ import {
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
-import { getDriveOwnerId } from "../../types";
+import { createApiResponse, getDriveOwnerId } from "../../types";
 import {
   checkSystemPermissions as checkSystemPermissionsService,
   canUserAccessSystemPermission as canUserAccessSystemPermissionService,
@@ -287,19 +287,6 @@ function validateDeleteDiskRequest(body: IRequestDeleteDisk): {
     };
   }
   return { valid: true };
-}
-
-// Helper function to create a standardized API response
-function createApiResponse<T>(
-  data?: T,
-  error?: { code: number; message: string }
-): ApiResponse<T> {
-  return {
-    status: error ? "error" : "success",
-    data,
-    error,
-    timestamp: Date.now(),
-  };
 }
 
 export async function fetch_root_shortcuts_of_user(
