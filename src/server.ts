@@ -1,13 +1,26 @@
 // src/server.ts
 
-// Add this to handle BigInt serialization
-// @ts-ignore
-BigInt.prototype.toJSON = function () {
-  return this.toString();
-};
-
 import { fastify } from "fastify";
 import { app } from "./app";
+import Fastify from "fastify";
+import { LOCAL_DEV_MODE } from "./constants";
+
+if (LOCAL_DEV_MODE) {
+  Fastify({
+    logger: {
+      level: "debug", // 'info', 'warn', 'error'
+      transport: {
+        target: "pino-pretty", // Makes logs readable in development console
+        options: {
+          translateTime: "HH:MM:ss Z",
+          ignore: "pid,hostname",
+        },
+      },
+      // For production, you might remove transport or send to a file/service
+      // file: '/var/log/myapp.log', // Example for file logging
+    },
+  });
+}
 
 const server = fastify({
   logger: {

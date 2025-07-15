@@ -15,11 +15,7 @@ import {
 } from "@officexapp/types";
 import { db } from "../../services/database";
 import { getDriveOwnerId } from "../../routes/v1/types";
-import {
-  isUserInGroup,
-  extractPlainUserId,
-  extractPlainGroupId,
-} from "../groups";
+import { isUserInGroup } from "../groups";
 import { PUBLIC_GRANTEE_ID_STRING } from "./directory"; // Still using this common constant
 import {
   getSystemPermissionsForRecord,
@@ -239,7 +235,7 @@ export async function checkSystemPermissions(
 
   if (granteeId.startsWith(IDPrefixEnum.User)) {
     const userId = granteeId as UserID;
-    const plainUserId = extractPlainUserId(userId);
+    const plainUserId = userId;
 
     // Get all groups the user is directly a member of via contact_groups table
     const userGroupsRows = await db.queryDrive(
@@ -398,7 +394,7 @@ export async function checkSystemResourcePermissionsLabels(
 
   if (granteeId.startsWith(IDPrefixEnum.User)) {
     const userId = granteeId as UserID;
-    const plainUserId = extractPlainUserId(userId);
+    const plainUserId = userId;
 
     const userGroupsRows = await db.queryDrive(
       orgId,

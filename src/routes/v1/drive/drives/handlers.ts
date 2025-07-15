@@ -66,7 +66,7 @@ async function castDriveToFE(
   // Apply redaction to labels using the imported redactLabelValue
   const redactedLabels = (
     await Promise.all(
-      drive.labels.map(
+      (drive.labels || []).map(
         async (label) => await redactLabelValue(orgId, label, userId)
       )
     )
@@ -163,7 +163,7 @@ export async function getDriveHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -190,12 +190,17 @@ export async function listDrivesHandler(
     const orgId = request.params.org_id as DriveID;
     const requesterUserId = requesterApiKey.user_id;
 
+    console.log(">>>>> requesterUserId", requesterUserId);
+    console.log(">>>>> orgId", orgId);
+
     // Check if the user has VIEW permission on the DRIVES table
     const canViewDrivesTable = await checkSystemPermissions(
       `TABLE_${SystemTableValueEnum.DRIVES}` as SystemTableValueEnum,
       requesterUserId,
       orgId
     );
+
+    console.log(">>>>> canViewDrivesTable", canViewDrivesTable);
 
     // If not owner and does not have VIEW permission on the DRIVES table
     const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
@@ -206,6 +211,8 @@ export async function listDrivesHandler(
           createApiResponse(undefined, { code: 403, message: "Forbidden" })
         );
     }
+
+    console.log(">>>>> isOwner", isOwner);
 
     const {
       filters,
@@ -288,7 +295,26 @@ export async function listDrivesHandler(
     );
     const total = totalCountResult[0].count;
 
-    const drives = await db.queryDrive(orgId, query, params);
+    console.log(
+      `querying org ${orgId} with query ${query} and params ${params}`
+    );
+
+    // query db with error logging
+    // const drives = await db.queryDrive(orgId, query, params);
+    let drives: Drive[] = [];
+    try {
+      drives = await db.queryDrive(orgId, query, params);
+    } catch (e) {
+      request.log.error(`Error querying drives for org ${orgId}:`, e);
+      return reply.status(500).send(
+        createApiResponse(undefined, {
+          code: 500,
+          message: "Internal server error querying drives",
+        })
+      );
+    }
+
+    console.log(`drives: ${JSON.stringify(drives)}`);
 
     // Apply casting and redaction for each drive
     const driveFEs: DriveFE[] = await Promise.all(
@@ -314,7 +340,7 @@ export async function listDrivesHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -523,7 +549,7 @@ export async function createDriveHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -729,7 +755,7 @@ export async function updateDriveHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -821,7 +847,7 @@ export async function deleteDriveHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

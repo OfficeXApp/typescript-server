@@ -417,7 +417,7 @@ export async function getLabelHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -610,7 +610,7 @@ export async function listLabelsHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -827,7 +827,7 @@ export async function createLabelHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1232,7 +1232,7 @@ export async function updateLabelHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1533,7 +1533,7 @@ export async function deleteLabelHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -2021,7 +2021,7 @@ export async function labelResourceHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

@@ -141,7 +141,7 @@ export async function getApiKeyHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -195,7 +195,7 @@ export async function listApiKeysHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -382,7 +382,7 @@ export async function listApiKeysHandler(
 //     return reply.status(500).send(
 //       createApiResponse(undefined, {
 //         code: 500,
-//         message: "Internal server error",
+//         message: `Internal server error - ${error}`,
 //       })
 //     );
 //   }
@@ -455,7 +455,7 @@ export async function createApiKeyHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -568,7 +568,7 @@ export async function updateApiKeyHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -653,7 +653,7 @@ export async function deleteApiKeyHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

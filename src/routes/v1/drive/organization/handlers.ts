@@ -130,7 +130,7 @@ export async function aboutDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -204,7 +204,7 @@ export async function replayDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -297,7 +297,7 @@ export async function searchDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -382,7 +382,7 @@ export async function reindexDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -471,7 +471,7 @@ export async function externalIdDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -582,7 +582,7 @@ export async function transferOwnershipDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -656,7 +656,7 @@ export async function updateAllowedDomainsDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -729,7 +729,7 @@ export async function whoAmIDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -892,9 +892,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 7. Update `group_invites` table (inviter_user_id, invitee_id)
+        // 7. Update `group_invites` table (inviter_id, invitee_id)
         const groupInvitesUpdate1 = database.prepare(
-          `UPDATE group_invites SET inviter_user_id = ? WHERE inviter_user_id = ?`
+          `UPDATE group_invites SET inviter_id = ? WHERE inviter_id = ?`
         );
         updatedCount +=
           groupInvitesUpdate1.run(
@@ -983,7 +983,7 @@ export async function superswapUserIdDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1114,7 +1114,7 @@ export async function redeemOrganizationDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1191,7 +1191,7 @@ export async function inboxDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1254,7 +1254,7 @@ export async function snapshotDriveHandler(
       reply.status(500).send(
         createApiResponse<undefined>(undefined, {
           code: 500,
-          message: "Internal server error",
+          message: `Internal server error - ${error}`,
         })
       );
     }

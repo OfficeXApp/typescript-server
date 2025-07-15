@@ -22,12 +22,7 @@ import {
   DriveID,
 } from "@officexapp/types";
 import { db } from "../../services/database";
-import {
-  isUserInGroup,
-  extractPlainUserId,
-  extractPlainGroupId,
-  extractPlainPlaceholderGranteeId,
-} from "../groups"; // Import helpers from groups service
+import { isUserInGroup } from "../groups"; // Import helpers from groups service
 import { getFolderMetadata, getFileMetadata } from "../directory/drive";
 import { checkSystemPermissions, redactLabelValue } from "./system";
 
@@ -202,7 +197,7 @@ export async function castToDirectoryPermissionFE(
   if (permission.granted_to === PUBLIC_GRANTEE_ID_STRING) {
     granteeName = "PUBLIC";
   } else if (permission.granted_to.startsWith(IDPrefixEnum.User)) {
-    const plainContactId = extractPlainUserId(permission.granted_to as UserID);
+    const plainContactId = permission.granted_to as UserID;
     const contactRows = await db.queryDrive(
       orgId,
       "SELECT name, avatar FROM contacts WHERE id = ?",
@@ -215,7 +210,7 @@ export async function castToDirectoryPermissionFE(
       granteeName = `User: ${permission.granted_to}`; // Fallback if contact not found
     }
   } else if (permission.granted_to.startsWith(IDPrefixEnum.Group)) {
-    const plainGroupId = extractPlainGroupId(permission.granted_to as GroupID);
+    const plainGroupId = permission.granted_to as GroupID;
     const groupRows = await db.queryDrive(
       orgId,
       "SELECT name, avatar FROM groups WHERE id = ?",
@@ -234,7 +229,7 @@ export async function castToDirectoryPermissionFE(
   }
 
   // Get granter_name
-  const plainGranterId = extractPlainUserId(permission.granted_by);
+  const plainGranterId = permission.granted_by;
   const granterRows = await db.queryDrive(
     orgId,
     "SELECT name FROM contacts WHERE id = ?",

@@ -23,6 +23,7 @@ CREATE TABLE about_drive (
     spawn_redeem_code TEXT NOT NULL,           -- Corresponds to SPAWN_REDEEM_CODE
     spawn_note TEXT NOT NULL,                  -- Corresponds to SPAWN_NOTE
     nonce_uuid_generated INTEGER NOT NULL,     -- Corresponds to NONCE_UUID_GENERATED
+    default_everyone_group_id TEXT,            -- Corresponds to DEFAULT_EVERYONE_GROUP_ID group
     external_id TEXT,
     external_payload TEXT
 );
@@ -94,12 +95,13 @@ CREATE TABLE disks (
     public_note TEXT,
     auth_json TEXT, -- Stores credentials, e.g., for AWS S3
     created_at INTEGER NOT NULL,
-    root_folder_id TEXT NOT NULL,
-    trash_folder_id TEXT NOT NULL,
+    root_folder_id TEXT, -- only null briefly during creation
+    trash_folder_id TEXT, -- only null briefly during creation
     external_id TEXT,
     external_payload TEXT,
     endpoint TEXT
 );
+
 
 -- Table: folders
 -- Source: src/core/state/directory/types.rs -> FolderRecord
@@ -111,7 +113,9 @@ CREATE TABLE folders (
     full_directory_path TEXT NOT NULL UNIQUE,
     created_by_user_id TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    last_updated_at INTEGER NOT NULL,
+    subfolder_uuids TEXT[],
+    file_uuids TEXT[],
+    last_updated_date_ms INTEGER NOT NULL,
     last_updated_by_user_id TEXT NOT NULL,
     disk_id TEXT NOT NULL,
     disk_type TEXT NOT NULL,
@@ -125,8 +129,6 @@ CREATE TABLE folders (
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id) ON DELETE SET NULL,
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id),
-    FOREIGN KEY(last_updated_by_user_id) REFERENCES contacts(id),
     FOREIGN KEY(disk_id) REFERENCES disks(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id),
     FOREIGN KEY(shortcut_to_folder_id) REFERENCES folders(id) ON DELETE SET NULL
@@ -148,7 +150,7 @@ CREATE TABLE files (
     disk_type TEXT NOT NULL,
     file_size INTEGER NOT NULL,
     raw_url TEXT NOT NULL,
-    last_updated_at INTEGER NOT NULL,
+    last_updated_date_ms INTEGER NOT NULL,
     last_updated_by_user_id TEXT NOT NULL,
     is_deleted INTEGER NOT NULL DEFAULT 0,
     drive_id TEXT NOT NULL,
@@ -161,8 +163,6 @@ CREATE TABLE files (
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id),
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id),
-    FOREIGN KEY(last_updated_by_user_id) REFERENCES contacts(id),
     FOREIGN KEY(disk_id) REFERENCES disks(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id),
     FOREIGN KEY(shortcut_to_file_id) REFERENCES files(id) ON DELETE SET NULL
@@ -177,6 +177,7 @@ CREATE TABLE file_versions (
     name TEXT NOT NULL,
     file_version INTEGER NOT NULL,
     prior_version_id TEXT,
+    next_version_id TEXT,
     extension TEXT NOT NULL,
     created_by_user_id TEXT NOT NULL,
     created_at INTEGER NOT NULL,
@@ -189,7 +190,6 @@ CREATE TABLE file_versions (
     external_payload TEXT,
     FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,
     FOREIGN KEY(prior_version_id) REFERENCES file_versions(version_id) ON DELETE SET NULL,
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id),
     UNIQUE (file_id, file_version)
 );
 
@@ -209,7 +209,6 @@ CREATE TABLE groups (
     endpoint_url TEXT NOT NULL,
     external_id TEXT,
     external_payload TEXT,
-    FOREIGN KEY(owner_user_id) REFERENCES contacts(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id)
 );
 
@@ -219,7 +218,7 @@ CREATE TABLE groups (
 CREATE TABLE group_invites (
     id TEXT PRIMARY KEY NOT NULL, -- Corresponds to GroupInviteID
     group_id TEXT NOT NULL,
-    inviter_user_id TEXT NOT NULL,
+    inviter_id TEXT NOT NULL,
     invitee_type TEXT NOT NULL, -- 'USER', 'PLACEHOLDER', 'PUBLIC'
     invitee_id TEXT, -- UserID or PlaceholderID, NULL if public
     role TEXT NOT NULL, -- 'ADMIN', 'MEMBER'
@@ -232,8 +231,7 @@ CREATE TABLE group_invites (
     from_placeholder_invitee TEXT,
     external_id TEXT,
     external_payload TEXT,
-    FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE,
-    FOREIGN KEY(inviter_user_id) REFERENCES contacts(id)
+    FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
 -- Table: labels
@@ -247,10 +245,9 @@ CREATE TABLE labels (
     color TEXT NOT NULL,
     created_by_user_id TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    last_updated_at INTEGER NOT NULL,
+    last_updated_date_ms INTEGER NOT NULL,
     external_id TEXT,
-    external_payload TEXT,
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id)
+    external_payload TEXT
 );
 
 -- Table: permissions_directory
@@ -275,8 +272,7 @@ CREATE TABLE permissions_directory (
     metadata_type TEXT, -- 'Labels', 'DirectoryPassword'
     metadata_content TEXT,
     external_id TEXT,
-    external_payload TEXT,
-    FOREIGN KEY(granted_by_user_id) REFERENCES contacts(id)
+    external_payload TEXT
 );
 
 -- Table: permissions_system
@@ -299,8 +295,7 @@ CREATE TABLE permissions_system (
     metadata_type TEXT,
     metadata_content TEXT,
     external_id TEXT,
-    external_payload TEXT,
-    FOREIGN KEY(granted_by_user_id) REFERENCES contacts(id)
+    external_payload TEXT
 );
 
 -- Table: webhooks
@@ -328,9 +323,7 @@ CREATE TABLE contact_id_superswap_history (
     old_user_id TEXT NOT NULL,
     new_user_id TEXT NOT NULL,
     swapped_at INTEGER NOT NULL,
-    PRIMARY KEY (old_user_id, new_user_id),
-    FOREIGN KEY(old_user_id) REFERENCES contacts(id),
-    FOREIGN KEY(new_user_id) REFERENCES contacts(id)
+    PRIMARY KEY (old_user_id, new_user_id)
 );
 
 
@@ -343,17 +336,14 @@ CREATE TABLE contact_groups (
     user_id TEXT NOT NULL,
     group_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'MEMBER', 
-    PRIMARY KEY (user_id, group_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE,
-    FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
+    PRIMARY KEY (user_id, group_id)
 );
 
 -- Junction Table for `Contact.past_user_ids`
 CREATE TABLE contact_past_ids (
     user_id TEXT NOT NULL,
     past_user_id TEXT NOT NULL,
-    PRIMARY KEY (user_id, past_user_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE
+    PRIMARY KEY (user_id, past_user_id)
 );
 
 -- Junction Table for `DirectoryPermission.permission_types`
@@ -385,7 +375,6 @@ CREATE TABLE contact_labels (
     user_id TEXT NOT NULL,
     label_id TEXT NOT NULL,
     PRIMARY KEY (user_id, label_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE,
     FOREIGN KEY(label_id) REFERENCES labels(id) ON DELETE CASCADE
 );
 

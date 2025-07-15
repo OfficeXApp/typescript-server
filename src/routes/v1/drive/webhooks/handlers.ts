@@ -171,7 +171,7 @@ export async function getWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -267,7 +267,7 @@ export async function listWebhooksHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -372,7 +372,7 @@ export async function createWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -515,7 +515,7 @@ export async function updateWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -608,7 +608,7 @@ export async function deleteWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

@@ -56,9 +56,6 @@ import {
   getGroupById,
   isUserOnLocalGroup, // Added for local group membership check
   getGroupInviteById, // Added for fetching group invite details
-  extractPlainGroupId, // Added to extract plain group ID
-  extractPlainUserId, // Added to extract plain user ID
-  extractPlainGroupInviteId, // Added to extract plain group invite ID
 } from "../../../../services/groups"; // Import group services
 
 // Type definitions for route params
@@ -80,7 +77,7 @@ async function redactContact(
 
   // Derive permission_previews based on system permissions for this specific contact record
   // and for the overall 'contacts' table.
-  const plainContactId = extractPlainUserId(contact.id);
+  const plainContactId = contact.id;
   const recordResourceId: SystemResourceID =
     `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
   const tableResourceId: SystemResourceID =
@@ -108,7 +105,7 @@ async function redactContact(
 
   // Fetch real group data and filter based on permissions.
   // We need to query the `contact_groups` join table to get group IDs associated with this contact.
-  const plainContactIdForGroups = extractPlainUserId(contact.id);
+  const plainContactIdForGroups = contact.id;
   const contactGroupsQuery = `
     SELECT group_id FROM contact_groups WHERE user_id = ?;
   `;
@@ -131,7 +128,7 @@ async function redactContact(
       `;
       const memberInviteRows: { id: string; role: string }[] =
         await db.queryDrive(orgId, memberInviteQuery, [
-          extractPlainGroupId(group.id),
+          group.id,
           plainContactIdForGroups,
         ]);
 
@@ -203,7 +200,7 @@ export async function getContactHandler(
         );
     }
 
-    const plainContactId = extractPlainUserId(contact_id);
+    const plainContactId = contact_id;
     const contacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
@@ -266,7 +263,7 @@ export async function getContactHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -418,7 +415,7 @@ export async function listContactsHandler(
         contact.id = `${IDPrefixEnum.User}${contact.id}` as UserID;
 
         const contactRecordResourceId: SystemResourceID =
-          `${IDPrefixEnum.User}${extractPlainUserId(contact.id)}` as SystemResourceID;
+          `${IDPrefixEnum.User}${contact.id}` as SystemResourceID;
         const contactRecordPermissions = await checkSystemPermissions(
           contactRecordResourceId,
           requesterApiKey.user_id,
@@ -458,7 +455,7 @@ export async function listContactsHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -643,7 +640,7 @@ export async function createContactHandler(
     const contactId: UserID =
       (createReq.id as UserID) ||
       (`${IDPrefixEnum.User}${createReq.icp_principal.replace(/[^a-zA-Z0-9]/g, "_")}` as UserID);
-    const plainContactId = extractPlainUserId(contactId);
+    const plainContactId = contactId;
 
     // Ensure the ID is unique if it's client-provided
     const existingContact = await db.queryDrive(
@@ -699,7 +696,7 @@ export async function createContactHandler(
         newContact.icp_principal,
         newContact.seed_phrase,
         newContact.from_placeholder_user_id
-          ? extractPlainUserId(newContact.from_placeholder_user_id)
+          ? newContact.from_placeholder_user_id
           : null,
         newContact.redeem_code,
         newContact.created_at,
@@ -710,50 +707,36 @@ export async function createContactHandler(
 
       // Add the contact to the default "Everyone" group if it exists
       interface DefaultGroupQueryResult {
-        value?: string;
-        id?: string;
+        default_everyone_group_id?: string; // Change 'value' to the new column name
+        id?: string; // Keep this for the fallback search
       }
 
+      // Query the specific new column 'default_everyone_group_id'
       const defaultEveryoneGroupResult = database
         .prepare(
-          `SELECT value FROM about_drive WHERE key = 'default_everyone_group_id'`
+          `SELECT default_everyone_group_id FROM about_drive LIMIT 1` // Assuming about_drive is effectively a singleton for the current drive
         )
         .get() as DefaultGroupQueryResult | undefined;
 
       let defaultGroupId: GroupID | null = null;
-      if (defaultEveryoneGroupResult?.value) {
-        defaultGroupId = defaultEveryoneGroupResult.value as GroupID;
-      } else {
-        // Fallback: Query the groups table for a group named "Group for All" and created by the owner
-        const defaultGroupSearch = database
-          .prepare(
-            `
-          SELECT id FROM groups WHERE name = 'Group for All' AND owner_user_id = ? LIMIT 1;
-        `
-          )
-          .get(extractPlainUserId(ownerId)) as
-          | DefaultGroupQueryResult
-          | undefined;
-
-        if (defaultGroupSearch?.id) {
-          defaultGroupId =
-            `${IDPrefixEnum.Group}${defaultGroupSearch.id}` as GroupID;
-        }
+      if (defaultEveryoneGroupResult?.default_everyone_group_id) {
+        // Use the new column name
+        defaultGroupId =
+          defaultEveryoneGroupResult.default_everyone_group_id as GroupID;
       }
 
       if (defaultGroupId) {
-        const plainDefaultGroupId = extractPlainGroupId(defaultGroupId);
+        const plainDefaultGroupId = defaultGroupId;
         const newGroupInviteId: GroupInviteID =
           `${IDPrefixEnum.GroupInvite}${uuidv4()}` as GroupInviteID;
-        const plainNewGroupInviteId =
-          extractPlainGroupInviteId(newGroupInviteId);
+        const plainNewGroupInviteId = newGroupInviteId;
 
         // Check if a member invite for this user already exists in this group
         const existingInvite = database
           .prepare(
             `
           SELECT id FROM group_invites
-          WHERE group_id = ? AND invitee_type = 'USER' AND invitee_id = ?;
+          WHERE group_id = ? AND invitee_id = ?;
         `
           )
           .get(plainDefaultGroupId, plainContactId);
@@ -763,18 +746,18 @@ export async function createContactHandler(
           database
             .prepare(
               `
-            INSERT INTO group_invites (id, group_id, inviter_user_id, invitee_type, invitee_id, role, note, active_from, expires_at, created_at, last_modified_at)
+            INSERT INTO group_invites (id, group_id, inviter_id, invitee_type, invitee_id, role, note, active_from, expires_at, created_at, last_modified_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           `
             )
             .run(
               plainNewGroupInviteId,
               plainDefaultGroupId,
-              extractPlainUserId(ownerId), // The owner invites the new contact
+              requesterApiKey.user_id,
               "USER",
               plainContactId,
               GroupRole.MEMBER, // Default role for "Everyone" group
-              `Auto-invited to default 'Group for All' upon contact creation.`,
+              `Auto-invited to default 'Default Everyone' upon contact creation.`,
               Date.now(),
               -1, // Never expires
               Date.now(),
@@ -805,7 +788,7 @@ export async function createContactHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -926,7 +909,7 @@ export async function updateContactHandler(
       );
     }
 
-    const plainContactId = extractPlainUserId(updateReq.id);
+    const plainContactId = updateReq.id;
     const contacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
@@ -1057,7 +1040,7 @@ export async function updateContactHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1090,7 +1073,7 @@ export async function deleteContactHandler(
       );
     }
 
-    const plainContactId = extractPlainUserId(deleteReq.id);
+    const plainContactId = deleteReq.id;
     const contacts = await db.queryDrive(
       org_id,
       "SELECT * FROM contacts WHERE id = ?",
@@ -1196,7 +1179,7 @@ export async function deleteContactHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1245,8 +1228,8 @@ export async function redeemContactHandler(
       );
     }
 
-    const currentPlainUserId = extractPlainUserId(redeemReq.current_user_id);
-    const newPlainUserId = extractPlainUserId(redeemReq.new_user_id);
+    const currentPlainUserId = redeemReq.current_user_id;
+    const newPlainUserId = redeemReq.new_user_id;
 
     const currentContacts = await db.queryDrive(
       org_id,
@@ -1360,7 +1343,7 @@ export async function redeemContactHandler(
         // 7. Update `group_invites`
         database
           .prepare(
-            "UPDATE group_invites SET inviter_user_id = ? WHERE inviter_user_id = ?"
+            "UPDATE group_invites SET inviter_id = ? WHERE inviter_id = ?"
           )
           .run(newPlainUserId, currentPlainUserId);
         database
@@ -1441,7 +1424,7 @@ export async function redeemContactHandler(
         await db.queryDrive(
           org_id,
           "UPDATE contacts SET public_note = ? WHERE id = ?",
-          [newPublicNote, extractPlainUserId(updatedContact.id)]
+          [newPublicNote, updatedContact.id]
         );
         updatedContact.public_note = newPublicNote;
       }
@@ -1473,9 +1456,9 @@ export async function redeemContactHandler(
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
-          extractPlainUserId(generatedApiKey.id), // Corrected: ApiKeyID prefix handled by extractPlainUserId
+          generatedApiKey.id, // Corrected: ApiKeyID prefix handled by
           generatedApiKey.value,
-          extractPlainUserId(generatedApiKey.user_id),
+          generatedApiKey.user_id,
           generatedApiKey.name,
           generatedApiKey.private_note,
           generatedApiKey.created_at,
@@ -1504,7 +1487,7 @@ export async function redeemContactHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

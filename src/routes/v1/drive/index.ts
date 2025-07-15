@@ -9,6 +9,7 @@ import organizationRoutes from "./organization";
 import permissionsRoutes from "./permissions";
 import webhooksRoutes from "./webhooks";
 import directoryRoutes from "./directory";
+import drivesRoutes from "./drives";
 
 const driveRoutes: FastifyPluginAsync = async (
   fastify,
@@ -18,7 +19,8 @@ const driveRoutes: FastifyPluginAsync = async (
   fastify.register(contactsRoutes, { prefix: "/:org_id/contacts" });
   fastify.register(directoryRoutes, { prefix: "/:org_id/directory" });
   fastify.register(disksRoutes, { prefix: "/:org_id/disks" });
-  fastify.register(groupInviteRoutes, { prefix: "/:org_id/group_invites" });
+  fastify.register(drivesRoutes, { prefix: "/:org_id/drives" });
+  fastify.register(groupInviteRoutes, { prefix: "/:org_id/groups/invites" });
   fastify.register(groupRoutes, { prefix: "/:org_id/groups" });
   fastify.register(labelsRoutes, { prefix: "/:org_id/labels" });
   fastify.register(organizationRoutes, { prefix: "/:org_id/organization" });

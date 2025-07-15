@@ -48,6 +48,7 @@ import {
   isUUIDClaimed,
   updateExternalIDMapping,
 } from "../../../../services/external";
+import Database from "better-sqlite3";
 
 // --- Helper Types for Request Params ---
 
@@ -439,7 +440,7 @@ export async function fetch_root_shortcuts_of_user(
     if (resourceData.resource_type === "Folder") {
       const folder = await db.queryDrive(
         orgId,
-        `SELECT id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE id = ?`,
+        `SELECT id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE id = ?`,
         [fullResourceId.substring(IDPrefixEnum.Folder.length)]
       );
       if (folder.length > 0) {
@@ -452,7 +453,7 @@ export async function fetch_root_shortcuts_of_user(
     } else if (resourceData.resource_type === "File") {
       const file = await db.queryDrive(
         orgId,
-        `SELECT id, name, parent_folder_id, version_id, extension, full_directory_path, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, last_updated_at, last_updated_by_user_id, is_deleted, drive_id, upload_status, expires_at, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload FROM files WHERE id = ?`,
+        `SELECT id, name, parent_folder_id, version_id, extension, full_directory_path, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by_user_id, is_deleted, drive_id, upload_status, expires_at, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload FROM files WHERE id = ?`,
         [fullResourceId.substring(IDPrefixEnum.File.length)]
       );
       if (file.length > 0) {
@@ -585,12 +586,13 @@ export async function fetch_root_shortcuts_of_user(
   };
 }
 
-export async function ensureDiskRootAndTrashFolder(
+export function ensureDiskRootAndTrashFolder(
   orgId: DriveID,
   diskId: string,
   ownerId: UserID,
-  diskType: DiskTypeEnum
-): Promise<{ rootFolderId: string; trashFolderId: string }> {
+  diskType: DiskTypeEnum,
+  database: Database.Database // This parameter is now mandatory
+): { rootFolderId: string; trashFolderId: string } {
   const now = Date.now();
   const rootPath = `${diskId}::/`;
   const trashPath = `${diskId}::.trash/`;
@@ -598,148 +600,146 @@ export async function ensureDiskRootAndTrashFolder(
   let rootFolderId: string;
   let trashFolderId: string;
 
-  return await dbHelpers.transaction("drive", orgId, (database) => {
-    // Check for existing root folder
-    let existingRoot = database
-      .prepare("SELECT id FROM folders WHERE full_directory_path = ?")
-      .get(rootPath) as { id: string } | undefined;
+  // Check for existing root folder
+  // .get() is synchronous in better-sqlite3
+  let existingRoot = database
+    .prepare("SELECT id FROM folders WHERE full_directory_path = ?")
+    .get(rootPath) as { id: string } | undefined;
 
-    if (existingRoot) {
-      rootFolderId = existingRoot.id;
-    } else {
-      rootFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
-      const insertRootStmt = database.prepare(
-        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      insertRootStmt.run(
-        rootFolderId,
-        "", // Name for root is empty in Rust
-        null, // No parent for root
+  if (existingRoot) {
+    rootFolderId = existingRoot.id;
+  } else {
+    rootFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+    const insertRootStmt = database.prepare(
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    // .run() is synchronous in better-sqlite3
+    insertRootStmt.run(
+      rootFolderId,
+      "",
+      null,
+      rootPath,
+      ownerId.substring(IDPrefixEnum.User.length),
+      now,
+      now,
+      ownerId.substring(IDPrefixEnum.User.length),
+      diskId,
+      diskType,
+      0,
+      -1,
+      orgId,
+      1,
+      null,
+      null,
+      null,
+      null,
+      null
+    );
+
+    const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+    database
+      .prepare(
+        `
+        INSERT INTO permissions_directory (
+          id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by_user_id,
+          begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      )
+      .run(
+        rootPermissionId,
+        "Folder",
+        rootFolderId.substring(IDPrefixEnum.Folder.length),
         rootPath,
-        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
+        "User",
+        ownerId.substring(IDPrefixEnum.User.length),
+        ownerId.substring(IDPrefixEnum.User.length),
+        0,
+        -1,
+        1,
+        "Default permissions for disk root folder owner",
         now,
-        now,
-        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
-        diskId,
-        diskType,
-        0, // is_deleted (false)
-        -1, // expires_at (-1 for never)
-        orgId,
-        1, // has_sovereign_permissions (true for root as per Rust)
-        null,
-        null,
-        null,
-        null,
-        null
+        now
       );
 
-      // Add default permissions for the newly created root folder (All permissions for owner)
-      const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
-      database
-        .prepare(
-          `
-        INSERT INTO permissions_directory (
-          id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by_user_id,
-          begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-        )
-        .run(
-          rootPermissionId,
-          "Folder",
-          rootFolderId.substring(IDPrefixEnum.Folder.length),
-          rootPath,
-          "User",
-          ownerId.substring(IDPrefixEnum.User.length),
-          ownerId.substring(IDPrefixEnum.User.length),
-          0, // Immediate
-          -1, // Never expires
-          1, // Inheritable
-          "Default permissions for disk root folder owner",
-          now,
-          now
-        );
-
-      const insertRootPermissionTypes = database.prepare(`
+    const insertRootPermissionTypes = database.prepare(`
         INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
       `);
-      Object.values(DirectoryPermissionType).forEach((type) => {
-        insertRootPermissionTypes.run(rootPermissionId, type);
-      });
-    }
+    Object.values(DirectoryPermissionType).forEach((type) => {
+      insertRootPermissionTypes.run(rootPermissionId, type);
+    });
+  }
 
-    // Check for existing trash folder
-    let existingTrash = database
-      .prepare("SELECT id FROM folders WHERE full_directory_path = ?")
-      .get(trashPath) as { id: string } | undefined;
+  // Check for existing trash folder
+  let existingTrash = database
+    .prepare("SELECT id FROM folders WHERE full_directory_path = ?")
+    .get(trashPath) as { id: string } | undefined;
 
-    if (existingTrash) {
-      trashFolderId = existingTrash.id;
-    } else {
-      trashFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
-      const insertTrashStmt = database.prepare(
-        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+  if (existingTrash) {
+    trashFolderId = existingTrash.id;
+  } else {
+    trashFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+    const insertTrashStmt = database.prepare(
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      insertTrashStmt.run(
-        trashFolderId,
-        ".trash",
-        rootFolderId, // Trash is a subfolder of root
-        trashPath,
-        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
-        now,
-        now,
-        ownerId.substring(IDPrefixEnum.User.length), // Store plain ID
-        diskId,
-        diskType,
-        0, // is_deleted (false)
-        -1, // expires_at (-1 for never)
-        orgId,
-        1, // has_sovereign_permissions (true for trash as per Rust)
-        null,
-        null,
-        null,
-        null,
-        null
-      );
+    );
+    insertTrashStmt.run(
+      trashFolderId,
+      ".trash",
+      rootFolderId,
+      trashPath,
+      ownerId.substring(IDPrefixEnum.User.length),
+      now,
+      now,
+      ownerId.substring(IDPrefixEnum.User.length),
+      diskId,
+      diskType,
+      0,
+      -1,
+      orgId,
+      1,
+      null,
+      null,
+      null,
+      null,
+      null
+    );
 
-      // Add default permissions for the newly created trash folder (All permissions for owner)
-      const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
-      database
-        .prepare(
-          `
+    const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+    database
+      .prepare(
+        `
         INSERT INTO permissions_directory (
           id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by_user_id,
           begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
-        )
-        .run(
-          trashPermissionId,
-          "Folder",
-          trashFolderId.substring(IDPrefixEnum.Folder.length),
-          trashPath,
-          "User",
-          ownerId.substring(IDPrefixEnum.User.length),
-          ownerId.substring(IDPrefixEnum.User.length),
-          0, // Immediate
-          -1, // Never expires
-          0, // Not inheritable (sovereign permissions in Rust means not inherited by children)
-          "Default permissions for disk trash folder owner",
-          now,
-          now
-        );
+      )
+      .run(
+        trashPermissionId,
+        "Folder",
+        trashFolderId.substring(IDPrefixEnum.Folder.length),
+        trashPath,
+        "User",
+        ownerId.substring(IDPrefixEnum.User.length),
+        ownerId.substring(IDPrefixEnum.User.length),
+        0,
+        -1,
+        0, // Not inheritable
+        "Default permissions for disk trash folder owner",
+        now,
+        now
+      );
 
-      const insertTrashPermissionTypes = database.prepare(`
+    const insertTrashPermissionTypes = database.prepare(`
         INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
       `);
-      Object.values(DirectoryPermissionType).forEach((type) => {
-        insertTrashPermissionTypes.run(trashPermissionId, type);
-      });
-    }
-    return { rootFolderId, trashFolderId };
-  });
+    Object.values(DirectoryPermissionType).forEach((type) => {
+      insertTrashPermissionTypes.run(trashPermissionId, type);
+    });
+  }
+  return { rootFolderId, trashFolderId };
 }
 
 // TODO: SNAPSHOT: Implement `snapshot_prestate` and `snapshot_poststate` equivalent
@@ -870,7 +870,7 @@ export async function getDiskHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1056,7 +1056,7 @@ export async function listDisksHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1070,7 +1070,6 @@ export async function createDiskHandler(
     const { org_id } = request.params;
     const body = request.body;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -1082,7 +1081,6 @@ export async function createDiskHandler(
 
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    // Validate request body
     const validation = await validateCreateDiskRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
@@ -1099,7 +1097,6 @@ export async function createDiskHandler(
       org_id
     ).then((perms) => perms.includes(SystemPermissionType.CREATE));
 
-    // Check create permission if not owner
     if (!isOwner && !hasCreatePermission) {
       return reply
         .status(403)
@@ -1108,95 +1105,238 @@ export async function createDiskHandler(
         );
     }
 
-    const prestate = snapshotPrestate(); // For state diffing/auditing
-
+    const prestate = snapshotPrestate();
     const diskId = (body.id || `${IDPrefixEnum.Disk}${uuidv4()}`) as Disk["id"];
+    const now = Date.now();
 
-    const { rootFolderId, trashFolderId } = await ensureDiskRootAndTrashFolder(
+    const newDisk: Disk = await dbHelpers.transaction(
+      "drive",
       org_id,
-      diskId,
-      requesterApiKey.user_id,
-      body.disk_type
+      (database) => {
+        const generatedRootFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+        const generatedTrashFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+        const ownerId = requesterApiKey.user_id;
+        const diskType = body.disk_type;
+
+        // 1. Insert the disk record with NULL for root_folder_id and trash_folder_id
+        const insertDiskStmt = database.prepare(
+          `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder_id, trash_folder_id, external_id, external_payload, endpoint)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)` // Set to NULL initially
+        );
+        insertDiskStmt.run(
+          diskId,
+          body.name,
+          body.disk_type,
+          body.private_note || null,
+          body.public_note || null,
+          body.auth_json || null,
+          now,
+          body.external_id || null,
+          body.external_payload || null,
+          body.endpoint || null
+        );
+
+        const rootPath = `${diskId}::/`;
+        const trashPath = `${diskId}::.trash/`;
+
+        // 2. Insert Root Folder
+        const insertRootStmt = database.prepare(
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        insertRootStmt.run(
+          generatedRootFolderId,
+          "",
+          null, // Root folder has no parent
+          rootPath,
+          ownerId.substring(IDPrefixEnum.User.length),
+          now,
+          now,
+          ownerId.substring(IDPrefixEnum.User.length),
+          diskId, // This now correctly references an *existing* diskId
+          diskType,
+          0,
+          -1,
+          org_id,
+          1,
+          null,
+          null,
+          null,
+          null,
+          null
+        );
+
+        // Add permissions for root folder
+        const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+        database
+          .prepare(
+            `
+            INSERT INTO permissions_directory (
+              id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by_user_id,
+              begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+          )
+          .run(
+            rootPermissionId,
+            "Folder",
+            generatedRootFolderId.substring(IDPrefixEnum.Folder.length),
+            rootPath,
+            "User",
+            ownerId.substring(IDPrefixEnum.User.length),
+            ownerId.substring(IDPrefixEnum.User.length),
+            0,
+            -1,
+            1,
+            "Default permissions for disk root folder owner",
+            now,
+            now
+          );
+
+        const insertRootPermissionTypes = database.prepare(`
+            INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+          `);
+        Object.values(DirectoryPermissionType).forEach((type) => {
+          insertRootPermissionTypes.run(rootPermissionId, type);
+        });
+
+        // 3. Insert Trash Folder
+        const insertTrashStmt = database.prepare(
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+        insertTrashStmt.run(
+          generatedTrashFolderId,
+          ".trash",
+          generatedRootFolderId, // Parent is the root folder
+          trashPath,
+          ownerId.substring(IDPrefixEnum.User.length),
+          now,
+          now,
+          ownerId.substring(IDPrefixEnum.User.length),
+          diskId, // This now correctly references an *existing* diskId
+          diskType,
+          0,
+          -1,
+          org_id,
+          1,
+          null,
+          null,
+          null,
+          null,
+          null
+        );
+
+        // Add permissions for trash folder
+        const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+        database
+          .prepare(
+            `
+            INSERT INTO permissions_directory (
+              id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by_user_id,
+              begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+          )
+          .run(
+            trashPermissionId,
+            "Folder",
+            generatedTrashFolderId.substring(IDPrefixEnum.Folder.length),
+            trashPath,
+            "User",
+            ownerId.substring(IDPrefixEnum.User.length),
+            ownerId.substring(IDPrefixEnum.User.length),
+            0,
+            -1,
+            0, // Not inheritable
+            "Default permissions for disk trash folder owner",
+            now,
+            now
+          );
+
+        const insertTrashPermissionTypes = database.prepare(`
+            INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+          `);
+        Object.values(DirectoryPermissionType).forEach((type) => {
+          insertTrashPermissionTypes.run(trashPermissionId, type);
+        });
+
+        // 4. Update the disk record with the actual root_folder_id and trash_folder_id
+        const updateDiskFoldersStmt = database.prepare(
+          `UPDATE disks SET root_folder_id = ?, trash_folder_id = ? WHERE id = ?`
+        );
+        updateDiskFoldersStmt.run(
+          generatedRootFolderId,
+          generatedTrashFolderId,
+          diskId
+        );
+
+        // 5. Construct and RETURN the `newDisk` object from the transaction callback
+        const constructedDisk: Disk = {
+          id: diskId,
+          name: body.name,
+          disk_type: body.disk_type,
+          private_note: body.private_note,
+          public_note: body.public_note,
+          auth_json: body.auth_json,
+          labels: [], // Labels are handled after the transaction
+          created_at: now,
+          root_folder: generatedRootFolderId,
+          trash_folder: generatedTrashFolderId,
+          external_id: body.external_id,
+          external_payload: body.external_payload,
+          endpoint: body.endpoint,
+        };
+        return constructedDisk;
+      }
     );
 
-    const newDisk: Disk = {
-      id: diskId,
-      name: body.name,
-      disk_type: body.disk_type,
-      private_note: body.private_note,
-      public_note: body.public_note,
-      auth_json: body.auth_json,
-      labels: [], // Labels are handled separately, Rust had vec![] initially
-      created_at: Date.now(),
-      root_folder: rootFolderId,
-      trash_folder: trashFolderId,
-      external_id: body.external_id,
-      external_payload: body.external_payload,
-      endpoint: body.endpoint,
-    };
-
-    // Store the disk in the database
-    await dbHelpers.transaction("drive", org_id, (database) => {
-      const stmt = database.prepare(
-        `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder_id, trash_folder_id, external_id, external_payload, endpoint)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      stmt.run(
-        newDisk.id,
-        newDisk.name,
-        newDisk.disk_type,
-        newDisk.private_note || null,
-        newDisk.public_note || null,
-        newDisk.auth_json || null,
-        newDisk.created_at,
-        newDisk.root_folder,
-        newDisk.trash_folder,
-        newDisk.external_id || null,
-        newDisk.external_payload || null,
-        newDisk.endpoint || null
-      );
-    });
-
+    // ... (rest of your existing post-transaction logic remains the same)
     await updateExternalIDMapping(
       org_id,
       undefined,
       newDisk.external_id,
       newDisk.id
     );
-    await claimUUID(org_id, newDisk.id);
+
+    if (!body.id) {
+      await claimUUID(org_id, newDisk.id);
+    }
 
     snapshotPoststate(
       prestate,
       `${requesterApiKey.user_id}: Create Disk ${newDisk.id}`
     );
 
+    const permissionPreviews = isOwner
+      ? [
+          SystemPermissionType.CREATE,
+          SystemPermissionType.EDIT,
+          SystemPermissionType.DELETE,
+          SystemPermissionType.VIEW,
+          SystemPermissionType.INVITE,
+        ]
+      : await Promise.resolve().then(async () => {
+          const recordPermissions = await checkSystemPermissionsService(
+            `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+            requesterApiKey.user_id,
+            org_id
+          );
+          const tablePermissions = await checkSystemPermissionsService(
+            `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
+            requesterApiKey.user_id,
+            org_id
+          );
+          return Array.from(
+            new Set([...recordPermissions, ...tablePermissions])
+          );
+        });
+
     const diskFE: DiskFE = {
       ...newDisk,
-      permission_previews: isOwner
-        ? [
-            SystemPermissionType.CREATE,
-            SystemPermissionType.EDIT,
-            SystemPermissionType.DELETE,
-            SystemPermissionType.VIEW,
-            SystemPermissionType.INVITE,
-          ]
-        : await Promise.resolve().then(async () => {
-            const recordPermissions = await checkSystemPermissionsService(
-              `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
-              requesterApiKey.user_id,
-              org_id
-            );
-            const tablePermissions = await checkSystemPermissionsService(
-              `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-              requesterApiKey.user_id,
-              org_id
-            );
-            return Array.from(
-              new Set([...recordPermissions, ...tablePermissions])
-            );
-          }),
+      permission_previews: permissionPreviews,
     };
-    // Redaction logic, replicating Rust's DiskFE::redacted
+
     if (
       !isOwner &&
       !diskFE.permission_previews.includes(SystemPermissionType.EDIT)
@@ -1204,6 +1344,7 @@ export async function createDiskHandler(
       diskFE.auth_json = undefined;
       diskFE.private_note = undefined;
     }
+
     const createDiskLabelsRaw = await db.queryDrive(
       org_id,
       `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
@@ -1223,7 +1364,7 @@ export async function createDiskHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1430,7 +1571,7 @@ export async function updateDiskHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1537,7 +1678,7 @@ export async function deleteDiskHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

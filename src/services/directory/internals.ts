@@ -124,7 +124,7 @@ export async function translatePathToId(
   if (isFolderPath) {
     const results = await db.queryDrive(
       driveId,
-      "SELECT id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE full_directory_path = ?",
+      "SELECT id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE full_directory_path = ?",
       [path]
     );
 
@@ -167,10 +167,10 @@ export async function translatePathToId(
       subfolder_uuids: subfolderUuids,
       file_uuids: fileUuids,
       full_directory_path: folderData.full_directory_path,
-      labels: labels,
+      labels: [],
       created_by: folderData.created_by_user_id,
       created_at: folderData.created_at,
-      last_updated_date_ms: folderData.last_updated_at,
+      last_updated_date_ms: folderData.last_updated_date_ms,
       last_updated_by: folderData.last_updated_by_user_id,
       disk_id: folderData.disk_id,
       disk_type: folderData.disk_type,
@@ -189,8 +189,8 @@ export async function translatePathToId(
     const results = await db.queryDrive(
       driveId,
       `SELECT
-        f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by_user_id, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_at, f.last_updated_by_user_id, f.is_deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_id, f.has_sovereign_permissions, f.shortcut_to_file_id, f.notes, f.external_id, f.external_payload,
-        fv.file_version, fv.prior_version_id, fv.next_version_id
+        f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by_user_id, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by_user_id, f.is_deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_id, f.has_sovereign_permissions, f.shortcut_to_file_id, f.notes, f.external_id, f.external_payload,
+        fv.file_version, fv.prior_version_id
       FROM files f
       JOIN file_versions fv ON f.version_id = fv.version_id
       WHERE f.full_directory_path = ?`,
@@ -217,18 +217,17 @@ export async function translatePathToId(
       parent_folder_uuid: fileData.parent_folder_id,
       file_version: fileData.file_version,
       prior_version: fileData.prior_version_id,
-      next_version: fileData.next_version_id,
       version_id: fileData.version_id,
       extension: fileData.extension,
       full_directory_path: fileData.full_directory_path,
-      labels: labels,
+      labels: [],
       created_by: fileData.created_by_user_id,
       created_at: fileData.created_at,
       disk_id: fileData.disk_id,
       disk_type: fileData.disk_type,
       file_size: fileData.file_size,
       raw_url: fileData.raw_url,
-      last_updated_date_ms: fileData.last_updated_at,
+      last_updated_date_ms: fileData.last_updated_date_ms,
       last_updated_by: fileData.last_updated_by_user_id,
       deleted: !!fileData.is_deleted,
       drive_id: fileData.drive_id,
@@ -351,7 +350,7 @@ export async function ensureRootFolder(
       const rootFolderId = GenerateID.Folder();
       const now = Date.now();
       tx.prepare(
-        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at)
+        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         rootFolderId,
@@ -412,7 +411,7 @@ export async function ensureRootFolder(
       const trashFolderId = GenerateID.Folder();
       const now = Date.now();
       tx.prepare(
-        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions)
+        `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         trashFolderId,
@@ -518,7 +517,7 @@ export async function ensureFolderStructure(
         const isFinalFolder = i === pathSegments.length - 1;
 
         tx.prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           newFolderId,
