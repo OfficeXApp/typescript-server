@@ -124,7 +124,7 @@ export async function translatePathToId(
   if (isFolderPath) {
     const results = await db.queryDrive(
       driveId,
-      "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE full_directory_path = ?",
+      "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload FROM folders WHERE full_directory_path = ?",
       [path]
     );
 
@@ -174,12 +174,13 @@ export async function translatePathToId(
       last_updated_by: folderData.last_updated_by,
       disk_id: folderData.disk_id,
       disk_type: folderData.disk_type,
-      deleted: !!folderData.is_deleted,
+      deleted: !!folderData.deleted,
       expires_at: folderData.expires_at,
       drive_id: folderData.drive_id,
-      restore_trash_prior_folder_uuid: folderData.restore_trash_prior_folder_id,
+      restore_trash_prior_folder_uuid:
+        folderData.restore_trash_prior_folder_uuid,
       has_sovereign_permissions: !!folderData.has_sovereign_permissions,
-      shortcut_to: folderData.shortcut_to_folder_id,
+      shortcut_to: folderData.shortcut_to,
       external_id: folderData.external_id,
       external_payload: folderData.external_payload,
       notes: folderData.notes,
@@ -189,7 +190,7 @@ export async function translatePathToId(
     const results = await db.queryDrive(
       driveId,
       `SELECT
-        f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by, f.is_deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_id, f.has_sovereign_permissions, f.shortcut_to_file_id, f.notes, f.external_id, f.external_payload,
+        f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by, f.deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_uuid, f.has_sovereign_permissions, f.shortcut_to, f.notes, f.external_id, f.external_payload,
         fv.file_version, fv.prior_version_id
       FROM files f
       JOIN file_versions fv ON f.version_id = fv.version_id
@@ -229,13 +230,13 @@ export async function translatePathToId(
       raw_url: fileData.raw_url,
       last_updated_date_ms: fileData.last_updated_date_ms,
       last_updated_by: fileData.last_updated_by,
-      deleted: !!fileData.is_deleted,
+      deleted: !!fileData.deleted,
       drive_id: fileData.drive_id,
       upload_status: fileData.upload_status,
       expires_at: fileData.expires_at,
-      restore_trash_prior_folder_uuid: fileData.restore_trash_prior_folder_id,
+      restore_trash_prior_folder_uuid: fileData.restore_trash_prior_folder_uuid,
       has_sovereign_permissions: !!fileData.has_sovereign_permissions,
-      shortcut_to: fileData.shortcut_to_file_id,
+      shortcut_to: fileData.shortcut_to,
       external_id: fileData.external_id,
       external_payload: fileData.external_payload,
       notes: fileData.notes,
@@ -517,7 +518,7 @@ export async function ensureFolderStructure(
         const isFinalFolder = i === pathSegments.length - 1;
 
         tx.prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           newFolderId,

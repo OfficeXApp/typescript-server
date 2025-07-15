@@ -254,7 +254,7 @@ export async function createFile(
     // Update the main file record
     tx.prepare(
       `
-        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
+        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     ).run(
@@ -461,7 +461,7 @@ export async function deleteResource(
   }
 
   // If resource is already in trash, only allow permanent deletion (Rust logic)
-  if (resource.restore_trash_prior_folder_id && !permanent) {
+  if (resource.restore_trash_prior_folder_uuid && !permanent) {
     throw new Error("Cannot move to trash: item is already in trash.");
   }
 
@@ -554,18 +554,18 @@ export async function deleteResource(
 
       // Update parent_folder_id to trash folder's ID
       tx.prepare(
-        `UPDATE ${tableName} SET is_deleted = 1, restore_trash_prior_folder_id = ?, parent_folder_id = ? WHERE id = ?`
+        `UPDATE ${tableName} SET deleted = 1, restore_trash_prior_folder_uuid = ?, parent_folder_id = ? WHERE id = ?`
       ).run(resource.parent_folder_id, trashFolderId, resourceId);
 
-      // If it's a folder, also update all its children to be in trash (by setting their restore_trash_prior_folder_id)
+      // If it's a folder, also update all its children to be in trash (by setting their restore_trash_prior_folder_uuid)
       // This is the Rust logic for delete_folder non-permanent path.
       if (!isFile) {
         const stack: FolderID[] = [resourceId];
         while (stack.length > 0) {
           const currentFolderId = stack.pop()!;
-          // Update current folder's restore_trash_prior_folder_id to its actual parent before being moved
+          // Update current folder's restore_trash_prior_folder_uuid to its actual parent before being moved
           tx.prepare(
-            `UPDATE folders SET restore_trash_prior_folder_id = parent_folder_id WHERE id = ?`
+            `UPDATE folders SET restore_trash_prior_folder_uuid = parent_folder_id WHERE id = ?`
           ).run(currentFolderId);
 
           const subfolders = tx
@@ -580,7 +580,7 @@ export async function deleteResource(
             .all(currentFolderId) as { id: FileID }[];
           for (const file_in_folder of files) {
             tx.prepare(
-              `UPDATE files SET restore_trash_prior_folder_id = ? WHERE id = ?`
+              `UPDATE files SET restore_trash_prior_folder_uuid = ? WHERE id = ?`
             ).run(currentFolderId, file_in_folder.id);
           }
         }
@@ -713,7 +713,7 @@ export async function copyFile(
     };
 
     tx.prepare(
-      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
+      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFileRecord.id,
@@ -912,7 +912,7 @@ export async function copyFolder(
     };
 
     tx.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFolderRecord.id,
@@ -1222,14 +1222,14 @@ export async function restoreFromTrash(
     const tableName = isFile ? "files" : "folders";
 
     const resource: any = tx
-      .prepare(`SELECT * FROM ${tableName} WHERE id = ? AND is_deleted = 1`)
+      .prepare(`SELECT * FROM ${tableName} WHERE id = ? AND deleted = 1`)
       .get(payload.id);
     if (!resource) {
       throw new Error("Resource not found in trash.");
     }
 
     // Verify resource is actually in trash (redundant check, but matches Rust)
-    if (resource.restore_trash_prior_folder_id === null) {
+    if (resource.restore_trash_prior_folder_uuid === null) {
       throw new Error(`${isFile ? "File" : "Folder"} is not in trash.`);
     }
 
@@ -1266,7 +1266,7 @@ export async function restoreFromTrash(
       // Restore to original location
       targetDestinationFolder = tx
         .prepare("SELECT * FROM folders WHERE id = ?")
-        .get(resource.restore_trash_prior_folder_id) as FolderRecord;
+        .get(resource.restore_trash_prior_folder_uuid) as FolderRecord;
 
       // If original folder not found, restore to root of the disk
       if (!targetDestinationFolder) {
@@ -1274,7 +1274,7 @@ export async function restoreFromTrash(
         if (!disk) throw new Error("Disk not found.");
         targetDestinationFolder = tx
           .prepare("SELECT * FROM folders WHERE id = ?")
-          .get(disk.root_folder_id) as FolderRecord;
+          .get(disk.root_folder) as FolderRecord;
         if (!targetDestinationFolder)
           throw new Error("Root folder not found for disk.");
       }
@@ -1335,9 +1335,9 @@ export async function restoreFromTrash(
       restoredFolderId = restoredResource.id as FolderID;
     }
 
-    // Clear restore_trash_prior_folder_id and set is_deleted to 0
+    // Clear restore_trash_prior_folder_uuid and set deleted to 0
     tx.prepare(
-      `UPDATE ${tableName} SET is_deleted = 0, restore_trash_prior_folder_id = NULL WHERE id = ?`
+      `UPDATE ${tableName} SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?`
     ).run(payload.id);
 
     // If restoring a folder, recursively clear trash flags for its contents
@@ -1347,10 +1347,10 @@ export async function restoreFromTrash(
       while (idx < foldersToProcess.length) {
         const currentFolderId = foldersToProcess[idx++];
         tx.prepare(
-          `UPDATE folders SET is_deleted = 0, restore_trash_prior_folder_id = NULL WHERE id = ?`
+          `UPDATE folders SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?`
         ).run(currentFolderId);
         tx.prepare(
-          `UPDATE files SET is_deleted = 0, restore_trash_prior_folder_id = NULL WHERE parent_folder_id = ?`
+          `UPDATE files SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE parent_folder_id = ?`
         ).run(currentFolderId);
 
         const subfolders = tx
@@ -1391,12 +1391,12 @@ export async function getFolderMetadata(
 
   disk_id: string;
   disk_type: DiskTypeEnum;
-  is_deleted: boolean;
+  deleted: boolean;
   expires_at: number;
   drive_id: string;
-  restore_trash_prior_folder_id: FolderID | undefined;
+  restore_trash_prior_folder_uuid: FolderID | undefined;
   has_sovereign_permissions: boolean;
-  shortcut_to_folder_id: FolderID | undefined;
+  shortcut_to: FolderID | undefined;
   notes: string | undefined;
   external_id: string | undefined;
   external_payload: string | undefined;
@@ -1405,7 +1405,6 @@ export async function getFolderMetadata(
   labels: string[];
   last_updated_date_ms: number;
   last_updated_by: string;
-  deleted: boolean;
 } | null> {
   const rows = await db.queryDrive(
     orgId,
@@ -1420,12 +1419,12 @@ export async function getFolderMetadata(
       last_updated_by,
       disk_id,
       disk_type,
-      is_deleted,
+      deleted,
       expires_at,
       drive_id,
-      restore_trash_prior_folder_id,
+      restore_trash_prior_folder_uuid,
       has_sovereign_permissions,
-      shortcut_to_folder_id,
+      shortcut_to,
       notes,
       external_id,
       external_payload,
@@ -1455,14 +1454,14 @@ export async function getFolderMetadata(
 
     disk_id: row.disk_id,
     disk_type: row.disk_type,
-    is_deleted: row.is_deleted === 1,
+    deleted: row.deleted === 1,
     expires_at: row.expires_at,
     drive_id: row.drive_id,
-    restore_trash_prior_folder_id: row.restore_trash_prior_folder_id as
+    restore_trash_prior_folder_uuid: row.restore_trash_prior_folder_uuid as
       | FolderID
       | undefined,
     has_sovereign_permissions: row.has_sovereign_permissions === 1,
-    shortcut_to_folder_id: row.shortcut_to_folder_id as FolderID | undefined,
+    shortcut_to: row.shortcut_to as FolderID | undefined,
     notes: row.notes,
     external_id: row.external_id,
     external_payload: row.external_payload,
@@ -1471,7 +1470,6 @@ export async function getFolderMetadata(
     labels: [],
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
-    deleted: row.deleted,
   };
 }
 
@@ -1498,13 +1496,12 @@ export async function getFileMetadata(
   file_size: number;
   raw_url: string;
 
-  is_deleted: boolean;
   drive_id: string;
   upload_status: UploadStatus;
   expires_at: number;
-  restore_trash_prior_folder_id: FolderID | undefined;
+  restore_trash_prior_folder_uuid: FolderID | undefined;
   has_sovereign_permissions: boolean;
-  shortcut_to_file_id: FileID | undefined;
+  shortcut_to: FileID | undefined;
   notes: string | undefined;
   external_id: string | undefined;
   external_payload: string | undefined;
@@ -1532,13 +1529,13 @@ export async function getFileMetadata(
       raw_url,
       last_updated_date_ms,
       last_updated_by,
-      is_deleted,
+      deleted,
       drive_id,
       upload_status,
       expires_at,
-      restore_trash_prior_folder_id,
+      restore_trash_prior_folder_uuid,
       has_sovereign_permissions,
-      shortcut_to_file_id,
+      shortcut_to,
       notes,
       external_id,
       external_payload,
@@ -1571,15 +1568,15 @@ export async function getFileMetadata(
     file_size: row.file_size,
     raw_url: row.raw_url,
 
-    is_deleted: row.is_deleted === 1,
+    deleted: row.deleted === 1,
     drive_id: row.drive_id,
     upload_status: row.upload_status,
     expires_at: row.expires_at,
-    restore_trash_prior_folder_id: row.restore_trash_prior_folder_id as
+    restore_trash_prior_folder_uuid: row.restore_trash_prior_folder_uuid as
       | FolderID
       | undefined,
     has_sovereign_permissions: row.has_sovereign_permissions === 1,
-    shortcut_to_file_id: row.shortcut_to_file_id as FileID | undefined,
+    shortcut_to: row.shortcut_to as FileID | undefined,
     notes: row.notes,
     external_id: row.external_id,
     external_payload: row.external_payload,
@@ -1587,6 +1584,5 @@ export async function getFileMetadata(
     labels: [],
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
-    deleted: row.deleted,
   };
 }

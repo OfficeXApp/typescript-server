@@ -86,7 +86,7 @@ export async function aboutDriveHandler(
     const result = await db.queryDrive(
       org_id,
       `SELECT drive_id, drive_name, canister_id, version, drive_state_checksum,
-              drive_state_timestamp_ns, owner_id, url_endpoint, transfer_owner_id,
+              timestamp_ns, owner_id, url_endpoint, transfer_owner_id,
               spawn_redeem_code, spawn_note, nonce_uuid_generated
        FROM about_drive LIMIT 1`
     );
@@ -187,7 +187,7 @@ export async function replayDriveHandler(
     const currentTimestampNs = Date.now() * 1_000_000;
     await db.queryDrive(
       org_id,
-      `UPDATE about_drive SET drive_state_timestamp_ns = ?, drive_state_checksum = ?`,
+      `UPDATE about_drive SET timestamp_ns = ?, drive_state_checksum = ?`,
       [String(currentTimestampNs), finalChecksum]
     );
 

@@ -138,7 +138,7 @@ async function fetch_root_shortcuts_of_user(
         driveId,
         `${IDPrefixEnum.File}${perm.resource_id}`
       );
-      if (file && file.disk_id === diskId && !file.is_deleted) {
+      if (file && file.disk_id === diskId && !file.deleted) {
         resource = file as FileRecord;
       }
     } else if (perm.resource_type === "Folder") {
@@ -146,7 +146,7 @@ async function fetch_root_shortcuts_of_user(
         driveId,
         `${IDPrefixEnum.Folder}${perm.resource_id}`
       );
-      if (folder && folder.disk_id === diskId && !folder.is_deleted) {
+      if (folder && folder.disk_id === diskId && !folder.deleted) {
         resource = folder as FolderRecord;
       }
     }
@@ -194,16 +194,16 @@ async function fetch_root_shortcuts_of_user(
   const disk = (
     await db.queryDrive(
       driveId,
-      "SELECT name, root_folder_id FROM disks WHERE id = ?",
+      "SELECT name, root_folder FROM disks WHERE id = ?",
       [diskId]
     )
   )[0];
   if (disk) {
     breadcrumbs.push({
-      resource_id: disk.root_folder_id,
+      resource_id: disk.root_folder,
       resource_name: disk.name,
       visibility_preview: await deriveBreadcrumbVisibilityPreviews(
-        `${IDPrefixEnum.Folder}${disk.root_folder_id}` as DirectoryResourceID,
+        `${IDPrefixEnum.Folder}${disk.root_folder}` as DirectoryResourceID,
         driveId
       ),
     });
@@ -310,11 +310,11 @@ export async function listDirectoryHandler(
       if (listRequest.disk_id) {
         const diskRootResult = (await db.queryDrive(
           driveId,
-          "SELECT root_folder_id FROM disks WHERE id = ?",
+          "SELECT root_folder FROM disks WHERE id = ?",
           [listRequest.disk_id]
-        )) as { root_folder_id: FolderID }[];
+        )) as { root_folder: FolderID }[];
         if (diskRootResult.length > 0) {
-          targetFolderId = diskRootResult[0].root_folder_id;
+          targetFolderId = diskRootResult[0].root_folder;
         } else {
           return reply.status(404).send({
             err: {
@@ -359,14 +359,14 @@ export async function listDirectoryHandler(
     const [folders, files, counts] = await Promise.all([
       db.queryDrive(
         driveId,
-        "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
+        "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
         [targetFolderId, pageSize, offset]
       ),
       db.queryDrive(
         driveId,
         `
         SELECT
-          f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by, f.is_deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_id, f.has_sovereign_permissions, f.shortcut_to_file_id, f.notes, f.external_id, f.external_payload,
+          f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by, f.deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_uuid, f.has_sovereign_permissions, f.shortcut_to, f.notes, f.external_id, f.external_payload,
           fv.file_version, fv.prior_version_id
         FROM files f
         JOIN file_versions fv ON f.version_id = fv.version_id

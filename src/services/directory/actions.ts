@@ -662,7 +662,7 @@ export async function pipeAction(
       }
       if (payload.shortcut_to !== undefined) {
         // Check for existence before accessing
-        updateFields.push("shortcut_to_file_id = ?");
+        updateFields.push("shortcut_to = ?");
         updateValues.push(payload.shortcut_to);
       }
 
@@ -792,7 +792,7 @@ export async function pipeAction(
       }
       if (payload.shortcut_to !== undefined) {
         // Check for existence before accessing
-        updateFields.push("shortcut_to_folder_id = ?");
+        updateFields.push("shortcut_to = ?");
         updateValues.push(payload.shortcut_to);
       }
 

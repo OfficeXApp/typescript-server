@@ -422,11 +422,11 @@ export async function fetch_root_shortcuts_of_user(
 
   const diskRecords = await db.queryDrive(
     orgId,
-    "SELECT id, root_folder_id FROM disks WHERE id = ?",
+    "SELECT id, root_folder FROM disks WHERE id = ?",
     [config.disk_id]
   );
   const diskRootFolderId =
-    diskRecords.length > 0 ? diskRecords[0].root_folder_id : null;
+    diskRecords.length > 0 ? diskRecords[0].root_folder : null;
 
   for (const [fullResourceId, resourceData] of uniqueResources.entries()) {
     // Check if the resource has VIEW permission
@@ -440,7 +440,7 @@ export async function fetch_root_shortcuts_of_user(
     if (resourceData.resource_type === "Folder") {
       const folder = await db.queryDrive(
         orgId,
-        `SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE id = ?`,
+        `SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload FROM folders WHERE id = ?`,
         [fullResourceId.substring(IDPrefixEnum.Folder.length)]
       );
       if (folder.length > 0) {
@@ -453,7 +453,7 @@ export async function fetch_root_shortcuts_of_user(
     } else if (resourceData.resource_type === "File") {
       const file = await db.queryDrive(
         orgId,
-        `SELECT id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, is_deleted, drive_id, upload_status, expires_at, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload FROM files WHERE id = ?`,
+        `SELECT id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, deleted, drive_id, upload_status, expires_at, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload FROM files WHERE id = ?`,
         [fullResourceId.substring(IDPrefixEnum.File.length)]
       );
       if (file.length > 0) {
@@ -611,7 +611,7 @@ export function ensureDiskRootAndTrashFolder(
   } else {
     rootFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
     const insertRootStmt = database.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     // .run() is synchronous in better-sqlite3
@@ -681,7 +681,7 @@ export function ensureDiskRootAndTrashFolder(
   } else {
     trashFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
     const insertTrashStmt = database.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     insertTrashStmt.run(
@@ -1118,9 +1118,9 @@ export async function createDiskHandler(
         const ownerId = requesterApiKey.user_id;
         const diskType = body.disk_type;
 
-        // 1. Insert the disk record with NULL for root_folder_id and trash_folder_id
+        // 1. Insert the disk record with NULL for root_folder and trash_folder_id
         const insertDiskStmt = database.prepare(
-          `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder_id, trash_folder_id, external_id, external_payload, endpoint)
+          `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder, trash_folder_id, external_id, external_payload, endpoint)
            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)` // Set to NULL initially
         );
         insertDiskStmt.run(
@@ -1141,7 +1141,7 @@ export async function createDiskHandler(
 
         // 2. Insert Root Folder
         const insertRootStmt = database.prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         insertRootStmt.run(
@@ -1202,7 +1202,7 @@ export async function createDiskHandler(
 
         // 3. Insert Trash Folder
         const insertTrashStmt = database.prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload, restore_trash_prior_folder_id)
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         insertTrashStmt.run(
@@ -1261,9 +1261,9 @@ export async function createDiskHandler(
           insertTrashPermissionTypes.run(trashPermissionId, type);
         });
 
-        // 4. Update the disk record with the actual root_folder_id and trash_folder_id
+        // 4. Update the disk record with the actual root_folder and trash_folder_id
         const updateDiskFoldersStmt = database.prepare(
-          `UPDATE disks SET root_folder_id = ?, trash_folder_id = ? WHERE id = ?`
+          `UPDATE disks SET root_folder = ?, trash_folder_id = ? WHERE id = ?`
         );
         updateDiskFoldersStmt.run(
           generatedRootFolderId,

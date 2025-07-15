@@ -16,7 +16,7 @@ CREATE TABLE about_drive (
     canister_id TEXT NOT NULL UNIQUE,          -- Corresponds to CANISTER_ID (PublicKeyICP)
     version TEXT NOT NULL,                     -- Corresponds to VERSION
     drive_state_checksum TEXT NOT NULL,        -- Corresponds to DRIVE_STATE_CHECKSUM
-    drive_state_timestamp_ns TEXT NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
+    timestamp_ns TEXT NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
     owner_id TEXT NOT NULL,                    -- Corresponds to OWNER_ID
     url_endpoint TEXT NOT NULL,                -- Corresponds to URL_ENDPOINT
     transfer_owner_id TEXT NOT NULL,           -- Corresponds to TRANSFER_OWNER_ID
@@ -95,7 +95,7 @@ CREATE TABLE disks (
     public_note TEXT,
     auth_json TEXT, -- Stores credentials, e.g., for AWS S3
     created_at INTEGER NOT NULL,
-    root_folder_id TEXT, -- only null briefly during creation
+    root_folder TEXT, -- only null briefly during creation
     trash_folder_id TEXT, -- only null briefly during creation
     external_id TEXT,
     external_payload TEXT,
@@ -119,19 +119,19 @@ CREATE TABLE folders (
     last_updated_by TEXT NOT NULL,
     disk_id TEXT NOT NULL,
     disk_type TEXT NOT NULL,
-    is_deleted INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
     expires_at INTEGER NOT NULL,
     drive_id TEXT NOT NULL,
-    restore_trash_prior_folder_id TEXT,
+    restore_trash_prior_folder_uuid TEXT,
     has_sovereign_permissions INTEGER NOT NULL DEFAULT 0,
-    shortcut_to_folder_id TEXT,
+    shortcut_to TEXT,
     notes TEXT,
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id) ON DELETE SET NULL,
     FOREIGN KEY(disk_id) REFERENCES disks(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id),
-    FOREIGN KEY(shortcut_to_folder_id) REFERENCES folders(id) ON DELETE SET NULL
+    FOREIGN KEY(shortcut_to) REFERENCES folders(id) ON DELETE SET NULL
 );
 
 -- Table: files
@@ -152,20 +152,20 @@ CREATE TABLE files (
     raw_url TEXT NOT NULL,
     last_updated_date_ms INTEGER NOT NULL,
     last_updated_by TEXT NOT NULL,
-    is_deleted INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
     drive_id TEXT NOT NULL,
     upload_status TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
-    restore_trash_prior_folder_id TEXT,
+    restore_trash_prior_folder_uuid TEXT,
     has_sovereign_permissions INTEGER NOT NULL DEFAULT 0,
-    shortcut_to_file_id TEXT,
+    shortcut_to TEXT,
     notes TEXT,
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id),
     FOREIGN KEY(disk_id) REFERENCES disks(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id),
-    FOREIGN KEY(shortcut_to_file_id) REFERENCES files(id) ON DELETE SET NULL
+    FOREIGN KEY(shortcut_to) REFERENCES files(id) ON DELETE SET NULL
 );
 
 -- Table: file_versions
@@ -309,7 +309,7 @@ CREATE TABLE webhooks (
     event TEXT NOT NULL, -- e.g., 'file.created'
     signature TEXT NOT NULL,
     note TEXT,
-    is_active INTEGER NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
     filters TEXT, -- JSON formatted string of filters
     external_id TEXT,
     external_payload TEXT,

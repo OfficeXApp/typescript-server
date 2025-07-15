@@ -49,7 +49,7 @@ export async function getActiveFileWebhooks(
   // Get webhooks for the current file or special "ALL_FILES" slug
   const directFileWebhooks = await db.queryDrive(
     orgId,
-    `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND is_active = 1`,
+    `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND active = 1`,
     [fileId, WEBHOOK_ALT_INDEX_ALL_FILES, event]
   );
   allWebhooks.push(...(directFileWebhooks as Webhook[]));
@@ -105,7 +105,7 @@ export async function getActiveFileWebhooks(
     // Get webhooks for this parent folder or special "ALL_FOLDERS" slug
     const parentFolderWebhooks = await db.queryDrive(
       orgId,
-      `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND is_active = 1`,
+      `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND active = 1`,
       [currentFolderId, WEBHOOK_ALT_INDEX_ALL_FOLDERS, event]
     );
 
@@ -136,7 +136,7 @@ export async function getActiveFolderWebhooks(
   // Get webhooks for the current folder or special "ALL_FOLDERS" slug
   const directFolderWebhooks = await db.queryDrive(
     orgId,
-    `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND is_active = 1`,
+    `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND active = 1`,
     [folderId, WEBHOOK_ALT_INDEX_ALL_FOLDERS, event]
   );
   allWebhooks.push(...(directFolderWebhooks as Webhook[]));
@@ -191,7 +191,7 @@ export async function getActiveFolderWebhooks(
     // Get webhooks for this parent folder or special "ALL_FOLDERS" slug
     const parentWebhooks = await db.queryDrive(
       orgId,
-      `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND is_active = 1`,
+      `SELECT * FROM webhooks WHERE (alt_index = ? OR alt_index = ?) AND event = ? AND active = 1`,
       [currentFolderId, WEBHOOK_ALT_INDEX_ALL_FOLDERS, event]
     );
 
@@ -324,7 +324,7 @@ export async function getActiveGroupInviteWebhooks(
     // This implies that the alt_index for group invites is the GroupID itself.
     const webhooks = await db.queryDrive(
       orgId,
-      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND is_active = 1`,
+      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND active = 1`,
       [groupId, event]
     );
 
@@ -418,7 +418,7 @@ export async function getActiveLabelWebhooks(
     // This implies that the alt_index for label webhooks is the LabelID itself.
     const webhooks = await db.queryDrive(
       orgId,
-      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND is_active = 1`,
+      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND active = 1`,
       [labelId, event]
     );
 
@@ -506,7 +506,7 @@ export async function getSuperswapUserWebhooks(
   try {
     const webhooks = await db.queryDrive(
       orgId,
-      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND is_active = 1`,
+      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND active = 1`,
       [WEBHOOK_ALT_INDEX_SUPERSWAP_USER, event]
     );
     return webhooks as Webhook[];
@@ -598,7 +598,7 @@ export async function getOrgInboxWebhooks(
     // Assuming the intent is to filter by `INBOX_NEW_MAIL_SLUG` as `alt_index`.
     const webhooks = await db.queryDrive(
       orgId,
-      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND is_active = 1`,
+      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND active = 1`,
       [WEBHOOK_ALT_INDEX_INBOX_NEW_MAIL, WebhookEventLabel.ORG_INBOX_NEW_MAIL]
     );
 
@@ -725,7 +725,7 @@ export async function getActiveStateDiffWebhooks(
     // This confirms the alt_index is the `STATE_DIFFS` slug.
     const webhooks = await db.queryDrive(
       driveId,
-      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND is_active = 1`,
+      `SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND active = 1`,
       [WEBHOOK_ALT_INDEX_STATE_DIFFS, WebhookEventLabel.DRIVE_STATE_DIFFS]
     );
 
