@@ -221,11 +221,17 @@ export async function listDirectoryPermissionsForResource(options: {
   let newCursor: string | null = null;
 
   const isOwner = (await getDriveOwnerId(orgId)) === requesterId;
+
   const resourcePermissions = await checkDirectoryPermissions(
     resourceId,
     requesterId,
     orgId
   );
+
+  console.log(
+    `Requester ID: ${requesterId} on orgId: ${orgId} on resourceId: ${resourceId} with owner ${await getDriveOwnerId(orgId)} and directory permissions ${resourcePermissions}`
+  );
+
   const hasViewPermissionOnResource = resourcePermissions.includes(
     DirectoryPermissionType.VIEW
   );
@@ -233,6 +239,8 @@ export async function listDirectoryPermissionsForResource(options: {
   if (!isOwner && !hasViewPermissionOnResource) {
     return { items: [], total: 0, authorized: false };
   }
+
+  console.log(`>>> we continue here`);
 
   let query = `
     SELECT
@@ -275,6 +283,8 @@ export async function listDirectoryPermissionsForResource(options: {
   params.push(pageSize + 1);
 
   const rows = await db.queryDrive(orgId, query, params);
+
+  console.log(`>>> we got rows`, rows);
 
   for (let i = 0; i < rows.length && i < pageSize; i++) {
     const rawPerm = mapDbRowToDirectoryPermission(rows[i]);

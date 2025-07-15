@@ -341,7 +341,7 @@ export async function ensureRootFolder(
     }
 
     const rootPath = `${diskId}::/`;
-    const trashPath = `${diskId}::/.trash/`;
+    const trashPath = `${diskId}::.trash/`;
 
     let rootFolder: FolderRecord = tx
       .prepare("SELECT * FROM folders WHERE full_directory_path = ?")
@@ -417,7 +417,7 @@ export async function ensureRootFolder(
       ).run(
         trashFolderId,
         ".trash",
-        rootFolder.id,
+        null,
         trashPath,
         userId,
         now,

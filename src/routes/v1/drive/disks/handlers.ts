@@ -385,8 +385,8 @@ export async function fetch_root_shortcuts_of_user(
     for (const row of rows) {
       const resourceIdFull =
         row.resource_type === "Folder"
-          ? `${IDPrefixEnum.Folder}${row.resource_id}`
-          : `${IDPrefixEnum.File}${row.resource_id}`;
+          ? `${row.resource_id}`
+          : `${row.resource_id}`;
 
       let currentPermissions: DirectoryPermissionType[] = [];
       if (uniqueResources.has(resourceIdFull)) {
@@ -502,8 +502,7 @@ export async function fetch_root_shortcuts_of_user(
   for (const item of paginatedItems) {
     if (item.type === "folder") {
       const folder = item as FolderRecord;
-      const resourceId =
-        `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID;
+      const resourceId = `${folder.id}` as DirectoryResourceID;
       const permission_previews = await checkDirectoryPermissions(
         resourceId,
         userId,
@@ -516,8 +515,7 @@ export async function fetch_root_shortcuts_of_user(
       });
     } else if (item.type === "file") {
       const file = item as FileRecord;
-      const resourceId =
-        `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID;
+      const resourceId = `${file.id}` as DirectoryResourceID;
       const permission_previews = await checkDirectoryPermissions(
         resourceId,
         userId,
@@ -559,7 +557,7 @@ export async function fetch_root_shortcuts_of_user(
         resource_id: diskRootFolder.id,
         resource_name: disk.name,
         visibility_preview: await deriveBreadcrumbVisibilityPreviews(
-          `${IDPrefixEnum.Folder}${diskRootFolder.id}` as DirectoryResourceID,
+          `${diskRootFolder.id}` as DirectoryResourceID,
           orgId
         ),
       });
@@ -609,9 +607,9 @@ export function ensureDiskRootAndTrashFolder(
   if (existingRoot) {
     rootFolderId = existingRoot.id;
   } else {
-    rootFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+    rootFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
     const insertRootStmt = database.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid, subfolder_uuids, file_uuids)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     // .run() is synchronous in better-sqlite3
@@ -634,10 +632,12 @@ export function ensureDiskRootAndTrashFolder(
       null,
       null,
       null,
-      null
+      null,
+      [],
+      []
     );
 
-    const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+    const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
     database
       .prepare(
         `
@@ -679,7 +679,7 @@ export function ensureDiskRootAndTrashFolder(
   if (existingTrash) {
     trashFolderId = existingTrash.id;
   } else {
-    trashFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+    trashFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
     const insertTrashStmt = database.prepare(
       `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -687,7 +687,7 @@ export function ensureDiskRootAndTrashFolder(
     insertTrashStmt.run(
       trashFolderId,
       ".trash",
-      rootFolderId,
+      null,
       trashPath,
       ownerId.substring(IDPrefixEnum.User.length),
       now,
@@ -706,7 +706,7 @@ export function ensureDiskRootAndTrashFolder(
       null
     );
 
-    const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+    const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
     database
       .prepare(
         `
@@ -1114,8 +1114,8 @@ export async function createDiskHandler(
       "drive",
       org_id,
       (database) => {
-        const generatedRootFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
-        const generatedTrashFolderId = `${IDPrefixEnum.Folder}${crypto.randomUUID()}`;
+        const generatedRootFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
+        const generatedTrashFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
         const ownerId = requesterApiKey.user_id;
         const diskType = body.disk_type;
 
@@ -1168,7 +1168,7 @@ export async function createDiskHandler(
         );
 
         // Add permissions for root folder
-        const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+        const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
         database
           .prepare(
             `
@@ -1209,7 +1209,7 @@ export async function createDiskHandler(
         insertTrashStmt.run(
           generatedTrashFolderId,
           ".trash",
-          generatedRootFolderId, // Parent is the root folder
+          null,
           trashPath,
           ownerId.substring(IDPrefixEnum.User.length),
           now,
@@ -1229,7 +1229,7 @@ export async function createDiskHandler(
         );
 
         // Add permissions for trash folder
-        const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${crypto.randomUUID()}`;
+        const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
         database
           .prepare(
             `

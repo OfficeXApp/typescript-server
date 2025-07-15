@@ -99,7 +99,7 @@ export async function castFileToFE(
   userId: UserID,
   driveId: DriveID
 ): Promise<FileRecordFE> {
-  const resourceId = `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID;
+  const resourceId = `${file.id}` as DirectoryResourceID;
   const permission_previews = await checkDirectoryPermissionsService(
     resourceId,
     userId,
@@ -143,8 +143,7 @@ export async function castFolderToFE(
   userId: UserID,
   driveId: DriveID
 ): Promise<FolderRecordFE> {
-  const resourceId =
-    `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID;
+  const resourceId = `${folder.id}` as DirectoryResourceID;
   const permission_previews = await checkDirectoryPermissionsService(
     resourceId,
     userId,
@@ -211,7 +210,7 @@ export async function pipeAction(
       // PERMIT: Check permissions for viewing the file
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+          `${file.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -278,7 +277,7 @@ export async function pipeAction(
         origin_hash: payload.share_track_hash,
         from_user: shareTrackingOriginUser,
         to_user: userId,
-        resource_id: `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+        resource_id: `${file.id}` as DirectoryResourceID,
         resource_name: file.name,
         drive_id: driveId,
         timestamp_ms: Date.now(),
@@ -319,17 +318,15 @@ export async function pipeAction(
       }
 
       const breadcrumbs = await deriveDirectoryBreadcrumbsService(
-        `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+        `${file.id}` as DirectoryResourceID,
         userId, // Pass userId for breadcrumb permission checks
         driveId
       );
       const fileFE = await castFileToFE(file, userId, driveId);
 
       return {
-        GetFile: {
-          file: fileFE,
-          breadcrumbs,
-        },
+        file: fileFE,
+        breadcrumbs,
       };
     }
 
@@ -346,7 +343,7 @@ export async function pipeAction(
       // PERMIT: Check permissions for viewing the folder
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+          `${folder.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -412,8 +409,7 @@ export async function pipeAction(
         origin_hash: payload.share_track_hash,
         from_user: shareTrackingOriginUser,
         to_user: userId,
-        resource_id:
-          `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+        resource_id: `${folder.id}` as DirectoryResourceID,
         resource_name: folder.name,
         drive_id: driveId,
         timestamp_ms: Date.now(),
@@ -454,7 +450,7 @@ export async function pipeAction(
       }
 
       const breadcrumbs = await deriveDirectoryBreadcrumbsService(
-        `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+        `${folder.id}` as DirectoryResourceID,
         userId, // Pass userId for breadcrumb permission checks
         driveId
       );
@@ -586,7 +582,7 @@ export async function pipeAction(
       // PERMIT: Permission checks for EDIT/MANAGE
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+          `${file.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -724,7 +720,7 @@ export async function pipeAction(
       // PERMIT: Permission checks for EDIT/MANAGE
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+          `${folder.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -869,7 +865,7 @@ export async function pipeAction(
           );
         }
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${parentFolder.id}` as DirectoryResourceID,
+          `${parentFolder.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -974,7 +970,7 @@ export async function pipeAction(
           );
         }
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${parentFolder.id}` as DirectoryResourceID,
+          `${parentFolder.id}` as DirectoryResourceID,
           userId,
           driveId
         );

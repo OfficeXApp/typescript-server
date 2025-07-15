@@ -21,6 +21,7 @@ import {
   RestoreTrashResponse,
   DiskID,
   FolderID,
+  GenerateID,
 } from "@officexapp/types";
 import { authenticateRequest } from "../../../../services/auth";
 import { db } from "../../../../services/database";
@@ -134,18 +135,12 @@ async function fetch_root_shortcuts_of_user(
 
     let resource: FileRecord | FolderRecord | null = null;
     if (perm.resource_type === "File") {
-      const file = await getFileMetadata(
-        driveId,
-        `${IDPrefixEnum.File}${perm.resource_id}`
-      );
+      const file = await getFileMetadata(driveId, `${perm.resource_id}`);
       if (file && file.disk_id === diskId && !file.deleted) {
         resource = file as FileRecord;
       }
     } else if (perm.resource_type === "Folder") {
-      const folder = await getFolderMetadata(
-        driveId,
-        `${IDPrefixEnum.Folder}${perm.resource_id}`
-      );
+      const folder = await getFolderMetadata(driveId, `${perm.resource_id}`);
       if (folder && folder.disk_id === diskId && !folder.deleted) {
         resource = folder as FolderRecord;
       }
@@ -203,7 +198,7 @@ async function fetch_root_shortcuts_of_user(
       resource_id: disk.root_folder,
       resource_name: disk.name,
       visibility_preview: await deriveBreadcrumbVisibilityPreviews(
-        `${IDPrefixEnum.Folder}${disk.root_folder}` as DirectoryResourceID,
+        `${disk.root_folder}` as DirectoryResourceID,
         driveId
       ),
     });
@@ -256,7 +251,7 @@ export async function listDirectoryHandler(
         listRequest,
         userApiKey.user_id
       );
-      const response: ISuccessResponse<{
+      const response: {
         folders: FolderRecordFE[];
         files: FileRecordFE[];
         total_files: number;
@@ -264,14 +259,11 @@ export async function listDirectoryHandler(
         cursor: string | null;
         breadcrumbs: FilePathBreadcrumb[];
         permission_previews: DirectoryPermissionType[]; // Rust response includes this at root level
-      }> = {
-        ok: {
-          data: {
-            ...shortcutResponse,
-            permission_previews: [], // Permissions are on individual items for shortcuts
-          },
-        },
+      } = {
+        ...shortcutResponse,
+        permission_previews: [], // Permissions are on individual items for shortcuts
       };
+
       return reply.status(200).send(response);
     }
 
@@ -330,7 +322,7 @@ export async function listDirectoryHandler(
       }
     }
 
-    targetResourceId = `${IDPrefixEnum.Folder}${targetFolderId}`;
+    targetResourceId = `${targetFolderId}` as DirectoryResourceID;
 
     // Permission check for the target folder using the imported service function
     const permissionsForFolder = await checkDirectoryPermissions(
@@ -338,6 +330,9 @@ export async function listDirectoryHandler(
       userApiKey.user_id,
       driveId
     );
+
+    console.log(`>>> permissionsForFolder`, permissionsForFolder);
+
     const isOwner = (await getDriveOwnerId(driveId)) === userApiKey.user_id;
 
     if (
@@ -439,16 +434,7 @@ export async function listDirectoryHandler(
       driveId
     );
 
-    // Get permission previews for the current folder itself
-    const permissionPreviewsForCurrentFolder = (
-      await previewDirectoryPermissions(
-        targetResourceId,
-        userApiKey.user_id,
-        driveId
-      )
-    ).map((p) => p.grant_type as DirectoryPermissionType);
-
-    const response: ISuccessResponse<{
+    const response: {
       folders: FolderRecordFE[];
       files: FileRecordFE[];
       total_files: number;
@@ -456,18 +442,14 @@ export async function listDirectoryHandler(
       cursor: string | null;
       breadcrumbs: FilePathBreadcrumb[];
       permission_previews: DirectoryPermissionType[];
-    }> = {
-      ok: {
-        data: {
-          folders: foldersFE,
-          files: filesFE,
-          total_files,
-          total_folders,
-          cursor: nextCursor,
-          breadcrumbs,
-          permission_previews: permissionPreviewsForCurrentFolder,
-        },
-      },
+    } = {
+      folders: foldersFE,
+      files: filesFE,
+      total_files,
+      total_folders,
+      cursor: nextCursor,
+      breadcrumbs,
+      permission_previews: permissionsForFolder,
     };
 
     return reply.status(200).send(response);
@@ -494,6 +476,8 @@ export async function directoryActionHandler(
   const { org_id: driveId } = request.params;
   const { actions } = request.body;
   const userApiKey = await authenticateRequest(request, "drive", driveId);
+
+  console.log(`---> userApiKey`, userApiKey);
 
   if (!userApiKey) {
     return reply
@@ -523,6 +507,7 @@ export async function directoryActionHandler(
       };
 
       outcomes.push({
+        id: GenerateID.DirectoryActionOutcome(),
         success: false,
         request: action,
         response: {

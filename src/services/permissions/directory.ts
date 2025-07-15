@@ -101,11 +101,9 @@ export function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
   // Reconstruct resource_id with its correct prefix from the DB's resource_type and resource_id
   let resourceIdWithPrefix: DirectoryResourceID;
   if (row.resource_type === "File") {
-    resourceIdWithPrefix =
-      `${IDPrefixEnum.File}${row.resource_id}` as DirectoryResourceID;
+    resourceIdWithPrefix = `${row.resource_id}` as DirectoryResourceID;
   } else if (row.resource_type === "Folder") {
-    resourceIdWithPrefix =
-      `${IDPrefixEnum.Folder}${row.resource_id}` as DirectoryResourceID;
+    resourceIdWithPrefix = `${row.resource_id}` as DirectoryResourceID;
   } else {
     throw new Error(`Unknown resource_type from DB: ${row.resource_type}`);
   }
@@ -422,9 +420,7 @@ export async function getInheritedResourcesList(
     const folderMetadata = await getFolderMetadata(orgId, currentFolderId);
     if (!folderMetadata) break;
 
-    resources.push(
-      `${IDPrefixEnum.Folder}${folderMetadata.id}` as DirectoryResourceID
-    );
+    resources.push(`${folderMetadata.id}` as DirectoryResourceID);
 
     if (folderMetadata.has_sovereign_permissions) {
       break;
@@ -551,11 +547,7 @@ export async function checkDirectoryPermissions(
   granteeId: GranteeID,
   orgId: string
 ): Promise<DirectoryPermissionType[]> {
-  const isOwner =
-    (await getDriveOwnerId(orgId)) ===
-    (granteeId.startsWith(IDPrefixEnum.User)
-      ? (granteeId as UserID)
-      : undefined);
+  const isOwner = (await getDriveOwnerId(orgId)) === granteeId;
 
   if (isOwner) {
     return [
@@ -885,7 +877,7 @@ export async function deriveDirectoryBreadcrumbs(
     }
 
     currentResourceId = parentFolderId
-      ? (`${IDPrefixEnum.Folder}${parentFolderId}` as DirectoryResourceID)
+      ? (`${parentFolderId}` as DirectoryResourceID)
       : undefined;
   }
 

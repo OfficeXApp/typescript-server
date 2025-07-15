@@ -71,12 +71,16 @@ export async function createFile(
 
   // PERMIT: Add permission check for parent folder CREATE permission
   const parentFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${parent_folder_uuid}` as DirectoryResourceID;
+    `${parent_folder_uuid}` as DirectoryResourceID;
   const hasCreatePermission = (
     await checkDirectoryPermissions(parentFolderResourceId, userId, driveId)
   ).includes(DirectoryPermissionType.UPLOAD); // Rust uses Upload for create file
 
   const isOwner = (await getDriveOwnerId(driveId)) === userId;
+
+  console.log(
+    `Requesting user ${userId} has create permission: ${hasCreatePermission}. meanwhile the owner of drive ${driveId} is ${isOwner}`
+  );
 
   if (!isOwner && !hasCreatePermission) {
     throw new Error(
@@ -252,11 +256,17 @@ export async function createFile(
       ).run(versionId, priorVersion);
     }
     // Update the main file record
+    // Add 'deleted' and 'restore_trash_prior_folder_uuid' to the column list and values
     tx.prepare(
       `
-        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
+    INSERT OR REPLACE INTO files (
+      id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at,
+      disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, deleted,
+      drive_id, upload_status, expires_at, restore_trash_prior_folder_uuid,
+      has_sovereign_permissions, shortcut_to, notes, external_id, external_payload
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
     ).run(
       fileRecord.id,
       fileRecord.name,
@@ -272,10 +282,12 @@ export async function createFile(
       fileRecord.raw_url,
       fileRecord.last_updated_date_ms,
       fileRecord.last_updated_by,
+      fileRecord.deleted ? 1 : 0, // Value for 'deleted' (boolean to integer)
       driveId,
       fileRecord.upload_status,
-      expires_at,
-      fileRecord.has_sovereign_permissions ? 1 : 0, // Convert boolean to integer
+      fileRecord.expires_at,
+      fileRecord.restore_trash_prior_folder_uuid, // Value for 'restore_trash_prior_folder_uuid'
+      fileRecord.has_sovereign_permissions ? 1 : 0,
       fileRecord.shortcut_to,
       fileRecord.notes,
       fileRecord.external_id,
@@ -286,7 +298,7 @@ export async function createFile(
     tx.prepare(
       `
         INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     ).run(
       versionId,
@@ -364,7 +376,7 @@ export async function createFolder(
 
   // PERMIT: Add permission check for parent folder CREATE permission
   const parentFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${parent_folder_uuid}` as DirectoryResourceID;
+    `${parent_folder_uuid}` as DirectoryResourceID;
   const hasCreatePermission = (
     await checkDirectoryPermissions(parentFolderResourceId, userId, driveId)
   ).includes(DirectoryPermissionType.UPLOAD); // Rust uses Upload for create folder
@@ -467,7 +479,7 @@ export async function deleteResource(
 
   const parentFolderId = resource.parent_folder_id;
   const parentFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${parentFolderId}` as DirectoryResourceID;
+    `${parentFolderId}` as DirectoryResourceID;
 
   // PERMIT: Add permission check for DELETE permission on the parent folder
   const hasDeletePermission = (
@@ -628,9 +640,9 @@ export async function copyFile(
 
     // PERMIT: Check for VIEW permission on source file and UPLOAD/EDIT/MANAGE on destination folder
     const sourceFileResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.File}${fileId}` as DirectoryResourceID;
+      `${fileId}` as DirectoryResourceID;
     const destFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+      `${destinationFolderId}` as DirectoryResourceID;
 
     const hasViewSourcePermission = (
       await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
@@ -837,9 +849,9 @@ export async function copyFolder(
 
     // PERMIT: Check for VIEW permission on source folder and UPLOAD/EDIT/MANAGE on destination folder
     const sourceFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${folderId}` as DirectoryResourceID;
+      `${folderId}` as DirectoryResourceID;
     const destFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+      `${destinationFolderId}` as DirectoryResourceID;
 
     const hasViewSourcePermission = (
       await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
@@ -1008,9 +1020,9 @@ export async function moveFile(
 
     // PERMIT: Check EDIT permission on the source file and UPLOAD/CREATE on the destination folder
     const sourceFileResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.File}${fileId}` as DirectoryResourceID;
+      `${fileId}` as DirectoryResourceID;
     const destFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+      `${destinationFolderId}` as DirectoryResourceID;
 
     const hasEditSourcePermission = (
       await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
@@ -1117,9 +1129,9 @@ async function moveFolderTransaction(
 
   // PERMIT: Check EDIT permission on the source folder and UPLOAD/CREATE on the destination folder
   const sourceFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${folderId}` as DirectoryResourceID;
+    `${folderId}` as DirectoryResourceID;
   const destFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+    `${destinationFolderId}` as DirectoryResourceID;
 
   const hasEditSourcePermission = (
     await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
@@ -1295,7 +1307,7 @@ export async function restoreFromTrash(
 
     // PERMIT: Check UPLOAD/EDIT/MANAGE permission on the target destination folder
     const targetFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${finalDestinationFolderId}` as DirectoryResourceID;
+      `${finalDestinationFolderId}` as DirectoryResourceID;
 
     const hasPermissionToRestore = (
       await checkDirectoryPermissions(targetFolderResourceId, userId, driveId)
@@ -1495,7 +1507,6 @@ export async function getFileMetadata(
   disk_type: DiskTypeEnum;
   file_size: number;
   raw_url: string;
-
   drive_id: string;
   upload_status: UploadStatus;
   expires_at: number;
@@ -1515,37 +1526,34 @@ export async function getFileMetadata(
   const rows = await db.queryDrive(
     orgId,
     `SELECT
-      id,
-      name,
-      parent_folder_id,
-      version_id,
-      extension,
-      full_directory_path,
-      created_by,
-      created_at,
-      disk_id,
-      disk_type,
-      file_size,
-      raw_url,
-      last_updated_date_ms,
-      last_updated_by,
-      deleted,
-      drive_id,
-      upload_status,
-      expires_at,
-      restore_trash_prior_folder_uuid,
-      has_sovereign_permissions,
-      shortcut_to,
-      notes,
-      external_id,
-      external_payload,
-      file_version,
-      created_by,
-      last_updated_date_ms,
-      last_updated_by,
-      deleted
-    FROM files
-    WHERE id = ?`,
+      f.id,
+      f.name,
+      f.parent_folder_id,
+      f.version_id,
+      f.extension,
+      f.full_directory_path,
+      f.created_by,
+      f.created_at,
+      f.disk_id,
+      f.disk_type,
+      f.file_size,
+      f.raw_url,
+      f.last_updated_date_ms,
+      f.last_updated_by,
+      f.deleted,
+      f.drive_id,
+      f.upload_status,
+      f.expires_at,
+      f.restore_trash_prior_folder_uuid,
+      f.has_sovereign_permissions,
+      f.shortcut_to,
+      f.notes,
+      f.external_id,
+      f.external_payload,
+      fv.file_version -- Select file_version from the joined table
+    FROM files AS f
+    JOIN file_versions AS fv ON f.version_id = fv.version_id -- Join file_versions table
+    WHERE f.id = ?`,
     [fileId]
   );
 
@@ -1567,7 +1575,6 @@ export async function getFileMetadata(
     disk_type: row.disk_type,
     file_size: row.file_size,
     raw_url: row.raw_url,
-
     deleted: row.deleted === 1,
     drive_id: row.drive_id,
     upload_status: row.upload_status,
@@ -1580,7 +1587,7 @@ export async function getFileMetadata(
     notes: row.notes,
     external_id: row.external_id,
     external_payload: row.external_payload,
-    file_version: row.file_version,
+    file_version: row.file_version, // This line is now correct
     labels: [],
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
