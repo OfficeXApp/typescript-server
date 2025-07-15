@@ -157,7 +157,7 @@ export function getAppropriateUrlEndpoint(request: FastifyRequest): string {
   } else {
     // Fallback to dynamic detection for local/dev environments
     // LOCAL_DEV_MODE
-    const protocol = "https"; // request.protocol;
+    const protocol = request.protocol;
     const hostname = request.hostname;
     // For local dev, rely on process.env.PORT which Fastify often binds to,
     // or a sensible default.

@@ -254,7 +254,7 @@ export async function createFile(
     // Update the main file record
     tx.prepare(
       `
-        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
+        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     ).run(
@@ -285,7 +285,7 @@ export async function createFile(
     // Insert new version record
     tx.prepare(
       `
-        INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, notes)
+        INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     ).run(
@@ -713,7 +713,7 @@ export async function copyFile(
     };
 
     tx.prepare(
-      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
+      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFileRecord.id,
@@ -742,7 +742,7 @@ export async function copyFile(
 
     // Insert new version record
     tx.prepare(
-      `INSERT INTO file_versions(version_id, file_id, name, file_version, prior_version_id, extension, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, notes)
+      `INSERT INTO file_versions(version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newVersionId,
@@ -912,7 +912,7 @@ export async function copyFolder(
     };
 
     tx.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFolderRecord.id,
@@ -1386,7 +1386,7 @@ export async function getFolderMetadata(
   name: string;
   parent_folder_uuid: FolderID | undefined;
   full_directory_path: string;
-  created_by_user_id: string;
+  created_by: string;
   created_at: number;
   last_updated_by_user_id: string;
   disk_id: string;
@@ -1403,7 +1403,6 @@ export async function getFolderMetadata(
   subfolder_uuids: FolderID[];
   file_uuids: FileID[];
   labels: string[];
-  created_by: string;
   last_updated_date_ms: number;
   last_updated_by: string;
   deleted: boolean;
@@ -1415,7 +1414,7 @@ export async function getFolderMetadata(
       name,
       parent_folder_id,
       full_directory_path,
-      created_by_user_id,
+      created_by,
       created_at,
       last_updated_date_ms,
       last_updated_by_user_id,
@@ -1451,7 +1450,7 @@ export async function getFolderMetadata(
     name: row.name,
     parent_folder_uuid: row.parent_folder_id as FolderID | undefined,
     full_directory_path: row.full_directory_path,
-    created_by_user_id: row.created_by_user_id,
+    created_by: row.created_by,
     created_at: row.created_at,
     last_updated_by_user_id: row.last_updated_by_user_id,
     disk_id: row.disk_id,
@@ -1470,7 +1469,6 @@ export async function getFolderMetadata(
     subfolder_uuids: row.subfolder_uuids as FolderID[],
     file_uuids: row.file_uuids as FileID[],
     labels: [],
-    created_by: row.created_by as string,
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
     deleted: row.deleted,
@@ -1494,7 +1492,6 @@ export async function getFileMetadata(
   version_id: FileVersionID;
   extension: string;
   full_directory_path: string;
-  created_by_user_id: string;
   created_at: number;
   disk_id: string;
   disk_type: DiskTypeEnum;
@@ -1527,7 +1524,7 @@ export async function getFileMetadata(
       version_id,
       extension,
       full_directory_path,
-      created_by_user_id,
+      created_by,
       created_at,
       disk_id,
       disk_type,
@@ -1567,7 +1564,7 @@ export async function getFileMetadata(
     version_id: row.version_id,
     extension: row.extension,
     full_directory_path: row.full_directory_path,
-    created_by_user_id: row.created_by_user_id,
+    created_by: row.created_by,
     created_at: row.created_at,
     disk_id: row.disk_id,
     disk_type: row.disk_type,
@@ -1588,7 +1585,6 @@ export async function getFileMetadata(
     external_payload: row.external_payload,
     file_version: row.file_version,
     labels: [],
-    created_by: row.created_by,
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
     deleted: row.deleted,

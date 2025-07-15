@@ -834,9 +834,9 @@ export async function superswapUserIdDriveHandler(
         );
         updatedCount += apiKeysResult.changes || 0;
 
-        // 3. Update `folders` table (created_by_user_id, last_updated_by_user_id)
+        // 3. Update `folders` table (created_by, last_updated_by_user_id)
         const foldersUpdate1 = database.prepare(
-          `UPDATE folders SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE folders SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           foldersUpdate1.run(
@@ -853,9 +853,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 4. Update `files` table (created_by_user_id, last_updated_by_user_id)
+        // 4. Update `files` table (created_by, last_updated_by_user_id)
         const filesUpdate1 = database.prepare(
-          `UPDATE files SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE files SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           filesUpdate1.run(
@@ -872,9 +872,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 5. Update `file_versions` table (created_by_user_id)
+        // 5. Update `file_versions` table (created_by)
         const fileVersionsUpdate = database.prepare(
-          `UPDATE file_versions SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE file_versions SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           fileVersionsUpdate.run(
@@ -911,9 +911,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 8. Update `labels` table (created_by_user_id)
+        // 8. Update `labels` table (created_by)
         const labelsUpdate = database.prepare(
-          `UPDATE labels SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE labels SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           labelsUpdate.run(

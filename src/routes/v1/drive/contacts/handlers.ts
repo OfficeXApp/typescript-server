@@ -1311,9 +1311,7 @@ export async function redeemContactHandler(
 
         // 4. Update `folders`
         database
-          .prepare(
-            "UPDATE folders SET created_by_user_id = ? WHERE created_by_user_id = ?"
-          )
+          .prepare("UPDATE folders SET created_by = ? WHERE created_by = ?")
           .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
@@ -1323,9 +1321,7 @@ export async function redeemContactHandler(
 
         // 5. Update `files`
         database
-          .prepare(
-            "UPDATE files SET created_by_user_id = ? WHERE created_by_user_id = ?"
-          )
+          .prepare("UPDATE files SET created_by = ? WHERE created_by = ?")
           .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
@@ -1352,11 +1348,9 @@ export async function redeemContactHandler(
           )
           .run(newPlainUserId, currentPlainUserId);
 
-        // 8. Update `labels` (created_by_user_id)
+        // 8. Update `labels` (created_by)
         database
-          .prepare(
-            "UPDATE labels SET created_by_user_id = ? WHERE created_by_user_id = ?"
-          )
+          .prepare("UPDATE labels SET created_by = ? WHERE created_by = ?")
           .run(newPlainUserId, currentPlainUserId);
 
         // 9. Update `permissions_directory`
