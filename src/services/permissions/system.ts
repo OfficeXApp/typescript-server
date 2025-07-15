@@ -139,7 +139,7 @@ export function mapDbRowToSystemPermission(row: any): SystemPermission {
     id: row.id,
     resource_id: resourceIdWithPrefix,
     granted_to: grantedTo,
-    granted_by: `${IDPrefixEnum.User}${row.granted_by_user_id}` as UserID,
+    granted_by: `${IDPrefixEnum.User}${row.granted_by}` as UserID,
     permission_types: (row.permission_types_list || "")
       .split(",")
       .filter(Boolean)
@@ -277,7 +277,7 @@ async function checkSystemResourcePermissions(
       ps.resource_identifier,
       ps.grantee_type,
       ps.grantee_id,
-      ps.granted_by_user_id,
+      ps.granted_by,
       GROUP_CONCAT(pst.permission_type) AS permission_types_list,
       ps.begin_date_ms,
       ps.expiry_date_ms,
@@ -438,7 +438,7 @@ async function checkSystemResourcePermissionsLabelsInternal(
       ps.resource_identifier,
       ps.grantee_type,
       ps.grantee_id,
-      ps.granted_by_user_id,
+      ps.granted_by,
       GROUP_CONCAT(pst.permission_type) AS permission_types_list,
       ps.begin_date_ms,
       ps.expiry_date_ms,

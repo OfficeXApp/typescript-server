@@ -23,7 +23,7 @@ import { v4 as uuidv4 } from "uuid";
 interface GroupDbRow {
   id: string; // GroupID without prefix (just UUID part)
   name: string;
-  owner_user_id: string; // UserID without prefix (just UUID part)
+  owner: string; // UserID without prefix (just UUID part)
   avatar?: string;
   private_note?: string;
   public_note?: string;
@@ -71,7 +71,7 @@ export async function getGroupById(
   const plainGroupId = groupId; // Use helper to get plain ID
   const query = `
       SELECT
-        id, name, owner_user_id, avatar, private_note, public_note,
+        id, name, owner, avatar, private_note, public_note,
         created_at, last_modified_at, drive_id, endpoint_url,
         external_id, external_payload
       FROM groups
@@ -88,7 +88,7 @@ export async function getGroupById(
   return {
     id: `${IDPrefixEnum.Group}${row.id}` as GroupID, // Reconstruct prefixed ID
     name: row.name,
-    owner: `${IDPrefixEnum.User}${row.owner_user_id}` as UserID, // Reconstruct prefixed UserID
+    owner: `${IDPrefixEnum.User}${row.owner}` as UserID, // Reconstruct prefixed UserID
     avatar: row.avatar || "",
     private_note: row.private_note,
     public_note: row.public_note,

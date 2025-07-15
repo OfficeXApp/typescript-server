@@ -605,7 +605,7 @@ export async function pipeAction(
       if (payload.name !== undefined && payload.name !== file.name) {
         await db.queryDrive(
           driveId,
-          "UPDATE files SET name = ?, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?",
+          "UPDATE files SET name = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
           [payload.name, Date.now(), userId, payload.id]
         );
         // Update full_directory_path as well if name changes
@@ -617,7 +617,7 @@ export async function pipeAction(
           const newFullPath = `${parentFolder.full_directory_path}${payload.name}`;
           await db.queryDrive(
             driveId,
-            "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?",
+            "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
             [newFullPath, Date.now(), userId, payload.id]
           );
           // PERMIT FIX: Update resource_path for directory permissions associated with moved/renamed files
@@ -667,7 +667,7 @@ export async function pipeAction(
       }
 
       if (updateFields.length > 0) {
-        const query = `UPDATE files SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?`;
+        const query = `UPDATE files SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?`;
         await db.queryDrive(driveId, query, [
           ...updateValues,
           Date.now(),
@@ -752,7 +752,7 @@ export async function pipeAction(
 
         await db.queryDrive(
           driveId,
-          "UPDATE folders SET name = ?, full_directory_path = ?, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?",
+          "UPDATE folders SET name = ?, full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
           [payload.name, newPath, Date.now(), userId, payload.id]
         );
 
@@ -797,7 +797,7 @@ export async function pipeAction(
       }
 
       if (updateFields.length > 0) {
-        const query = `UPDATE folders SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?`;
+        const query = `UPDATE folders SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?`;
         await db.queryDrive(driveId, query, [
           ...updateValues,
           Date.now(),
@@ -1440,7 +1440,7 @@ async function updateSubfolderPathsRecursive(
   folderId: FolderID,
   oldPath: string,
   newPath: string,
-  userId: UserID // Used for updating `last_updated_by_user_id` and permission path updates
+  userId: UserID // Used for updating `last_updated_by` and permission path updates
 ): Promise<void> {
   const queue: FolderID[] = [folderId];
 
@@ -1464,7 +1464,7 @@ async function updateSubfolderPathsRecursive(
     // Update the folder itself
     await db.queryDrive(
       driveId,
-      "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?",
+      "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
       [updatedPath, Date.now(), userId, currentFolderId]
     );
 
@@ -1482,7 +1482,7 @@ async function updateSubfolderPathsRecursive(
       );
       await db.queryDrive(
         driveId,
-        "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?",
+        "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
         [newFilePath, Date.now(), userId, file.id]
       );
       // PERMIT FIX: Update resource_path for directory permissions associated with moved/renamed files

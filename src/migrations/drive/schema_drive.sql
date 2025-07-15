@@ -116,7 +116,7 @@ CREATE TABLE folders (
     subfolder_uuids TEXT[],
     file_uuids TEXT[],
     last_updated_date_ms INTEGER NOT NULL,
-    last_updated_by_user_id TEXT NOT NULL,
+    last_updated_by TEXT NOT NULL,
     disk_id TEXT NOT NULL,
     disk_type TEXT NOT NULL,
     is_deleted INTEGER NOT NULL DEFAULT 0,
@@ -151,7 +151,7 @@ CREATE TABLE files (
     file_size INTEGER NOT NULL,
     raw_url TEXT NOT NULL,
     last_updated_date_ms INTEGER NOT NULL,
-    last_updated_by_user_id TEXT NOT NULL,
+    last_updated_by TEXT NOT NULL,
     is_deleted INTEGER NOT NULL DEFAULT 0,
     drive_id TEXT NOT NULL,
     upload_status TEXT NOT NULL,
@@ -199,7 +199,7 @@ CREATE TABLE file_versions (
 CREATE TABLE groups (
     id TEXT PRIMARY KEY NOT NULL, -- Corresponds to GroupID
     name TEXT NOT NULL,
-    owner_user_id TEXT NOT NULL,
+    owner TEXT NOT NULL,
     avatar TEXT,
     public_note TEXT,
     private_note TEXT,
@@ -260,7 +260,7 @@ CREATE TABLE permissions_directory (
     resource_path TEXT NOT NULL,
     grantee_type TEXT NOT NULL, -- 'Public', 'User', 'Group', 'Placeholder'
     grantee_id TEXT, -- UserID, GroupID, or PlaceholderID; NULL if public
-    granted_by_user_id TEXT NOT NULL,
+    granted_by TEXT NOT NULL,
     begin_date_ms INTEGER NOT NULL,
     expiry_date_ms INTEGER NOT NULL,
     inheritable INTEGER NOT NULL,
@@ -284,7 +284,7 @@ CREATE TABLE permissions_system (
     resource_identifier TEXT NOT NULL, -- e.g., 'DRIVES' or 'DriveID_xyz'
     grantee_type TEXT NOT NULL, -- 'Public', 'User', 'Group', 'Placeholder'
     grantee_id TEXT, -- UserID, GroupID, or PlaceholderID; NULL if public
-    granted_by_user_id TEXT NOT NULL,
+    granted_by TEXT NOT NULL,
     begin_date_ms INTEGER NOT NULL,
     expiry_date_ms INTEGER NOT NULL,
     note TEXT NOT NULL,

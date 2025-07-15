@@ -143,7 +143,7 @@ export function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
     resource_id: resourceIdWithPrefix,
     resource_path: row.resource_path,
     granted_to: grantedTo,
-    granted_by: `${IDPrefixEnum.User}${row.granted_by_user_id}` as UserID,
+    granted_by: `${IDPrefixEnum.User}${row.granted_by}` as UserID,
     permission_types: (row.permission_types_list || "")
       .split(",")
       .filter(Boolean)
@@ -467,7 +467,7 @@ export async function checkDirectoryResourcePermissions(
       pd.resource_path,
       pd.grantee_type,
       pd.grantee_id,
-      pd.granted_by_user_id,
+      pd.granted_by,
       GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
       pd.begin_date_ms,
       pd.expiry_date_ms,
@@ -631,7 +631,7 @@ export async function previewDirectoryPermissions(
       pd.resource_path,
       pd.grantee_type,
       pd.grantee_id,
-      pd.granted_by_user_id,
+      pd.granted_by,
       GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
       pd.begin_date_ms,
       pd.expiry_date_ms,

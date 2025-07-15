@@ -445,7 +445,7 @@ export async function createGroupHandler(
       // 1. Insert the group itself
       const groupStmt = database.prepare(
         `INSERT INTO groups ( 
-          id, name, owner_user_id, avatar, private_note, public_note,
+          id, name, owner, avatar, private_note, public_note,
           created_at, last_modified_at, drive_id, endpoint_url,
           external_id, external_payload
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -500,7 +500,7 @@ export async function createGroupHandler(
       const groupSelfPermissionStmt = database.prepare(
         `INSERT INTO permissions_system (
           id, resource_type, resource_identifier, grantee_type, grantee_id,
-          granted_by_user_id, begin_date_ms, expiry_date_ms, note,
+          granted_by, begin_date_ms, expiry_date_ms, note,
           created_at, last_modified_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );

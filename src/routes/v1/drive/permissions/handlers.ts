@@ -162,7 +162,7 @@ export async function getDirectoryPermissionById(
   const query = `
     SELECT
         pd.id, pd.resource_type, pd.resource_id, pd.resource_path,
-        pd.grantee_type, pd.grantee_id, pd.granted_by_user_id,
+        pd.grantee_type, pd.grantee_id, pd.granted_by,
         GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
         pd.begin_date_ms, pd.expiry_date_ms, pd.inheritable, pd.note,
         pd.created_at, pd.last_modified_at, pd.redeem_code, pd.from_placeholder_grantee,
@@ -237,7 +237,7 @@ export async function listDirectoryPermissionsForResource(options: {
   let query = `
     SELECT
         pd.id, pd.resource_type, pd.resource_id, pd.resource_path,
-        pd.grantee_type, pd.grantee_id, pd.granted_by_user_id,
+        pd.grantee_type, pd.grantee_id, pd.granted_by,
         GROUP_CONCAT(DISTINCT pdt.permission_type) AS permission_types_list,
         pd.begin_date_ms, pd.expiry_date_ms, pd.inheritable, pd.note,
         pd.created_at, pd.last_modified_at, pd.redeem_code, pd.from_placeholder_grantee,
@@ -361,7 +361,7 @@ export async function createDirectoryPermission(
       `
         INSERT INTO permissions_directory (
           id, resource_type, resource_id, resource_path, grantee_type, grantee_id,
-          granted_by_user_id, begin_date_ms, expiry_date_ms, inheritable, note,
+          granted_by, begin_date_ms, expiry_date_ms, inheritable, note,
           created_at, last_modified_at, redeem_code, from_placeholder_grantee,
           metadata_type, metadata_content, external_id, external_payload
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -709,7 +709,7 @@ export async function getSystemPermissionsForRecord(
     orgId,
     `SELECT
         ps.id, ps.resource_type, ps.resource_identifier, ps.grantee_type, ps.grantee_id,
-        ps.granted_by_user_id, GROUP_CONCAT(pst.permission_type) AS permission_types_list,
+        ps.granted_by, GROUP_CONCAT(pst.permission_type) AS permission_types_list,
         ps.begin_date_ms, ps.expiry_date_ms, ps.note, ps.created_at, ps.last_modified_at,
         ps.redeem_code, ps.from_placeholder_grantee, ps.metadata_type, ps.metadata_content,
         ps.external_id, ps.external_payload,
@@ -792,7 +792,7 @@ export async function getSystemPermissionById(
   const query = `
     SELECT
         ps.id, ps.resource_type, ps.resource_identifier, ps.grantee_type, ps.grantee_id,
-        ps.granted_by_user_id, GROUP_CONCAT(pst.permission_type) AS permission_types_list,
+        ps.granted_by, GROUP_CONCAT(pst.permission_type) AS permission_types_list,
         ps.begin_date_ms, ps.expiry_date_ms, ps.note, ps.created_at, ps.last_modified_at,
         ps.redeem_code, ps.from_placeholder_grantee, ps.metadata_type, ps.metadata_content,
         ps.external_id, ps.external_payload,
@@ -876,7 +876,7 @@ export async function listSystemPermissions(options: {
   let query = `
     SELECT
         ps.id, ps.resource_type, ps.resource_identifier, ps.grantee_type, ps.grantee_id,
-        ps.granted_by_user_id, GROUP_CONCAT(DISTINCT pst.permission_type) AS permission_types_list,
+        ps.granted_by, GROUP_CONCAT(DISTINCT pst.permission_type) AS permission_types_list,
         ps.begin_date_ms, ps.expiry_date_ms, ps.note, ps.created_at, ps.last_modified_at,
         ps.redeem_code, ps.from_placeholder_grantee, ps.metadata_type, ps.metadata_content,
         ps.external_id, ps.external_payload,
@@ -1026,7 +1026,7 @@ export async function createSystemPermission(
       `
         INSERT INTO permissions_system (
           id, resource_type, resource_identifier, grantee_type, grantee_id,
-          granted_by_user_id, begin_date_ms, expiry_date_ms, note,
+          granted_by, begin_date_ms, expiry_date_ms, note,
           created_at, last_modified_at, redeem_code, from_placeholder_grantee,
           metadata_type, metadata_content, external_id, external_payload
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

@@ -359,14 +359,14 @@ export async function listDirectoryHandler(
     const [folders, files, counts] = await Promise.all([
       db.queryDrive(
         driveId,
-        "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
+        "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
         [targetFolderId, pageSize, offset]
       ),
       db.queryDrive(
         driveId,
         `
         SELECT
-          f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by_user_id, f.is_deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_id, f.has_sovereign_permissions, f.shortcut_to_file_id, f.notes, f.external_id, f.external_payload,
+          f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by, f.is_deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_id, f.has_sovereign_permissions, f.shortcut_to_file_id, f.notes, f.external_id, f.external_payload,
           fv.file_version, fv.prior_version_id
         FROM files f
         JOIN file_versions fv ON f.version_id = fv.version_id

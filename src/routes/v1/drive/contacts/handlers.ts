@@ -1147,9 +1147,7 @@ export async function deleteContactHandler(
 
       // Clean up permissions_directory where this user is grantee or granter
       database
-        .prepare(
-          "DELETE FROM permissions_directory WHERE granted_by_user_id = ?"
-        )
+        .prepare("DELETE FROM permissions_directory WHERE granted_by = ?")
         .run(plainContactId);
       database
         .prepare(
@@ -1159,7 +1157,7 @@ export async function deleteContactHandler(
 
       // Clean up permissions_system where this user is grantee or granter
       database
-        .prepare("DELETE FROM permissions_system WHERE granted_by_user_id = ?")
+        .prepare("DELETE FROM permissions_system WHERE granted_by = ?")
         .run(plainContactId);
       database
         .prepare(
@@ -1315,7 +1313,7 @@ export async function redeemContactHandler(
           .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
-            "UPDATE folders SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?"
+            "UPDATE folders SET last_updated_by = ? WHERE last_updated_by = ?"
           )
           .run(newPlainUserId, currentPlainUserId);
 
@@ -1325,15 +1323,13 @@ export async function redeemContactHandler(
           .run(newPlainUserId, currentPlainUserId);
         database
           .prepare(
-            "UPDATE files SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?"
+            "UPDATE files SET last_updated_by = ? WHERE last_updated_by = ?"
           )
           .run(newPlainUserId, currentPlainUserId);
 
         // 6. Update `groups`
         database
-          .prepare(
-            "UPDATE groups SET owner_user_id = ? WHERE owner_user_id = ?"
-          )
+          .prepare("UPDATE groups SET owner = ? WHERE owner = ?")
           .run(newPlainUserId, currentPlainUserId);
 
         // 7. Update `group_invites`
@@ -1356,7 +1352,7 @@ export async function redeemContactHandler(
         // 9. Update `permissions_directory`
         database
           .prepare(
-            "UPDATE permissions_directory SET granted_by_user_id = ? WHERE granted_by_user_id = ?"
+            "UPDATE permissions_directory SET granted_by = ? WHERE granted_by = ?"
           )
           .run(newPlainUserId, currentPlainUserId);
         database
@@ -1368,7 +1364,7 @@ export async function redeemContactHandler(
         // 10. Update `permissions_system`
         database
           .prepare(
-            "UPDATE permissions_system SET granted_by_user_id = ? WHERE granted_by_user_id = ?"
+            "UPDATE permissions_system SET granted_by = ? WHERE granted_by = ?"
           )
           .run(newPlainUserId, currentPlainUserId);
         database

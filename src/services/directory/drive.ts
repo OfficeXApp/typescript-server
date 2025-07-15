@@ -254,7 +254,7 @@ export async function createFile(
     // Update the main file record
     tx.prepare(
       `
-        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
+        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     ).run(
@@ -713,7 +713,7 @@ export async function copyFile(
     };
 
     tx.prepare(
-      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
+      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFileRecord.id,
@@ -912,7 +912,7 @@ export async function copyFolder(
     };
 
     tx.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFolderRecord.id,
@@ -1048,7 +1048,7 @@ export async function moveFile(
 
     // Update file's metadata and parent
     tx.prepare(
-      "UPDATE files SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?"
+      "UPDATE files SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
     ).run(
       finalName,
       finalPath,
@@ -1155,7 +1155,7 @@ async function moveFolderTransaction(
 
   // Update folder's metadata and parent
   tx.prepare(
-    "UPDATE folders SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by_user_id = ? WHERE id = ?"
+    "UPDATE folders SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
   ).run(
     finalName,
     finalPath,
@@ -1388,7 +1388,7 @@ export async function getFolderMetadata(
   full_directory_path: string;
   created_by: string;
   created_at: number;
-  last_updated_by_user_id: string;
+
   disk_id: string;
   disk_type: DiskTypeEnum;
   is_deleted: boolean;
@@ -1417,7 +1417,7 @@ export async function getFolderMetadata(
       created_by,
       created_at,
       last_updated_date_ms,
-      last_updated_by_user_id,
+      last_updated_by,
       disk_id,
       disk_type,
       is_deleted,
@@ -1452,7 +1452,7 @@ export async function getFolderMetadata(
     full_directory_path: row.full_directory_path,
     created_by: row.created_by,
     created_at: row.created_at,
-    last_updated_by_user_id: row.last_updated_by_user_id,
+
     disk_id: row.disk_id,
     disk_type: row.disk_type,
     is_deleted: row.is_deleted === 1,
@@ -1497,7 +1497,7 @@ export async function getFileMetadata(
   disk_type: DiskTypeEnum;
   file_size: number;
   raw_url: string;
-  last_updated_by_user_id: string;
+
   is_deleted: boolean;
   drive_id: string;
   upload_status: UploadStatus;
@@ -1531,7 +1531,7 @@ export async function getFileMetadata(
       file_size,
       raw_url,
       last_updated_date_ms,
-      last_updated_by_user_id,
+      last_updated_by,
       is_deleted,
       drive_id,
       upload_status,
@@ -1570,7 +1570,7 @@ export async function getFileMetadata(
     disk_type: row.disk_type,
     file_size: row.file_size,
     raw_url: row.raw_url,
-    last_updated_by_user_id: row.last_updated_by_user_id,
+
     is_deleted: row.is_deleted === 1,
     drive_id: row.drive_id,
     upload_status: row.upload_status,

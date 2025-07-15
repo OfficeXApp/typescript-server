@@ -796,7 +796,7 @@ export async function redeemGiftcardSpawnOrgHandler(
 
       const insertGroupStmt = driveDatabase.prepare(
         `INSERT INTO groups (
-            id, name, owner_user_id, avatar, public_note, private_note,
+            id, name, owner, avatar, public_note, private_note,
             created_at, last_modified_at, drive_id, endpoint_url,
             external_id, external_payload
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -822,7 +822,7 @@ export async function redeemGiftcardSpawnOrgHandler(
           ) VALUES (?, ?, ?)`
       );
       insertContactGroupStmt.run(
-        ownerId, // The owner_user_id is the user_id for this junction
+        ownerId, // The owner is the user_id for this junction
         groupID, // The ID of the group just created
         GroupRole.ADMIN // The owner is an ADMIN of this group
       );

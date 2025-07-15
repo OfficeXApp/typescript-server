@@ -834,7 +834,7 @@ export async function superswapUserIdDriveHandler(
         );
         updatedCount += apiKeysResult.changes || 0;
 
-        // 3. Update `folders` table (created_by, last_updated_by_user_id)
+        // 3. Update `folders` table (created_by, last_updated_by)
         const foldersUpdate1 = database.prepare(
           `UPDATE folders SET created_by = ? WHERE created_by = ?`
         );
@@ -845,7 +845,7 @@ export async function superswapUserIdDriveHandler(
           ).changes || 0;
 
         const foldersUpdate2 = database.prepare(
-          `UPDATE folders SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?`
+          `UPDATE folders SET last_updated_by = ? WHERE last_updated_by = ?`
         );
         updatedCount +=
           foldersUpdate2.run(
@@ -853,7 +853,7 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 4. Update `files` table (created_by, last_updated_by_user_id)
+        // 4. Update `files` table (created_by, last_updated_by)
         const filesUpdate1 = database.prepare(
           `UPDATE files SET created_by = ? WHERE created_by = ?`
         );
@@ -864,7 +864,7 @@ export async function superswapUserIdDriveHandler(
           ).changes || 0;
 
         const filesUpdate2 = database.prepare(
-          `UPDATE files SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?`
+          `UPDATE files SET last_updated_by = ? WHERE last_updated_by = ?`
         );
         updatedCount +=
           filesUpdate2.run(
@@ -882,9 +882,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 6. Update `groups` table (owner_user_id)
+        // 6. Update `groups` table (owner)
         const groupsUpdate = database.prepare(
-          `UPDATE groups SET owner_user_id = ? WHERE owner_user_id = ?`
+          `UPDATE groups SET owner = ? WHERE owner = ?`
         );
         updatedCount +=
           groupsUpdate.run(
@@ -921,9 +921,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 9. Update `permissions_directory` table (granted_by_user_id, grantee_id)
+        // 9. Update `permissions_directory` table (granted_by, grantee_id)
         const permDirUpdate1 = database.prepare(
-          `UPDATE permissions_directory SET granted_by_user_id = ? WHERE granted_by_user_id = ?`
+          `UPDATE permissions_directory SET granted_by = ? WHERE granted_by = ?`
         );
         updatedCount +=
           permDirUpdate1.run(
@@ -940,9 +940,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 10. Update `permissions_system` table (granted_by_user_id, grantee_id)
+        // 10. Update `permissions_system` table (granted_by, grantee_id)
         const permSysUpdate1 = database.prepare(
-          `UPDATE permissions_system SET granted_by_user_id = ? WHERE granted_by_user_id = ?`
+          `UPDATE permissions_system SET granted_by = ? WHERE granted_by = ?`
         );
         updatedCount +=
           permSysUpdate1.run(
