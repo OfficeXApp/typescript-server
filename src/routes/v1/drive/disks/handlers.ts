@@ -994,6 +994,7 @@ export async function listDisksHandler(
       itemsToReturn.map(async (disk) => {
         const diskFE: DiskFE = {
           ...disk,
+          labels: [],
           permission_previews: isOwner
             ? [
                 SystemPermissionType.CREATE,

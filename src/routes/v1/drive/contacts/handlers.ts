@@ -179,6 +179,8 @@ async function redactContact(
     redactedContact.from_placeholder_user_id = "";
   }
 
+  redactedContact.labels = [];
+
   return redactedContact;
 }
 
