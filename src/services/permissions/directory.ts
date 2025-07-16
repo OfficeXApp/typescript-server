@@ -34,10 +34,10 @@ export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
 // Helper to extract the UUID part from a DirectoryResourceID
 function extractPlainDirectoryResourceId(id: DirectoryResourceID): string {
   if (id.startsWith(IDPrefixEnum.File)) {
-    return id.substring(IDPrefixEnum.File.length);
+    return id;
   }
   if (id.startsWith(IDPrefixEnum.Folder)) {
-    return id.substring(IDPrefixEnum.Folder.length);
+    return id;
   }
   return id; // Should not happen if types are strictly enforced
 }
