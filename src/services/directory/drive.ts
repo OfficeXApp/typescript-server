@@ -178,27 +178,29 @@ export async function createFile(
         let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
         if (disk.disk_type === DiskTypeEnum.AwsBucket) {
           const awsAuth = JSON.parse(disk.auth_json);
-          const result = generate_s3_upload_url(
+          const result = await generate_s3_upload_url(
             existingFile.id,
             existingFile.extension,
             awsAuth,
             driveId,
-            file_size,
-            24 * 60 * 60,
-            disk_id
+            BigInt(file_size),
+            BigInt(24 * 60 * 60),
+            disk_id,
+            existingFile.name
           );
           if (result.ok) uploadResponse = result.ok;
           else throw new Error(result.err);
         } else if (disk.disk_type === DiskTypeEnum.StorjWeb3) {
           const storjAuth = JSON.parse(disk.auth_json);
-          const result = generate_s3_upload_url(
+          const result = await generate_s3_upload_url(
             existingFile.id,
             existingFile.extension,
             storjAuth,
             driveId,
-            file_size,
-            24 * 60 * 60,
-            disk_id
+            BigInt(file_size),
+            BigInt(24 * 60 * 60),
+            disk_id,
+            existingFile.name
           );
           if (result.ok) uploadResponse = result.ok;
           else throw new Error(result.err);
@@ -327,27 +329,29 @@ export async function createFile(
   if (fileRecord.upload_status === UploadStatus.QUEUED) {
     if (disk.disk_type === DiskTypeEnum.AwsBucket) {
       const awsAuth = JSON.parse(disk.auth_json);
-      const result = generate_s3_upload_url(
+      const result = await generate_s3_upload_url(
         fileRecord.id,
         fileRecord.extension,
         awsAuth,
         driveId,
-        file_size,
-        24 * 60 * 60,
-        disk_id
+        BigInt(file_size),
+        BigInt(24 * 60 * 60),
+        disk_id,
+        fileRecord.name
       );
       if (result.ok) uploadResponse = result.ok;
       else throw new Error(result.err);
     } else if (disk.disk_type === DiskTypeEnum.StorjWeb3) {
       const storjAuth = JSON.parse(disk.auth_json);
-      const result = generate_s3_upload_url(
+      const result = await generate_s3_upload_url(
         fileRecord.id,
         fileRecord.extension,
         storjAuth,
         driveId,
-        file_size,
-        24 * 60 * 60,
-        disk_id
+        BigInt(file_size),
+        BigInt(24 * 60 * 60),
+        disk_id,
+        fileRecord.name
       );
       if (result.ok) uploadResponse = result.ok;
       else throw new Error(result.err);

@@ -457,10 +457,8 @@ export async function pipeAction(
       const folderFE = await castFolderToFE(folder, userId, driveId);
 
       return {
-        GetFolder: {
-          folder: folderFE,
-          breadcrumbs,
-        },
+        folder: folderFE,
+        breadcrumbs,
       };
     }
 
@@ -512,11 +510,9 @@ export async function pipeAction(
       }
 
       return {
-        CreateFile: {
-          file: await castFileToFE(fileRecord, userId, driveId),
-          upload: uploadResponse,
-          notes: "File created successfully",
-        },
+        file: await castFileToFE(fileRecord, userId, driveId),
+        upload: uploadResponse,
+        notes: "File created successfully",
       };
     }
 
@@ -564,10 +560,8 @@ export async function pipeAction(
       }
 
       return {
-        CreateFolder: {
-          folder: await castFolderToFE(folderRecord, userId, driveId),
-          notes: "Folder created successfully",
-        },
+        folder: await castFolderToFE(folderRecord, userId, driveId),
+        notes: "Folder created successfully",
       };
     }
 
@@ -709,7 +703,8 @@ export async function pipeAction(
         );
       }
 
-      return { UpdateFile: await castFileToFE(updatedFile, userId, driveId) };
+      const result = await castFileToFE(updatedFile, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.UPDATE_FOLDER: {
@@ -839,9 +834,8 @@ export async function pipeAction(
         );
       }
 
-      return {
-        UpdateFolder: await castFolderToFE(updatedFolder, userId, driveId),
-      };
+      const result = await castFolderToFE(updatedFolder, userId, driveId);
+      return result;
     }
 
     // =========================================================================
@@ -939,7 +933,8 @@ export async function pipeAction(
         );
       }
 
-      return { DeleteFile: { file_id: payload.id, path_to_trash } };
+      const result = { file_id: payload.id, path_to_trash };
+      return result;
     }
 
     case DirectoryActionEnum.DELETE_FOLDER: {
@@ -1047,12 +1042,10 @@ export async function pipeAction(
       // We might need to gather these from `driveDeleteResource` if it provided them.
       // For now, returning empty arrays as placeholders based on current `driveDeleteResource` return.
       return {
-        DeleteFolder: {
-          folder_id: payload.id,
-          path_to_trash,
-          deleted_files: [], // TODO: Populate from driveDeleteResource
-          deleted_folders: [], // TODO: Populate from driveDeleteResource
-        },
+        folder_id: payload.id,
+        path_to_trash,
+        deleted_files: [], // TODO: Populate from driveDeleteResource
+        deleted_folders: [], // TODO: Populate from driveDeleteResource
       };
     }
 
@@ -1108,7 +1101,8 @@ export async function pipeAction(
         );
       }
 
-      return { CopyFile: await castFileToFE(copiedFile, userId, driveId) };
+      const result = await castFileToFE(copiedFile, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.COPY_FOLDER: {
@@ -1161,9 +1155,8 @@ export async function pipeAction(
         );
       }
 
-      return {
-        CopyFolder: await castFolderToFE(copiedFolder, userId, driveId),
-      };
+      const result = await castFolderToFE(copiedFolder, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.MOVE_FILE: {
@@ -1246,7 +1239,8 @@ export async function pipeAction(
         );
       }
 
-      return { MoveFile: await castFileToFE(movedFile, userId, driveId) };
+      const result = await castFileToFE(movedFile, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.MOVE_FOLDER: {
@@ -1329,7 +1323,8 @@ export async function pipeAction(
         );
       }
 
-      return { MoveFolder: await castFolderToFE(movedFolder, userId, driveId) };
+      const result = await castFolderToFE(movedFolder, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.RESTORE_TRASH: {
@@ -1413,9 +1408,8 @@ export async function pipeAction(
         );
       }
 
-      return {
-        RestoreTrash: restoreResponse,
-      };
+      const result = restoreResponse;
+      return result;
     }
 
     default:

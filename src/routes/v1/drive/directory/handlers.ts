@@ -22,6 +22,8 @@ import {
   DiskID,
   FolderID,
   GenerateID,
+  DiskTypeEnum,
+  Disk,
 } from "@officexapp/types";
 import { authenticateRequest } from "../../../../services/auth";
 import { db } from "../../../../services/database";
@@ -41,6 +43,10 @@ import {
   castFolderToFE,
   pipeAction,
 } from "../../../../services/directory/actions"; // Correctly import pipeAction
+import {
+  AwsBucketAuth,
+  generate_s3_view_url,
+} from "../../../../services/disks/aws_s3";
 
 /**
  * Clips a full directory path for frontend display.
@@ -554,8 +560,160 @@ export async function downloadFileChunkHandler(
 }
 
 export async function getRawUrlProxyHandler(
-  request: FastifyRequest,
+  request: FastifyRequest<{
+    Params: OrgIdParams & { file_id_with_extension: string };
+  }>,
   reply: FastifyReply
-) {
-  reply.status(501).send({ err: { code: 501, message: "Not Implemented" } });
+): Promise<void> {
+  console.log("getRawUrlProxyHandler: Handling raw URL proxy request");
+
+  const { org_id: driveId } = request.params;
+  const { file_id_with_extension } = request.params;
+
+  // Extract file_id from the parameter (strip extension if present)
+  let fileId: string;
+  const lastDotIndex = file_id_with_extension.lastIndexOf(".");
+  if (lastDotIndex > -1) {
+    fileId = file_id_with_extension.substring(0, lastDotIndex);
+  } else {
+    fileId = file_id_with_extension;
+  }
+
+  console.log(`getRawUrlProxyHandler: file_id=${fileId}`);
+
+  // Create resource ID for permission checking
+  const resourceId: DirectoryResourceID = `${fileId}` as DirectoryResourceID;
+
+  let hasPermission = false;
+
+  // Try to authenticate the request (optional - might be public access)
+  const userApiKey = await authenticateRequest(request, "drive", driveId);
+
+  if (userApiKey) {
+    // Check if user is the owner
+    const ownerId = await getDriveOwnerId(driveId);
+    const isOwner = ownerId === userApiKey.user_id;
+
+    if (isOwner) {
+      hasPermission = true;
+    } else {
+      // Check authenticated user's permissions
+      const permissions = await checkDirectoryPermissions(
+        resourceId,
+        userApiKey.user_id,
+        driveId
+      );
+
+      hasPermission =
+        permissions.includes(DirectoryPermissionType.VIEW) ||
+        permissions.includes(DirectoryPermissionType.EDIT) ||
+        permissions.includes(DirectoryPermissionType.MANAGE);
+    }
+  } else {
+    // No authentication - check public view permissions
+    const permissions = await checkDirectoryPermissions(
+      resourceId,
+      "Public", // Special identifier for public access
+      driveId
+    );
+
+    hasPermission = permissions.includes(DirectoryPermissionType.VIEW);
+  }
+
+  if (!hasPermission) {
+    console.log("getRawUrlProxyHandler: No view permission");
+    return reply.status(403).send({
+      err: { code: 403, message: "Not authorized to view this file" },
+    });
+  }
+
+  // Look up file metadata
+  const fileResults = await db.queryDrive(
+    driveId,
+    `SELECT f.*, fv.file_version, fv.prior_version_id 
+     FROM files f
+     JOIN file_versions fv ON f.version_id = fv.version_id
+     WHERE f.id = ?`,
+    [fileId]
+  );
+
+  if (fileResults.length === 0) {
+    return reply.status(404).send({
+      err: { code: 404, message: "File not found" },
+    });
+  }
+
+  const fileMeta = fileResults[0];
+
+  // Get disk info to access AWS credentials
+  const diskResults = await db.queryDrive(
+    driveId,
+    "SELECT * FROM disks WHERE id = ?",
+    [fileMeta.disk_id]
+  );
+
+  if (diskResults.length === 0) {
+    return reply.status(500).send({
+      err: { code: 500, message: "No S3 disk configured" },
+    });
+  }
+
+  const disk = diskResults[0];
+
+  // Parse AWS credentials from disk auth_json
+  let awsAuth: AwsBucketAuth;
+  try {
+    if (!disk.auth_json) {
+      throw new Error("Missing AWS credentials");
+    }
+    awsAuth = JSON.parse(disk.auth_json);
+  } catch (error) {
+    return reply.status(500).send({
+      err: { code: 500, message: "Invalid AWS credentials" },
+    });
+  }
+
+  // Generate presigned URL
+  const downloadFilename = `${fileMeta.name}.${fileMeta.extension}`;
+  let presignedUrl: string;
+
+  try {
+    if (fileMeta.disk_type === DiskTypeEnum.AwsBucket) {
+      presignedUrl = await generate_s3_view_url(
+        fileMeta.id,
+        fileMeta.extension,
+        awsAuth,
+        fileMeta.drive_id,
+        3600, // 1 hour expiration
+        downloadFilename,
+        fileMeta.disk_id
+      );
+    } else if (fileMeta.disk_type === DiskTypeEnum.StorjWeb3) {
+      // For StorjWeb3, you would call generate_storj_view_url
+      // Since it's not implemented in the TypeScript yet, throw an error
+      throw new Error(`Unsupported disk type: ${fileMeta.disk_type}`);
+    } else {
+      throw new Error(`Unsupported disk type: ${fileMeta.disk_type}`);
+    }
+  } catch (error: any) {
+    console.error(
+      "getRawUrlProxyHandler: Error generating presigned URL",
+      error
+    );
+    return reply.status(500).send({
+      err: {
+        code: 500,
+        message: `Failed to generate presigned URL: ${error.message}`,
+      },
+    });
+  }
+
+  console.log("getRawUrlProxyHandler: Redirecting to presigned URL");
+
+  // Return 302 redirect response
+  return reply
+    .status(302)
+    .header("Location", presignedUrl)
+    .header("Cache-Control", "no-store, max-age=0")
+    .send();
 }
