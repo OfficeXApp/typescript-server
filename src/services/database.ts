@@ -29,6 +29,19 @@ export const db = {
       throw error;
     }
   },
+  runFactory: async (sql: string, params?: any[]): Promise<void> => {
+    await initFactoryDB();
+    if (!factoryDbInstance) {
+      throw new Error("Factory database not initialized.");
+    }
+    try {
+      const stmt = factoryDbInstance.prepare(sql);
+      stmt.run(...(params || []));
+    } catch (error) {
+      console.error("Error in runFactory:", error);
+      throw error;
+    }
+  },
 
   // NEW: Query method that targets a specific drive DB.
   queryDrive: async (
@@ -57,6 +70,33 @@ export const db = {
 
       const stmt = database.prepare(sql);
       return stmt.all(...(params || []));
+    } finally {
+      database.close();
+    }
+  },
+
+  runDrive: async (
+    driveId: string,
+    sql: string,
+    params?: any[]
+  ): Promise<void> => {
+    const dbPath = getDriveDbPath(driveId);
+    const dbDir = path.dirname(dbPath);
+    ensureDirectorySync(dbDir);
+
+    const database = new Database(dbPath);
+    try {
+      configureDatabase(database);
+
+      const tables = database
+        .prepare("SELECT name FROM sqlite_master WHERE type='table';")
+        .all();
+      if (tables.length === 0 && DRIVE_SCHEMA.trim().length > 0) {
+        database.exec(DRIVE_SCHEMA);
+      }
+
+      const stmt = database.prepare(sql);
+      stmt.run(...(params || []));
     } finally {
       database.close();
     }
