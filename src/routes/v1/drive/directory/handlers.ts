@@ -678,7 +678,10 @@ export async function getRawUrlProxyHandler(
   let presignedUrl: string;
 
   try {
-    if (fileMeta.disk_type === DiskTypeEnum.AwsBucket) {
+    if (
+      fileMeta.disk_type === DiskTypeEnum.AwsBucket ||
+      fileMeta.disk_type === DiskTypeEnum.StorjWeb3
+    ) {
       presignedUrl = await generate_s3_view_url(
         fileMeta.id,
         fileMeta.extension,
@@ -688,10 +691,6 @@ export async function getRawUrlProxyHandler(
         downloadFilename,
         fileMeta.disk_id
       );
-    } else if (fileMeta.disk_type === DiskTypeEnum.StorjWeb3) {
-      // For StorjWeb3, you would call generate_storj_view_url
-      // Since it's not implemented in the TypeScript yet, throw an error
-      throw new Error(`Unsupported disk type: ${fileMeta.disk_type}`);
     } else {
       throw new Error(`Unsupported disk type: ${fileMeta.disk_type}`);
     }
