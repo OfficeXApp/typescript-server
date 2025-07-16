@@ -16,13 +16,14 @@ CREATE TABLE about_drive (
     canister_id TEXT NOT NULL UNIQUE,          -- Corresponds to CANISTER_ID (PublicKeyICP)
     version TEXT NOT NULL,                     -- Corresponds to VERSION
     drive_state_checksum TEXT NOT NULL,        -- Corresponds to DRIVE_STATE_CHECKSUM
-    drive_state_timestamp_ns TEXT NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
+    timestamp_ns TEXT NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
     owner_id TEXT NOT NULL,                    -- Corresponds to OWNER_ID
     url_endpoint TEXT NOT NULL,                -- Corresponds to URL_ENDPOINT
     transfer_owner_id TEXT NOT NULL,           -- Corresponds to TRANSFER_OWNER_ID
     spawn_redeem_code TEXT NOT NULL,           -- Corresponds to SPAWN_REDEEM_CODE
     spawn_note TEXT NOT NULL,                  -- Corresponds to SPAWN_NOTE
     nonce_uuid_generated INTEGER NOT NULL,     -- Corresponds to NONCE_UUID_GENERATED
+    default_everyone_group_id TEXT,            -- Corresponds to DEFAULT_EVERYONE_GROUP_ID group
     external_id TEXT,
     external_payload TEXT
 );
@@ -94,12 +95,13 @@ CREATE TABLE disks (
     public_note TEXT,
     auth_json TEXT, -- Stores credentials, e.g., for AWS S3
     created_at INTEGER NOT NULL,
-    root_folder_id TEXT NOT NULL,
-    trash_folder_id TEXT NOT NULL,
+    root_folder TEXT, -- only null briefly during creation
+    trash_folder_id TEXT, -- only null briefly during creation
     external_id TEXT,
     external_payload TEXT,
     endpoint TEXT
 );
+
 
 -- Table: folders
 -- Source: src/core/state/directory/types.rs -> FolderRecord
@@ -109,27 +111,27 @@ CREATE TABLE folders (
     name TEXT NOT NULL,
     parent_folder_id TEXT,
     full_directory_path TEXT NOT NULL UNIQUE,
-    created_by_user_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    last_updated_at INTEGER NOT NULL,
-    last_updated_by_user_id TEXT NOT NULL,
+    subfolder_uuids TEXT[],
+    file_uuids TEXT[],
+    last_updated_date_ms INTEGER NOT NULL,
+    last_updated_by TEXT NOT NULL,
     disk_id TEXT NOT NULL,
     disk_type TEXT NOT NULL,
-    is_deleted INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
     expires_at INTEGER NOT NULL,
     drive_id TEXT NOT NULL,
-    restore_trash_prior_folder_id TEXT,
+    restore_trash_prior_folder_uuid TEXT,
     has_sovereign_permissions INTEGER NOT NULL DEFAULT 0,
-    shortcut_to_folder_id TEXT,
+    shortcut_to TEXT,
     notes TEXT,
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id) ON DELETE SET NULL,
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id),
-    FOREIGN KEY(last_updated_by_user_id) REFERENCES contacts(id),
     FOREIGN KEY(disk_id) REFERENCES disks(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id),
-    FOREIGN KEY(shortcut_to_folder_id) REFERENCES folders(id) ON DELETE SET NULL
+    FOREIGN KEY(shortcut_to) REFERENCES folders(id) ON DELETE SET NULL
 );
 
 -- Table: files
@@ -142,30 +144,28 @@ CREATE TABLE files (
     version_id TEXT NOT NULL UNIQUE, -- Points to the current version in file_versions
     extension TEXT NOT NULL,
     full_directory_path TEXT NOT NULL UNIQUE,
-    created_by_user_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     disk_id TEXT NOT NULL,
     disk_type TEXT NOT NULL,
     file_size INTEGER NOT NULL,
     raw_url TEXT NOT NULL,
-    last_updated_at INTEGER NOT NULL,
-    last_updated_by_user_id TEXT NOT NULL,
-    is_deleted INTEGER NOT NULL DEFAULT 0,
+    last_updated_date_ms INTEGER NOT NULL,
+    last_updated_by TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
     drive_id TEXT NOT NULL,
     upload_status TEXT NOT NULL,
     expires_at INTEGER NOT NULL,
-    restore_trash_prior_folder_id TEXT,
+    restore_trash_prior_folder_uuid TEXT,
     has_sovereign_permissions INTEGER NOT NULL DEFAULT 0,
-    shortcut_to_file_id TEXT,
+    shortcut_to TEXT,
     notes TEXT,
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id),
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id),
-    FOREIGN KEY(last_updated_by_user_id) REFERENCES contacts(id),
     FOREIGN KEY(disk_id) REFERENCES disks(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id),
-    FOREIGN KEY(shortcut_to_file_id) REFERENCES files(id) ON DELETE SET NULL
+    FOREIGN KEY(shortcut_to) REFERENCES files(id) ON DELETE SET NULL
 );
 
 -- Table: file_versions
@@ -177,8 +177,9 @@ CREATE TABLE file_versions (
     name TEXT NOT NULL,
     file_version INTEGER NOT NULL,
     prior_version_id TEXT,
+    next_version_id TEXT,
     extension TEXT NOT NULL,
-    created_by_user_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     disk_id TEXT NOT NULL,
     disk_type TEXT NOT NULL,
@@ -189,7 +190,6 @@ CREATE TABLE file_versions (
     external_payload TEXT,
     FOREIGN KEY(file_id) REFERENCES files(id) ON DELETE CASCADE,
     FOREIGN KEY(prior_version_id) REFERENCES file_versions(version_id) ON DELETE SET NULL,
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id),
     UNIQUE (file_id, file_version)
 );
 
@@ -199,7 +199,7 @@ CREATE TABLE file_versions (
 CREATE TABLE groups (
     id TEXT PRIMARY KEY NOT NULL, -- Corresponds to GroupID
     name TEXT NOT NULL,
-    owner_user_id TEXT NOT NULL,
+    owner TEXT NOT NULL,
     avatar TEXT,
     public_note TEXT,
     private_note TEXT,
@@ -209,7 +209,6 @@ CREATE TABLE groups (
     endpoint_url TEXT NOT NULL,
     external_id TEXT,
     external_payload TEXT,
-    FOREIGN KEY(owner_user_id) REFERENCES contacts(id),
     FOREIGN KEY(drive_id) REFERENCES drives(id)
 );
 
@@ -219,7 +218,7 @@ CREATE TABLE groups (
 CREATE TABLE group_invites (
     id TEXT PRIMARY KEY NOT NULL, -- Corresponds to GroupInviteID
     group_id TEXT NOT NULL,
-    inviter_user_id TEXT NOT NULL,
+    inviter_id TEXT NOT NULL,
     invitee_type TEXT NOT NULL, -- 'USER', 'PLACEHOLDER', 'PUBLIC'
     invitee_id TEXT, -- UserID or PlaceholderID, NULL if public
     role TEXT NOT NULL, -- 'ADMIN', 'MEMBER'
@@ -232,8 +231,7 @@ CREATE TABLE group_invites (
     from_placeholder_invitee TEXT,
     external_id TEXT,
     external_payload TEXT,
-    FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE,
-    FOREIGN KEY(inviter_user_id) REFERENCES contacts(id)
+    FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
 );
 
 -- Table: labels
@@ -245,12 +243,11 @@ CREATE TABLE labels (
     public_note TEXT,
     private_note TEXT,
     color TEXT NOT NULL,
-    created_by_user_id TEXT NOT NULL,
+    created_by TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    last_updated_at INTEGER NOT NULL,
+    last_updated_date_ms INTEGER NOT NULL,
     external_id TEXT,
-    external_payload TEXT,
-    FOREIGN KEY(created_by_user_id) REFERENCES contacts(id)
+    external_payload TEXT
 );
 
 -- Table: permissions_directory
@@ -263,7 +260,7 @@ CREATE TABLE permissions_directory (
     resource_path TEXT NOT NULL,
     grantee_type TEXT NOT NULL, -- 'Public', 'User', 'Group', 'Placeholder'
     grantee_id TEXT, -- UserID, GroupID, or PlaceholderID; NULL if public
-    granted_by_user_id TEXT NOT NULL,
+    granted_by TEXT NOT NULL,
     begin_date_ms INTEGER NOT NULL,
     expiry_date_ms INTEGER NOT NULL,
     inheritable INTEGER NOT NULL,
@@ -275,8 +272,7 @@ CREATE TABLE permissions_directory (
     metadata_type TEXT, -- 'Labels', 'DirectoryPassword'
     metadata_content TEXT,
     external_id TEXT,
-    external_payload TEXT,
-    FOREIGN KEY(granted_by_user_id) REFERENCES contacts(id)
+    external_payload TEXT
 );
 
 -- Table: permissions_system
@@ -288,7 +284,7 @@ CREATE TABLE permissions_system (
     resource_identifier TEXT NOT NULL, -- e.g., 'DRIVES' or 'DriveID_xyz'
     grantee_type TEXT NOT NULL, -- 'Public', 'User', 'Group', 'Placeholder'
     grantee_id TEXT, -- UserID, GroupID, or PlaceholderID; NULL if public
-    granted_by_user_id TEXT NOT NULL,
+    granted_by TEXT NOT NULL,
     begin_date_ms INTEGER NOT NULL,
     expiry_date_ms INTEGER NOT NULL,
     note TEXT NOT NULL,
@@ -299,8 +295,7 @@ CREATE TABLE permissions_system (
     metadata_type TEXT,
     metadata_content TEXT,
     external_id TEXT,
-    external_payload TEXT,
-    FOREIGN KEY(granted_by_user_id) REFERENCES contacts(id)
+    external_payload TEXT
 );
 
 -- Table: webhooks
@@ -314,7 +309,7 @@ CREATE TABLE webhooks (
     event TEXT NOT NULL, -- e.g., 'file.created'
     signature TEXT NOT NULL,
     note TEXT,
-    is_active INTEGER NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
     filters TEXT, -- JSON formatted string of filters
     external_id TEXT,
     external_payload TEXT,
@@ -328,9 +323,7 @@ CREATE TABLE contact_id_superswap_history (
     old_user_id TEXT NOT NULL,
     new_user_id TEXT NOT NULL,
     swapped_at INTEGER NOT NULL,
-    PRIMARY KEY (old_user_id, new_user_id),
-    FOREIGN KEY(old_user_id) REFERENCES contacts(id),
-    FOREIGN KEY(new_user_id) REFERENCES contacts(id)
+    PRIMARY KEY (old_user_id, new_user_id)
 );
 
 
@@ -343,17 +336,14 @@ CREATE TABLE contact_groups (
     user_id TEXT NOT NULL,
     group_id TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'MEMBER', 
-    PRIMARY KEY (user_id, group_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE,
-    FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
+    PRIMARY KEY (user_id, group_id)
 );
 
 -- Junction Table for `Contact.past_user_ids`
 CREATE TABLE contact_past_ids (
     user_id TEXT NOT NULL,
     past_user_id TEXT NOT NULL,
-    PRIMARY KEY (user_id, past_user_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE
+    PRIMARY KEY (user_id, past_user_id)
 );
 
 -- Junction Table for `DirectoryPermission.permission_types`
@@ -385,7 +375,6 @@ CREATE TABLE contact_labels (
     user_id TEXT NOT NULL,
     label_id TEXT NOT NULL,
     PRIMARY KEY (user_id, label_id),
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE,
     FOREIGN KEY(label_id) REFERENCES labels(id) ON DELETE CASCADE
 );
 

@@ -17,6 +17,9 @@ import {
   SortDirection,
   IDPrefixEnum,
   DriveID,
+  GenerateID,
+  GroupInviteeTypeEnum,
+  GroupRole,
 } from "@officexapp/types";
 import { db, dbHelpers, initDriveDB } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -153,6 +156,7 @@ export function getAppropriateUrlEndpoint(request: FastifyRequest): string {
     return `${domain.endsWith("/") ? domain.slice(0, -1) : domain}`;
   } else {
     // Fallback to dynamic detection for local/dev environments
+    // LOCAL_DEV_MODE
     const protocol = request.protocol;
     const hostname = request.hostname;
     // For local dev, rely on process.env.PORT which Fastify often binds to,
@@ -257,7 +261,7 @@ export async function getGiftcardSpawnOrgHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -370,7 +374,7 @@ export async function listGiftcardSpawnOrgsHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -561,7 +565,7 @@ export async function upsertGiftcardSpawnOrgHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -637,7 +641,7 @@ export async function deleteGiftcardSpawnOrgHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -712,27 +716,30 @@ export async function redeemGiftcardSpawnOrgHandler(
       const driveStateChecksum = "genesis"; // Initial checksum
       const driveStateTimestampNs = BigInt(currentTime) * 1_000_000n; // Convert ms to ns
 
+      const groupID = GenerateID.Group(); // This needs to be defined BEFORE the about_drive insert
+
       const insertAboutDriveStmt = driveDatabase.prepare(
         `INSERT INTO about_drive (
             drive_id, drive_name, canister_id, version, drive_state_checksum,
-            drive_state_timestamp_ns, owner_id, url_endpoint,
+            timestamp_ns, owner_id, url_endpoint,
             transfer_owner_id, spawn_redeem_code, spawn_note,
-            nonce_uuid_generated
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            nonce_uuid_generated, default_everyone_group_id -- Add this column
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` // Add a placeholder for the new column
       );
       insertAboutDriveStmt.run(
         driveId,
         body.organization_name,
-        deployedCanisterId, // canister_id for `about_drive`
+        deployedCanisterId,
         version,
         driveStateChecksum,
-        driveStateTimestampNs.toString(), // Store BigInt as string
+        driveStateTimestampNs.toString(),
         ownerId,
         endpoint,
-        "", // Initial transfer_owner_id, empty string
+        "",
         redeemCode,
         noteForSpawn,
-        0 // Initial nonce_uuid_generated
+        0,
+        groupID // Pass the groupID here
       );
 
       // Optionally, create the owner contact in the new drive's DB
@@ -763,6 +770,88 @@ export async function redeemGiftcardSpawnOrgHandler(
         currentTime,
         null, // external_id
         null // external_payload
+      );
+
+      // add drive to drive table
+
+      const insertDriveStmt = driveDatabase.prepare(
+        `INSERT INTO drives (
+            id, name, icp_principal, public_note, private_note, endpoint_url, last_indexed_ms, created_at, external_id, external_payload
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertDriveStmt.run(
+        driveId,
+        body.organization_name,
+        deployedCanisterId, // canister_id for `about_drive`
+        null,
+        null,
+        endpoint,
+        null,
+        currentTime,
+        null,
+        null
+      );
+
+      // create "default everyone" group with owner as admin (include the group_invites)
+
+      const insertGroupStmt = driveDatabase.prepare(
+        `INSERT INTO groups (
+            id, name, owner, avatar, public_note, private_note,
+            created_at, last_modified_at, drive_id, endpoint_url,
+            external_id, external_payload
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertGroupStmt.run(
+        groupID,
+        "Default Everyone",
+        ownerId,
+        null,
+        null,
+        null,
+        currentTime,
+        currentTime,
+        driveId,
+        endpoint,
+        null,
+        null
+      );
+
+      const insertContactGroupStmt = driveDatabase.prepare(
+        `INSERT INTO contact_groups (
+            user_id, group_id, role
+          ) VALUES (?, ?, ?)`
+      );
+      insertContactGroupStmt.run(
+        ownerId, // The owner is the user_id for this junction
+        groupID, // The ID of the group just created
+        GroupRole.ADMIN // The owner is an ADMIN of this group
+      );
+
+      // create group invites
+      const inviteID = GenerateID.GroupInvite();
+      const insertGroupInviteStmt = driveDatabase.prepare(
+        `INSERT INTO group_invites (
+            id, group_id, inviter_id, invitee_type, invitee_id, role, note,
+            active_from, expires_at, created_at, last_modified_at, redeem_code,
+            from_placeholder_invitee, external_id, external_payload
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertGroupInviteStmt.run(
+        inviteID,
+        groupID,
+        ownerId,
+        GroupInviteeTypeEnum.USER,
+        ownerId,
+        GroupRole.ADMIN,
+        noteForSpawn,
+        currentTime,
+        currentTime,
+        currentTime,
+        currentTime,
+        redeemCode,
+        null,
+        null,
+        null
       );
     });
     // --- End: New Drive DB Creation and Initialization ---
@@ -825,7 +914,7 @@ export async function redeemGiftcardSpawnOrgHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

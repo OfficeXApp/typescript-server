@@ -171,7 +171,7 @@ export async function getWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -267,7 +267,7 @@ export async function listWebhooksHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -346,7 +346,7 @@ export async function createWebhookHandler(
     await dbHelpers.transaction("drive", request.params.org_id, (database) => {
       const stmt = database.prepare(
         `INSERT INTO webhooks (
-          id, name, url, alt_index, event, signature, note, is_active, filters, 
+          id, name, url, alt_index, event, signature, note, active, filters, 
           external_id, external_payload, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
@@ -372,7 +372,7 @@ export async function createWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -465,7 +465,7 @@ export async function updateWebhookHandler(
       values.push(body.note);
     }
     if (body.active !== undefined) {
-      updates.push("is_active = ?");
+      updates.push("active = ?");
       values.push(body.active ? 1 : 0);
     }
     if (body.filters !== undefined) {
@@ -515,7 +515,7 @@ export async function updateWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -608,7 +608,7 @@ export async function deleteWebhookHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -622,7 +622,7 @@ export async function getActiveWebhooks(
 ): Promise<Webhook[]> {
   const webhooks = await db.queryDrive(
     orgId,
-    "SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND is_active = 1",
+    "SELECT * FROM webhooks WHERE alt_index = ? AND event = ? AND active = 1",
     [altIndex, event]
   );
   return webhooks as Webhook[];

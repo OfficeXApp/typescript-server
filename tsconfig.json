@@ -6,5 +6,5 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/services/disks/aws_s3.tsd"]
 }

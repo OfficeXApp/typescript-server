@@ -2,7 +2,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import { DriveID } from "@officexapp/types";
+import { DriveID, UserID } from "@officexapp/types";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 
@@ -335,6 +335,7 @@ const MIGRATIONS_DIR = path.join(__dirname, "..", "migrations"); // Adjust path 
 let FACTORY_SCHEMA: string;
 let DRIVE_SCHEMA: string;
 
+// TODO: Check if this is safe, does it auto-skip unapplied migrations? also theres N many databases to update
 try {
   FACTORY_SCHEMA = fs.readFileSync(
     path.join(MIGRATIONS_DIR, "factory", "schema_factory.sql"),

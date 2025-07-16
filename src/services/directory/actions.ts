@@ -99,7 +99,7 @@ export async function castFileToFE(
   userId: UserID,
   driveId: DriveID
 ): Promise<FileRecordFE> {
-  const resourceId = `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID;
+  const resourceId = `${file.id}` as DirectoryResourceID;
   const permission_previews = await checkDirectoryPermissionsService(
     resourceId,
     userId,
@@ -143,8 +143,7 @@ export async function castFolderToFE(
   userId: UserID,
   driveId: DriveID
 ): Promise<FolderRecordFE> {
-  const resourceId =
-    `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID;
+  const resourceId = `${folder.id}` as DirectoryResourceID;
   const permission_previews = await checkDirectoryPermissionsService(
     resourceId,
     userId,
@@ -211,7 +210,7 @@ export async function pipeAction(
       // PERMIT: Check permissions for viewing the file
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+          `${file.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -278,7 +277,7 @@ export async function pipeAction(
         origin_hash: payload.share_track_hash,
         from_user: shareTrackingOriginUser,
         to_user: userId,
-        resource_id: `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+        resource_id: `${file.id}` as DirectoryResourceID,
         resource_name: file.name,
         drive_id: driveId,
         timestamp_ms: Date.now(),
@@ -319,17 +318,15 @@ export async function pipeAction(
       }
 
       const breadcrumbs = await deriveDirectoryBreadcrumbsService(
-        `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+        `${file.id}` as DirectoryResourceID,
         userId, // Pass userId for breadcrumb permission checks
         driveId
       );
       const fileFE = await castFileToFE(file, userId, driveId);
 
       return {
-        GetFile: {
-          file: fileFE,
-          breadcrumbs,
-        },
+        file: fileFE,
+        breadcrumbs,
       };
     }
 
@@ -346,7 +343,7 @@ export async function pipeAction(
       // PERMIT: Check permissions for viewing the folder
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+          `${folder.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -412,8 +409,7 @@ export async function pipeAction(
         origin_hash: payload.share_track_hash,
         from_user: shareTrackingOriginUser,
         to_user: userId,
-        resource_id:
-          `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+        resource_id: `${folder.id}` as DirectoryResourceID,
         resource_name: folder.name,
         drive_id: driveId,
         timestamp_ms: Date.now(),
@@ -454,17 +450,15 @@ export async function pipeAction(
       }
 
       const breadcrumbs = await deriveDirectoryBreadcrumbsService(
-        `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+        `${folder.id}` as DirectoryResourceID,
         userId, // Pass userId for breadcrumb permission checks
         driveId
       );
       const folderFE = await castFolderToFE(folder, userId, driveId);
 
       return {
-        GetFolder: {
-          folder: folderFE,
-          breadcrumbs,
-        },
+        folder: folderFE,
+        breadcrumbs,
       };
     }
 
@@ -516,11 +510,9 @@ export async function pipeAction(
       }
 
       return {
-        CreateFile: {
-          file: await castFileToFE(fileRecord, userId, driveId),
-          upload: uploadResponse,
-          notes: "File created successfully",
-        },
+        file: await castFileToFE(fileRecord, userId, driveId),
+        upload: uploadResponse,
+        notes: "File created successfully",
       };
     }
 
@@ -568,10 +560,8 @@ export async function pipeAction(
       }
 
       return {
-        CreateFolder: {
-          folder: await castFolderToFE(folderRecord, userId, driveId),
-          notes: "Folder created successfully",
-        },
+        folder: await castFolderToFE(folderRecord, userId, driveId),
+        notes: "Folder created successfully",
       };
     }
 
@@ -586,7 +576,7 @@ export async function pipeAction(
       // PERMIT: Permission checks for EDIT/MANAGE
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.File}${file.id}` as DirectoryResourceID,
+          `${file.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -605,7 +595,7 @@ export async function pipeAction(
       if (payload.name !== undefined && payload.name !== file.name) {
         await db.queryDrive(
           driveId,
-          "UPDATE files SET name = ?, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?",
+          "UPDATE files SET name = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
           [payload.name, Date.now(), userId, payload.id]
         );
         // Update full_directory_path as well if name changes
@@ -617,7 +607,7 @@ export async function pipeAction(
           const newFullPath = `${parentFolder.full_directory_path}${payload.name}`;
           await db.queryDrive(
             driveId,
-            "UPDATE files SET full_directory_path = ?, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?",
+            "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
             [newFullPath, Date.now(), userId, payload.id]
           );
           // PERMIT FIX: Update resource_path for directory permissions associated with moved/renamed files
@@ -662,12 +652,12 @@ export async function pipeAction(
       }
       if (payload.shortcut_to !== undefined) {
         // Check for existence before accessing
-        updateFields.push("shortcut_to_file_id = ?");
+        updateFields.push("shortcut_to = ?");
         updateValues.push(payload.shortcut_to);
       }
 
       if (updateFields.length > 0) {
-        const query = `UPDATE files SET ${updateFields.join(", ")}, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?`;
+        const query = `UPDATE files SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?`;
         await db.queryDrive(driveId, query, [
           ...updateValues,
           Date.now(),
@@ -713,7 +703,8 @@ export async function pipeAction(
         );
       }
 
-      return { UpdateFile: await castFileToFE(updatedFile, userId, driveId) };
+      const result = await castFileToFE(updatedFile, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.UPDATE_FOLDER: {
@@ -724,7 +715,7 @@ export async function pipeAction(
       // PERMIT: Permission checks for EDIT/MANAGE
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${folder.id}` as DirectoryResourceID,
+          `${folder.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -752,7 +743,7 @@ export async function pipeAction(
 
         await db.queryDrive(
           driveId,
-          "UPDATE folders SET name = ?, full_directory_path = ?, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?",
+          "UPDATE folders SET name = ?, full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
           [payload.name, newPath, Date.now(), userId, payload.id]
         );
 
@@ -792,12 +783,12 @@ export async function pipeAction(
       }
       if (payload.shortcut_to !== undefined) {
         // Check for existence before accessing
-        updateFields.push("shortcut_to_folder_id = ?");
+        updateFields.push("shortcut_to = ?");
         updateValues.push(payload.shortcut_to);
       }
 
       if (updateFields.length > 0) {
-        const query = `UPDATE folders SET ${updateFields.join(", ")}, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?`;
+        const query = `UPDATE folders SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?`;
         await db.queryDrive(driveId, query, [
           ...updateValues,
           Date.now(),
@@ -843,9 +834,8 @@ export async function pipeAction(
         );
       }
 
-      return {
-        UpdateFolder: await castFolderToFE(updatedFolder, userId, driveId),
-      };
+      const result = await castFolderToFE(updatedFolder, userId, driveId);
+      return result;
     }
 
     // =========================================================================
@@ -869,7 +859,7 @@ export async function pipeAction(
           );
         }
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${parentFolder.id}` as DirectoryResourceID,
+          `${parentFolder.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -943,7 +933,8 @@ export async function pipeAction(
         );
       }
 
-      return { DeleteFile: { file_id: payload.id, path_to_trash } };
+      const result = { file_id: payload.id, path_to_trash };
+      return result;
     }
 
     case DirectoryActionEnum.DELETE_FOLDER: {
@@ -974,7 +965,7 @@ export async function pipeAction(
           );
         }
         const permissions = await checkDirectoryPermissionsService(
-          `${IDPrefixEnum.Folder}${parentFolder.id}` as DirectoryResourceID,
+          `${parentFolder.id}` as DirectoryResourceID,
           userId,
           driveId
         );
@@ -1051,12 +1042,10 @@ export async function pipeAction(
       // We might need to gather these from `driveDeleteResource` if it provided them.
       // For now, returning empty arrays as placeholders based on current `driveDeleteResource` return.
       return {
-        DeleteFolder: {
-          folder_id: payload.id,
-          path_to_trash,
-          deleted_files: [], // TODO: Populate from driveDeleteResource
-          deleted_folders: [], // TODO: Populate from driveDeleteResource
-        },
+        folder_id: payload.id,
+        path_to_trash,
+        deleted_files: [], // TODO: Populate from driveDeleteResource
+        deleted_folders: [], // TODO: Populate from driveDeleteResource
       };
     }
 
@@ -1112,7 +1101,8 @@ export async function pipeAction(
         );
       }
 
-      return { CopyFile: await castFileToFE(copiedFile, userId, driveId) };
+      const result = await castFileToFE(copiedFile, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.COPY_FOLDER: {
@@ -1165,9 +1155,8 @@ export async function pipeAction(
         );
       }
 
-      return {
-        CopyFolder: await castFolderToFE(copiedFolder, userId, driveId),
-      };
+      const result = await castFolderToFE(copiedFolder, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.MOVE_FILE: {
@@ -1250,7 +1239,8 @@ export async function pipeAction(
         );
       }
 
-      return { MoveFile: await castFileToFE(movedFile, userId, driveId) };
+      const result = await castFileToFE(movedFile, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.MOVE_FOLDER: {
@@ -1333,7 +1323,8 @@ export async function pipeAction(
         );
       }
 
-      return { MoveFolder: await castFolderToFE(movedFolder, userId, driveId) };
+      const result = await castFolderToFE(movedFolder, userId, driveId);
+      return result;
     }
 
     case DirectoryActionEnum.RESTORE_TRASH: {
@@ -1417,9 +1408,8 @@ export async function pipeAction(
         );
       }
 
-      return {
-        RestoreTrash: restoreResponse,
-      };
+      const result = restoreResponse;
+      return result;
     }
 
     default:
@@ -1440,7 +1430,7 @@ async function updateSubfolderPathsRecursive(
   folderId: FolderID,
   oldPath: string,
   newPath: string,
-  userId: UserID // Used for updating `last_updated_by_user_id` and permission path updates
+  userId: UserID // Used for updating `last_updated_by` and permission path updates
 ): Promise<void> {
   const queue: FolderID[] = [folderId];
 
@@ -1464,7 +1454,7 @@ async function updateSubfolderPathsRecursive(
     // Update the folder itself
     await db.queryDrive(
       driveId,
-      "UPDATE folders SET full_directory_path = ?, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?",
+      "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
       [updatedPath, Date.now(), userId, currentFolderId]
     );
 
@@ -1482,7 +1472,7 @@ async function updateSubfolderPathsRecursive(
       );
       await db.queryDrive(
         driveId,
-        "UPDATE files SET full_directory_path = ?, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?",
+        "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
         [newFilePath, Date.now(), userId, file.id]
       );
       // PERMIT FIX: Update resource_path for directory permissions associated with moved/renamed files

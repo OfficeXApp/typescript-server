@@ -21,6 +21,9 @@ import {
   RestoreTrashResponse,
   DiskID,
   FolderID,
+  GenerateID,
+  DiskTypeEnum,
+  Disk,
 } from "@officexapp/types";
 import { authenticateRequest } from "../../../../services/auth";
 import { db } from "../../../../services/database";
@@ -40,6 +43,10 @@ import {
   castFolderToFE,
   pipeAction,
 } from "../../../../services/directory/actions"; // Correctly import pipeAction
+import {
+  AwsBucketAuth,
+  generate_s3_view_url,
+} from "../../../../services/disks/aws_s3";
 
 /**
  * Clips a full directory path for frontend display.
@@ -134,19 +141,13 @@ async function fetch_root_shortcuts_of_user(
 
     let resource: FileRecord | FolderRecord | null = null;
     if (perm.resource_type === "File") {
-      const file = await getFileMetadata(
-        driveId,
-        `${IDPrefixEnum.File}${perm.resource_id}`
-      );
-      if (file && file.disk_id === diskId && !file.is_deleted) {
+      const file = await getFileMetadata(driveId, `${perm.resource_id}`);
+      if (file && file.disk_id === diskId && !file.deleted) {
         resource = file as FileRecord;
       }
     } else if (perm.resource_type === "Folder") {
-      const folder = await getFolderMetadata(
-        driveId,
-        `${IDPrefixEnum.Folder}${perm.resource_id}`
-      );
-      if (folder && folder.disk_id === diskId && !folder.is_deleted) {
+      const folder = await getFolderMetadata(driveId, `${perm.resource_id}`);
+      if (folder && folder.disk_id === diskId && !folder.deleted) {
         resource = folder as FolderRecord;
       }
     }
@@ -194,16 +195,16 @@ async function fetch_root_shortcuts_of_user(
   const disk = (
     await db.queryDrive(
       driveId,
-      "SELECT name, root_folder_id FROM disks WHERE id = ?",
+      "SELECT name, root_folder FROM disks WHERE id = ?",
       [diskId]
     )
   )[0];
   if (disk) {
     breadcrumbs.push({
-      resource_id: disk.root_folder_id,
+      resource_id: disk.root_folder,
       resource_name: disk.name,
       visibility_preview: await deriveBreadcrumbVisibilityPreviews(
-        `${IDPrefixEnum.Folder}${disk.root_folder_id}` as DirectoryResourceID,
+        `${disk.root_folder}` as DirectoryResourceID,
         driveId
       ),
     });
@@ -256,7 +257,7 @@ export async function listDirectoryHandler(
         listRequest,
         userApiKey.user_id
       );
-      const response: ISuccessResponse<{
+      const response: {
         folders: FolderRecordFE[];
         files: FileRecordFE[];
         total_files: number;
@@ -264,14 +265,11 @@ export async function listDirectoryHandler(
         cursor: string | null;
         breadcrumbs: FilePathBreadcrumb[];
         permission_previews: DirectoryPermissionType[]; // Rust response includes this at root level
-      }> = {
-        ok: {
-          data: {
-            ...shortcutResponse,
-            permission_previews: [], // Permissions are on individual items for shortcuts
-          },
-        },
+      } = {
+        ...shortcutResponse,
+        permission_previews: [], // Permissions are on individual items for shortcuts
       };
+
       return reply.status(200).send(response);
     }
 
@@ -310,11 +308,11 @@ export async function listDirectoryHandler(
       if (listRequest.disk_id) {
         const diskRootResult = (await db.queryDrive(
           driveId,
-          "SELECT root_folder_id FROM disks WHERE id = ?",
+          "SELECT root_folder FROM disks WHERE id = ?",
           [listRequest.disk_id]
-        )) as { root_folder_id: FolderID }[];
+        )) as { root_folder: FolderID }[];
         if (diskRootResult.length > 0) {
-          targetFolderId = diskRootResult[0].root_folder_id;
+          targetFolderId = diskRootResult[0].root_folder;
         } else {
           return reply.status(404).send({
             err: {
@@ -330,7 +328,7 @@ export async function listDirectoryHandler(
       }
     }
 
-    targetResourceId = `${IDPrefixEnum.Folder}${targetFolderId}`;
+    targetResourceId = `${targetFolderId}` as DirectoryResourceID;
 
     // Permission check for the target folder using the imported service function
     const permissionsForFolder = await checkDirectoryPermissions(
@@ -338,6 +336,9 @@ export async function listDirectoryHandler(
       userApiKey.user_id,
       driveId
     );
+
+    console.log(`>>> permissionsForFolder`, permissionsForFolder);
+
     const isOwner = (await getDriveOwnerId(driveId)) === userApiKey.user_id;
 
     if (
@@ -359,15 +360,15 @@ export async function listDirectoryHandler(
     const [folders, files, counts] = await Promise.all([
       db.queryDrive(
         driveId,
-        "SELECT id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
+        "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
         [targetFolderId, pageSize, offset]
       ),
       db.queryDrive(
         driveId,
         `
         SELECT
-          f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by_user_id, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_at, f.last_updated_by_user_id, f.is_deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_id, f.has_sovereign_permissions, f.shortcut_to_file_id, f.notes, f.external_id, f.external_payload,
-          fv.file_version, fv.prior_version_id, fv.next_version_id
+          f.id, f.name, f.parent_folder_id, f.version_id, f.extension, f.full_directory_path, f.created_by, f.created_at, f.disk_id, f.disk_type, f.file_size, f.raw_url, f.last_updated_date_ms, f.last_updated_by, f.deleted, f.drive_id, f.upload_status, f.expires_at, f.restore_trash_prior_folder_uuid, f.has_sovereign_permissions, f.shortcut_to, f.notes, f.external_id, f.external_payload,
+          fv.file_version, fv.prior_version_id
         FROM files f
         JOIN file_versions fv ON f.version_id = fv.version_id
         WHERE f.parent_folder_id = ? LIMIT ? OFFSET ?
@@ -439,16 +440,7 @@ export async function listDirectoryHandler(
       driveId
     );
 
-    // Get permission previews for the current folder itself
-    const permissionPreviewsForCurrentFolder = (
-      await previewDirectoryPermissions(
-        targetResourceId,
-        userApiKey.user_id,
-        driveId
-      )
-    ).map((p) => p.grant_type as DirectoryPermissionType);
-
-    const response: ISuccessResponse<{
+    const response: {
       folders: FolderRecordFE[];
       files: FileRecordFE[];
       total_files: number;
@@ -456,26 +448,22 @@ export async function listDirectoryHandler(
       cursor: string | null;
       breadcrumbs: FilePathBreadcrumb[];
       permission_previews: DirectoryPermissionType[];
-    }> = {
-      ok: {
-        data: {
-          folders: foldersFE,
-          files: filesFE,
-          total_files,
-          total_folders,
-          cursor: nextCursor,
-          breadcrumbs,
-          permission_previews: permissionPreviewsForCurrentFolder,
-        },
-      },
+    } = {
+      folders: foldersFE,
+      files: filesFE,
+      total_files,
+      total_folders,
+      cursor: nextCursor,
+      breadcrumbs,
+      permission_previews: permissionsForFolder,
     };
 
     return reply.status(200).send(response);
   } catch (error) {
     request.log.error(error, "Error in listDirectoryHandler");
-    return reply
-      .status(500)
-      .send({ err: { code: 500, message: "Internal Server Error" } });
+    return reply.status(500).send({
+      err: { code: 500, message: `Internal server error - ${error}` },
+    });
   }
 }
 
@@ -494,6 +482,8 @@ export async function directoryActionHandler(
   const { org_id: driveId } = request.params;
   const { actions } = request.body;
   const userApiKey = await authenticateRequest(request, "drive", driveId);
+
+  console.log(`---> userApiKey`, userApiKey);
 
   if (!userApiKey) {
     return reply
@@ -523,6 +513,7 @@ export async function directoryActionHandler(
       };
 
       outcomes.push({
+        id: GenerateID.DirectoryActionOutcome(),
         success: false,
         request: action,
         response: {
@@ -569,8 +560,159 @@ export async function downloadFileChunkHandler(
 }
 
 export async function getRawUrlProxyHandler(
-  request: FastifyRequest,
+  request: FastifyRequest<{
+    Params: OrgIdParams & { file_id_with_extension: string };
+  }>,
   reply: FastifyReply
-) {
-  reply.status(501).send({ err: { code: 501, message: "Not Implemented" } });
+): Promise<void> {
+  console.log("getRawUrlProxyHandler: Handling raw URL proxy request");
+
+  const { org_id: driveId } = request.params;
+  const { file_id_with_extension } = request.params;
+
+  // Extract file_id from the parameter (strip extension if present)
+  let fileId: string;
+  const lastDotIndex = file_id_with_extension.lastIndexOf(".");
+  if (lastDotIndex > -1) {
+    fileId = file_id_with_extension.substring(0, lastDotIndex);
+  } else {
+    fileId = file_id_with_extension;
+  }
+
+  console.log(`getRawUrlProxyHandler: file_id=${fileId}`);
+
+  // Create resource ID for permission checking
+  const resourceId: DirectoryResourceID = `${fileId}` as DirectoryResourceID;
+
+  let hasPermission = false;
+
+  // Try to authenticate the request (optional - might be public access)
+  const userApiKey = await authenticateRequest(request, "drive", driveId);
+
+  if (userApiKey) {
+    // Check if user is the owner
+    const ownerId = await getDriveOwnerId(driveId);
+    const isOwner = ownerId === userApiKey.user_id;
+
+    if (isOwner) {
+      hasPermission = true;
+    } else {
+      // Check authenticated user's permissions
+      const permissions = await checkDirectoryPermissions(
+        resourceId,
+        userApiKey.user_id,
+        driveId
+      );
+
+      hasPermission =
+        permissions.includes(DirectoryPermissionType.VIEW) ||
+        permissions.includes(DirectoryPermissionType.EDIT) ||
+        permissions.includes(DirectoryPermissionType.MANAGE);
+    }
+  } else {
+    // No authentication - check public view permissions
+    const permissions = await checkDirectoryPermissions(
+      resourceId,
+      "Public", // Special identifier for public access
+      driveId
+    );
+
+    hasPermission = permissions.includes(DirectoryPermissionType.VIEW);
+  }
+
+  if (!hasPermission) {
+    console.log("getRawUrlProxyHandler: No view permission");
+    return reply.status(403).send({
+      err: { code: 403, message: "Not authorized to view this file" },
+    });
+  }
+
+  // Look up file metadata
+  const fileResults = await db.queryDrive(
+    driveId,
+    `SELECT f.*, fv.file_version, fv.prior_version_id 
+     FROM files f
+     JOIN file_versions fv ON f.version_id = fv.version_id
+     WHERE f.id = ?`,
+    [fileId]
+  );
+
+  if (fileResults.length === 0) {
+    return reply.status(404).send({
+      err: { code: 404, message: "File not found" },
+    });
+  }
+
+  const fileMeta = fileResults[0];
+
+  // Get disk info to access AWS credentials
+  const diskResults = await db.queryDrive(
+    driveId,
+    "SELECT * FROM disks WHERE id = ?",
+    [fileMeta.disk_id]
+  );
+
+  if (diskResults.length === 0) {
+    return reply.status(500).send({
+      err: { code: 500, message: "No S3 disk configured" },
+    });
+  }
+
+  const disk = diskResults[0];
+
+  // Parse AWS credentials from disk auth_json
+  let awsAuth: AwsBucketAuth;
+  try {
+    if (!disk.auth_json) {
+      throw new Error("Missing AWS credentials");
+    }
+    awsAuth = JSON.parse(disk.auth_json);
+  } catch (error) {
+    return reply.status(500).send({
+      err: { code: 500, message: "Invalid AWS credentials" },
+    });
+  }
+
+  // Generate presigned URL
+  const downloadFilename = `${fileMeta.name}.${fileMeta.extension}`;
+  let presignedUrl: string;
+
+  try {
+    if (
+      fileMeta.disk_type === DiskTypeEnum.AwsBucket ||
+      fileMeta.disk_type === DiskTypeEnum.StorjWeb3
+    ) {
+      presignedUrl = await generate_s3_view_url(
+        fileMeta.id,
+        fileMeta.extension,
+        awsAuth,
+        fileMeta.drive_id,
+        3600, // 1 hour expiration
+        downloadFilename,
+        fileMeta.disk_id
+      );
+    } else {
+      throw new Error(`Unsupported disk type: ${fileMeta.disk_type}`);
+    }
+  } catch (error: any) {
+    console.error(
+      "getRawUrlProxyHandler: Error generating presigned URL",
+      error
+    );
+    return reply.status(500).send({
+      err: {
+        code: 500,
+        message: `Failed to generate presigned URL: ${error.message}`,
+      },
+    });
+  }
+
+  console.log("getRawUrlProxyHandler: Redirecting to presigned URL");
+
+  // Return 302 redirect response
+  return reply
+    .status(302)
+    .header("Location", presignedUrl)
+    .header("Cache-Control", "no-store, max-age=0")
+    .send();
 }

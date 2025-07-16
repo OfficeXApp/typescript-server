@@ -86,7 +86,7 @@ export async function aboutDriveHandler(
     const result = await db.queryDrive(
       org_id,
       `SELECT drive_id, drive_name, canister_id, version, drive_state_checksum,
-              drive_state_timestamp_ns, owner_id, url_endpoint, transfer_owner_id,
+              timestamp_ns, owner_id, url_endpoint, transfer_owner_id,
               spawn_redeem_code, spawn_note, nonce_uuid_generated
        FROM about_drive LIMIT 1`
     );
@@ -130,7 +130,7 @@ export async function aboutDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -187,7 +187,7 @@ export async function replayDriveHandler(
     const currentTimestampNs = Date.now() * 1_000_000;
     await db.queryDrive(
       org_id,
-      `UPDATE about_drive SET drive_state_timestamp_ns = ?, drive_state_checksum = ?`,
+      `UPDATE about_drive SET timestamp_ns = ?, drive_state_checksum = ?`,
       [String(currentTimestampNs), finalChecksum]
     );
 
@@ -204,7 +204,7 @@ export async function replayDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -297,7 +297,7 @@ export async function searchDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -382,7 +382,7 @@ export async function reindexDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -471,7 +471,7 @@ export async function externalIdDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -582,7 +582,7 @@ export async function transferOwnershipDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -656,7 +656,7 @@ export async function updateAllowedDomainsDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -729,7 +729,7 @@ export async function whoAmIDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -834,9 +834,9 @@ export async function superswapUserIdDriveHandler(
         );
         updatedCount += apiKeysResult.changes || 0;
 
-        // 3. Update `folders` table (created_by_user_id, last_updated_by_user_id)
+        // 3. Update `folders` table (created_by, last_updated_by)
         const foldersUpdate1 = database.prepare(
-          `UPDATE folders SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE folders SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           foldersUpdate1.run(
@@ -845,7 +845,7 @@ export async function superswapUserIdDriveHandler(
           ).changes || 0;
 
         const foldersUpdate2 = database.prepare(
-          `UPDATE folders SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?`
+          `UPDATE folders SET last_updated_by = ? WHERE last_updated_by = ?`
         );
         updatedCount +=
           foldersUpdate2.run(
@@ -853,9 +853,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 4. Update `files` table (created_by_user_id, last_updated_by_user_id)
+        // 4. Update `files` table (created_by, last_updated_by)
         const filesUpdate1 = database.prepare(
-          `UPDATE files SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE files SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           filesUpdate1.run(
@@ -864,7 +864,7 @@ export async function superswapUserIdDriveHandler(
           ).changes || 0;
 
         const filesUpdate2 = database.prepare(
-          `UPDATE files SET last_updated_by_user_id = ? WHERE last_updated_by_user_id = ?`
+          `UPDATE files SET last_updated_by = ? WHERE last_updated_by = ?`
         );
         updatedCount +=
           filesUpdate2.run(
@@ -872,9 +872,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 5. Update `file_versions` table (created_by_user_id)
+        // 5. Update `file_versions` table (created_by)
         const fileVersionsUpdate = database.prepare(
-          `UPDATE file_versions SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE file_versions SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           fileVersionsUpdate.run(
@@ -882,9 +882,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 6. Update `groups` table (owner_user_id)
+        // 6. Update `groups` table (owner)
         const groupsUpdate = database.prepare(
-          `UPDATE groups SET owner_user_id = ? WHERE owner_user_id = ?`
+          `UPDATE groups SET owner = ? WHERE owner = ?`
         );
         updatedCount +=
           groupsUpdate.run(
@@ -892,9 +892,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 7. Update `group_invites` table (inviter_user_id, invitee_id)
+        // 7. Update `group_invites` table (inviter_id, invitee_id)
         const groupInvitesUpdate1 = database.prepare(
-          `UPDATE group_invites SET inviter_user_id = ? WHERE inviter_user_id = ?`
+          `UPDATE group_invites SET inviter_id = ? WHERE inviter_id = ?`
         );
         updatedCount +=
           groupInvitesUpdate1.run(
@@ -911,9 +911,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 8. Update `labels` table (created_by_user_id)
+        // 8. Update `labels` table (created_by)
         const labelsUpdate = database.prepare(
-          `UPDATE labels SET created_by_user_id = ? WHERE created_by_user_id = ?`
+          `UPDATE labels SET created_by = ? WHERE created_by = ?`
         );
         updatedCount +=
           labelsUpdate.run(
@@ -921,9 +921,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 9. Update `permissions_directory` table (granted_by_user_id, grantee_id)
+        // 9. Update `permissions_directory` table (granted_by, grantee_id)
         const permDirUpdate1 = database.prepare(
-          `UPDATE permissions_directory SET granted_by_user_id = ? WHERE granted_by_user_id = ?`
+          `UPDATE permissions_directory SET granted_by = ? WHERE granted_by = ?`
         );
         updatedCount +=
           permDirUpdate1.run(
@@ -940,9 +940,9 @@ export async function superswapUserIdDriveHandler(
             superswapRequest.current_user_id
           ).changes || 0;
 
-        // 10. Update `permissions_system` table (granted_by_user_id, grantee_id)
+        // 10. Update `permissions_system` table (granted_by, grantee_id)
         const permSysUpdate1 = database.prepare(
-          `UPDATE permissions_system SET granted_by_user_id = ? WHERE granted_by_user_id = ?`
+          `UPDATE permissions_system SET granted_by = ? WHERE granted_by = ?`
         );
         updatedCount +=
           permSysUpdate1.run(
@@ -983,7 +983,7 @@ export async function superswapUserIdDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1114,7 +1114,7 @@ export async function redeemOrganizationDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1191,7 +1191,7 @@ export async function inboxDriveHandler(
     reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -1254,7 +1254,7 @@ export async function snapshotDriveHandler(
       reply.status(500).send(
         createApiResponse<undefined>(undefined, {
           code: 500,
-          message: "Internal server error",
+          message: `Internal server error - ${error}`,
         })
       );
     }

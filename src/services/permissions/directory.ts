@@ -22,12 +22,7 @@ import {
   DriveID,
 } from "@officexapp/types";
 import { db } from "../../services/database";
-import {
-  isUserInGroup,
-  extractPlainUserId,
-  extractPlainGroupId,
-  extractPlainPlaceholderGranteeId,
-} from "../groups"; // Import helpers from groups service
+import { isUserInGroup } from "../groups"; // Import helpers from groups service
 import { getFolderMetadata, getFileMetadata } from "../directory/drive";
 import { checkSystemPermissions, redactLabelValue } from "./system";
 
@@ -106,11 +101,9 @@ export function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
   // Reconstruct resource_id with its correct prefix from the DB's resource_type and resource_id
   let resourceIdWithPrefix: DirectoryResourceID;
   if (row.resource_type === "File") {
-    resourceIdWithPrefix =
-      `${IDPrefixEnum.File}${row.resource_id}` as DirectoryResourceID;
+    resourceIdWithPrefix = `${row.resource_id}` as DirectoryResourceID;
   } else if (row.resource_type === "Folder") {
-    resourceIdWithPrefix =
-      `${IDPrefixEnum.Folder}${row.resource_id}` as DirectoryResourceID;
+    resourceIdWithPrefix = `${row.resource_id}` as DirectoryResourceID;
   } else {
     throw new Error(`Unknown resource_type from DB: ${row.resource_type}`);
   }
@@ -148,7 +141,7 @@ export function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
     resource_id: resourceIdWithPrefix,
     resource_path: row.resource_path,
     granted_to: grantedTo,
-    granted_by: `${IDPrefixEnum.User}${row.granted_by_user_id}` as UserID,
+    granted_by: `${IDPrefixEnum.User}${row.granted_by}` as UserID,
     permission_types: (row.permission_types_list || "")
       .split(",")
       .filter(Boolean)
@@ -202,7 +195,7 @@ export async function castToDirectoryPermissionFE(
   if (permission.granted_to === PUBLIC_GRANTEE_ID_STRING) {
     granteeName = "PUBLIC";
   } else if (permission.granted_to.startsWith(IDPrefixEnum.User)) {
-    const plainContactId = extractPlainUserId(permission.granted_to as UserID);
+    const plainContactId = permission.granted_to as UserID;
     const contactRows = await db.queryDrive(
       orgId,
       "SELECT name, avatar FROM contacts WHERE id = ?",
@@ -215,7 +208,7 @@ export async function castToDirectoryPermissionFE(
       granteeName = `User: ${permission.granted_to}`; // Fallback if contact not found
     }
   } else if (permission.granted_to.startsWith(IDPrefixEnum.Group)) {
-    const plainGroupId = extractPlainGroupId(permission.granted_to as GroupID);
+    const plainGroupId = permission.granted_to as GroupID;
     const groupRows = await db.queryDrive(
       orgId,
       "SELECT name, avatar FROM groups WHERE id = ?",
@@ -234,7 +227,7 @@ export async function castToDirectoryPermissionFE(
   }
 
   // Get granter_name
-  const plainGranterId = extractPlainUserId(permission.granted_by);
+  const plainGranterId = permission.granted_by;
   const granterRows = await db.queryDrive(
     orgId,
     "SELECT name FROM contacts WHERE id = ?",
@@ -427,9 +420,7 @@ export async function getInheritedResourcesList(
     const folderMetadata = await getFolderMetadata(orgId, currentFolderId);
     if (!folderMetadata) break;
 
-    resources.push(
-      `${IDPrefixEnum.Folder}${folderMetadata.id}` as DirectoryResourceID
-    );
+    resources.push(`${folderMetadata.id}` as DirectoryResourceID);
 
     if (folderMetadata.has_sovereign_permissions) {
       break;
@@ -472,7 +463,7 @@ export async function checkDirectoryResourcePermissions(
       pd.resource_path,
       pd.grantee_type,
       pd.grantee_id,
-      pd.granted_by_user_id,
+      pd.granted_by,
       GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
       pd.begin_date_ms,
       pd.expiry_date_ms,
@@ -556,11 +547,7 @@ export async function checkDirectoryPermissions(
   granteeId: GranteeID,
   orgId: string
 ): Promise<DirectoryPermissionType[]> {
-  const isOwner =
-    (await getDriveOwnerId(orgId)) ===
-    (granteeId.startsWith(IDPrefixEnum.User)
-      ? (granteeId as UserID)
-      : undefined);
+  const isOwner = (await getDriveOwnerId(orgId)) === granteeId;
 
   if (isOwner) {
     return [
@@ -636,7 +623,7 @@ export async function previewDirectoryPermissions(
       pd.resource_path,
       pd.grantee_type,
       pd.grantee_id,
-      pd.granted_by_user_id,
+      pd.granted_by,
       GROUP_CONCAT(pdt.permission_type) AS permission_types_list,
       pd.begin_date_ms,
       pd.expiry_date_ms,
@@ -890,7 +877,7 @@ export async function deriveDirectoryBreadcrumbs(
     }
 
     currentResourceId = parentFolderId
-      ? (`${IDPrefixEnum.Folder}${parentFolderId}` as DirectoryResourceID)
+      ? (`${parentFolderId}` as DirectoryResourceID)
       : undefined;
   }
 

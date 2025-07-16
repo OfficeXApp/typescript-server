@@ -71,12 +71,16 @@ export async function createFile(
 
   // PERMIT: Add permission check for parent folder CREATE permission
   const parentFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${parent_folder_uuid}` as DirectoryResourceID;
+    `${parent_folder_uuid}` as DirectoryResourceID;
   const hasCreatePermission = (
     await checkDirectoryPermissions(parentFolderResourceId, userId, driveId)
   ).includes(DirectoryPermissionType.UPLOAD); // Rust uses Upload for create file
 
   const isOwner = (await getDriveOwnerId(driveId)) === userId;
+
+  console.log(
+    `Requesting user ${userId} has create permission: ${hasCreatePermission}. meanwhile the owner of drive ${driveId} is ${isOwner}`
+  );
 
   if (!isOwner && !hasCreatePermission) {
     throw new Error(
@@ -174,27 +178,29 @@ export async function createFile(
         let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
         if (disk.disk_type === DiskTypeEnum.AwsBucket) {
           const awsAuth = JSON.parse(disk.auth_json);
-          const result = generate_s3_upload_url(
+          const result = await generate_s3_upload_url(
             existingFile.id,
             existingFile.extension,
             awsAuth,
             driveId,
-            file_size,
-            24 * 60 * 60,
-            disk_id
+            BigInt(file_size),
+            BigInt(24 * 60 * 60),
+            disk_id,
+            existingFile.name
           );
           if (result.ok) uploadResponse = result.ok;
           else throw new Error(result.err);
         } else if (disk.disk_type === DiskTypeEnum.StorjWeb3) {
           const storjAuth = JSON.parse(disk.auth_json);
-          const result = generate_s3_upload_url(
+          const result = await generate_s3_upload_url(
             existingFile.id,
             existingFile.extension,
             storjAuth,
             driveId,
-            file_size,
-            24 * 60 * 60,
-            disk_id
+            BigInt(file_size),
+            BigInt(24 * 60 * 60),
+            disk_id,
+            existingFile.name
           );
           if (result.ok) uploadResponse = result.ok;
           else throw new Error(result.err);
@@ -218,7 +224,6 @@ export async function createFile(
     version_id: versionId,
     file_version: fileVersion,
     prior_version: priorVersion,
-    next_version: undefined,
     extension: extension,
     full_directory_path: finalPath,
     labels: params.labels || [],
@@ -253,11 +258,17 @@ export async function createFile(
       ).run(versionId, priorVersion);
     }
     // Update the main file record
+    // Add 'deleted' and 'restore_trash_prior_folder_uuid' to the column list and values
     tx.prepare(
       `
-        INSERT OR REPLACE INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, last_updated_at, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
+    INSERT OR REPLACE INTO files (
+      id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at,
+      disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, deleted,
+      drive_id, upload_status, expires_at, restore_trash_prior_folder_uuid,
+      has_sovereign_permissions, shortcut_to, notes, external_id, external_payload
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `
     ).run(
       fileRecord.id,
       fileRecord.name,
@@ -273,10 +284,12 @@ export async function createFile(
       fileRecord.raw_url,
       fileRecord.last_updated_date_ms,
       fileRecord.last_updated_by,
+      fileRecord.deleted ? 1 : 0, // Value for 'deleted' (boolean to integer)
       driveId,
       fileRecord.upload_status,
-      expires_at,
-      fileRecord.has_sovereign_permissions ? 1 : 0, // Convert boolean to integer
+      fileRecord.expires_at,
+      fileRecord.restore_trash_prior_folder_uuid, // Value for 'restore_trash_prior_folder_uuid'
+      fileRecord.has_sovereign_permissions ? 1 : 0,
       fileRecord.shortcut_to,
       fileRecord.notes,
       fileRecord.external_id,
@@ -286,8 +299,8 @@ export async function createFile(
     // Insert new version record
     tx.prepare(
       `
-        INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     ).run(
       versionId,
@@ -316,27 +329,29 @@ export async function createFile(
   if (fileRecord.upload_status === UploadStatus.QUEUED) {
     if (disk.disk_type === DiskTypeEnum.AwsBucket) {
       const awsAuth = JSON.parse(disk.auth_json);
-      const result = generate_s3_upload_url(
+      const result = await generate_s3_upload_url(
         fileRecord.id,
         fileRecord.extension,
         awsAuth,
         driveId,
-        file_size,
-        24 * 60 * 60,
-        disk_id
+        BigInt(file_size),
+        BigInt(24 * 60 * 60),
+        disk_id,
+        fileRecord.name
       );
       if (result.ok) uploadResponse = result.ok;
       else throw new Error(result.err);
     } else if (disk.disk_type === DiskTypeEnum.StorjWeb3) {
       const storjAuth = JSON.parse(disk.auth_json);
-      const result = generate_s3_upload_url(
+      const result = await generate_s3_upload_url(
         fileRecord.id,
         fileRecord.extension,
         storjAuth,
         driveId,
-        file_size,
-        24 * 60 * 60,
-        disk_id
+        BigInt(file_size),
+        BigInt(24 * 60 * 60),
+        disk_id,
+        fileRecord.name
       );
       if (result.ok) uploadResponse = result.ok;
       else throw new Error(result.err);
@@ -365,7 +380,7 @@ export async function createFolder(
 
   // PERMIT: Add permission check for parent folder CREATE permission
   const parentFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${parent_folder_uuid}` as DirectoryResourceID;
+    `${parent_folder_uuid}` as DirectoryResourceID;
   const hasCreatePermission = (
     await checkDirectoryPermissions(parentFolderResourceId, userId, driveId)
   ).includes(DirectoryPermissionType.UPLOAD); // Rust uses Upload for create folder
@@ -462,13 +477,13 @@ export async function deleteResource(
   }
 
   // If resource is already in trash, only allow permanent deletion (Rust logic)
-  if (resource.restore_trash_prior_folder_id && !permanent) {
+  if (resource.restore_trash_prior_folder_uuid && !permanent) {
     throw new Error("Cannot move to trash: item is already in trash.");
   }
 
   const parentFolderId = resource.parent_folder_id;
   const parentFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${parentFolderId}` as DirectoryResourceID;
+    `${parentFolderId}` as DirectoryResourceID;
 
   // PERMIT: Add permission check for DELETE permission on the parent folder
   const hasDeletePermission = (
@@ -555,18 +570,18 @@ export async function deleteResource(
 
       // Update parent_folder_id to trash folder's ID
       tx.prepare(
-        `UPDATE ${tableName} SET is_deleted = 1, restore_trash_prior_folder_id = ?, parent_folder_id = ? WHERE id = ?`
+        `UPDATE ${tableName} SET deleted = 1, restore_trash_prior_folder_uuid = ?, parent_folder_id = ? WHERE id = ?`
       ).run(resource.parent_folder_id, trashFolderId, resourceId);
 
-      // If it's a folder, also update all its children to be in trash (by setting their restore_trash_prior_folder_id)
+      // If it's a folder, also update all its children to be in trash (by setting their restore_trash_prior_folder_uuid)
       // This is the Rust logic for delete_folder non-permanent path.
       if (!isFile) {
         const stack: FolderID[] = [resourceId];
         while (stack.length > 0) {
           const currentFolderId = stack.pop()!;
-          // Update current folder's restore_trash_prior_folder_id to its actual parent before being moved
+          // Update current folder's restore_trash_prior_folder_uuid to its actual parent before being moved
           tx.prepare(
-            `UPDATE folders SET restore_trash_prior_folder_id = parent_folder_id WHERE id = ?`
+            `UPDATE folders SET restore_trash_prior_folder_uuid = parent_folder_id WHERE id = ?`
           ).run(currentFolderId);
 
           const subfolders = tx
@@ -581,7 +596,7 @@ export async function deleteResource(
             .all(currentFolderId) as { id: FileID }[];
           for (const file_in_folder of files) {
             tx.prepare(
-              `UPDATE files SET restore_trash_prior_folder_id = ? WHERE id = ?`
+              `UPDATE files SET restore_trash_prior_folder_uuid = ? WHERE id = ?`
             ).run(currentFolderId, file_in_folder.id);
           }
         }
@@ -629,9 +644,9 @@ export async function copyFile(
 
     // PERMIT: Check for VIEW permission on source file and UPLOAD/EDIT/MANAGE on destination folder
     const sourceFileResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.File}${fileId}` as DirectoryResourceID;
+      `${fileId}` as DirectoryResourceID;
     const destFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+      `${destinationFolderId}` as DirectoryResourceID;
 
     const hasViewSourcePermission = (
       await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
@@ -686,7 +701,6 @@ export async function copyFile(
       version_id: newVersionId,
       file_version: 1, // New copy always starts at version 1
       prior_version: undefined,
-      next_version: undefined,
       extension: sourceFile.extension,
       full_directory_path: finalPath,
       labels: sourceFile.labels, // Keep original labels
@@ -715,7 +729,7 @@ export async function copyFile(
     };
 
     tx.prepare(
-      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, last_updated_at, last_updated_by_user_id, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to_file_id, notes, external_id, external_payload)
+      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFileRecord.id,
@@ -744,7 +758,7 @@ export async function copyFile(
 
     // Insert new version record
     tx.prepare(
-      `INSERT INTO file_versions(version_id, file_id, name, file_version, prior_version_id, extension, created_by_user_id, created_at, disk_id, disk_type, file_size, raw_url, notes)
+      `INSERT INTO file_versions(version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newVersionId,
@@ -839,9 +853,9 @@ export async function copyFolder(
 
     // PERMIT: Check for VIEW permission on source folder and UPLOAD/EDIT/MANAGE on destination folder
     const sourceFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${folderId}` as DirectoryResourceID;
+      `${folderId}` as DirectoryResourceID;
     const destFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+      `${destinationFolderId}` as DirectoryResourceID;
 
     const hasViewSourcePermission = (
       await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
@@ -914,7 +928,7 @@ export async function copyFolder(
     };
 
     tx.prepare(
-      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by_user_id, created_at, last_updated_at, last_updated_by_user_id, disk_id, disk_type, is_deleted, expires_at, drive_id, restore_trash_prior_folder_id, has_sovereign_permissions, shortcut_to_folder_id, notes, external_id, external_payload)
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newFolderRecord.id,
@@ -1010,9 +1024,9 @@ export async function moveFile(
 
     // PERMIT: Check EDIT permission on the source file and UPLOAD/CREATE on the destination folder
     const sourceFileResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.File}${fileId}` as DirectoryResourceID;
+      `${fileId}` as DirectoryResourceID;
     const destFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+      `${destinationFolderId}` as DirectoryResourceID;
 
     const hasEditSourcePermission = (
       await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
@@ -1050,7 +1064,7 @@ export async function moveFile(
 
     // Update file's metadata and parent
     tx.prepare(
-      "UPDATE files SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?"
+      "UPDATE files SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
     ).run(
       finalName,
       finalPath,
@@ -1119,9 +1133,9 @@ async function moveFolderTransaction(
 
   // PERMIT: Check EDIT permission on the source folder and UPLOAD/CREATE on the destination folder
   const sourceFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${folderId}` as DirectoryResourceID;
+    `${folderId}` as DirectoryResourceID;
   const destFolderResourceId: DirectoryResourceID =
-    `${IDPrefixEnum.Folder}${destinationFolderId}` as DirectoryResourceID;
+    `${destinationFolderId}` as DirectoryResourceID;
 
   const hasEditSourcePermission = (
     await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
@@ -1157,7 +1171,7 @@ async function moveFolderTransaction(
 
   // Update folder's metadata and parent
   tx.prepare(
-    "UPDATE folders SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_at = ?, last_updated_by_user_id = ? WHERE id = ?"
+    "UPDATE folders SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
   ).run(
     finalName,
     finalPath,
@@ -1224,14 +1238,14 @@ export async function restoreFromTrash(
     const tableName = isFile ? "files" : "folders";
 
     const resource: any = tx
-      .prepare(`SELECT * FROM ${tableName} WHERE id = ? AND is_deleted = 1`)
+      .prepare(`SELECT * FROM ${tableName} WHERE id = ? AND deleted = 1`)
       .get(payload.id);
     if (!resource) {
       throw new Error("Resource not found in trash.");
     }
 
     // Verify resource is actually in trash (redundant check, but matches Rust)
-    if (resource.restore_trash_prior_folder_id === null) {
+    if (resource.restore_trash_prior_folder_uuid === null) {
       throw new Error(`${isFile ? "File" : "Folder"} is not in trash.`);
     }
 
@@ -1268,7 +1282,7 @@ export async function restoreFromTrash(
       // Restore to original location
       targetDestinationFolder = tx
         .prepare("SELECT * FROM folders WHERE id = ?")
-        .get(resource.restore_trash_prior_folder_id) as FolderRecord;
+        .get(resource.restore_trash_prior_folder_uuid) as FolderRecord;
 
       // If original folder not found, restore to root of the disk
       if (!targetDestinationFolder) {
@@ -1276,7 +1290,7 @@ export async function restoreFromTrash(
         if (!disk) throw new Error("Disk not found.");
         targetDestinationFolder = tx
           .prepare("SELECT * FROM folders WHERE id = ?")
-          .get(disk.root_folder_id) as FolderRecord;
+          .get(disk.root_folder) as FolderRecord;
         if (!targetDestinationFolder)
           throw new Error("Root folder not found for disk.");
       }
@@ -1297,7 +1311,7 @@ export async function restoreFromTrash(
 
     // PERMIT: Check UPLOAD/EDIT/MANAGE permission on the target destination folder
     const targetFolderResourceId: DirectoryResourceID =
-      `${IDPrefixEnum.Folder}${finalDestinationFolderId}` as DirectoryResourceID;
+      `${finalDestinationFolderId}` as DirectoryResourceID;
 
     const hasPermissionToRestore = (
       await checkDirectoryPermissions(targetFolderResourceId, userId, driveId)
@@ -1337,9 +1351,9 @@ export async function restoreFromTrash(
       restoredFolderId = restoredResource.id as FolderID;
     }
 
-    // Clear restore_trash_prior_folder_id and set is_deleted to 0
+    // Clear restore_trash_prior_folder_uuid and set deleted to 0
     tx.prepare(
-      `UPDATE ${tableName} SET is_deleted = 0, restore_trash_prior_folder_id = NULL WHERE id = ?`
+      `UPDATE ${tableName} SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?`
     ).run(payload.id);
 
     // If restoring a folder, recursively clear trash flags for its contents
@@ -1349,10 +1363,10 @@ export async function restoreFromTrash(
       while (idx < foldersToProcess.length) {
         const currentFolderId = foldersToProcess[idx++];
         tx.prepare(
-          `UPDATE folders SET is_deleted = 0, restore_trash_prior_folder_id = NULL WHERE id = ?`
+          `UPDATE folders SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?`
         ).run(currentFolderId);
         tx.prepare(
-          `UPDATE files SET is_deleted = 0, restore_trash_prior_folder_id = NULL WHERE parent_folder_id = ?`
+          `UPDATE files SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE parent_folder_id = ?`
         ).run(currentFolderId);
 
         const subfolders = tx
@@ -1388,28 +1402,25 @@ export async function getFolderMetadata(
   name: string;
   parent_folder_uuid: FolderID | undefined;
   full_directory_path: string;
-  created_by_user_id: string;
+  created_by: string;
   created_at: number;
-  last_updated_at: number;
-  last_updated_by_user_id: string;
+
   disk_id: string;
   disk_type: DiskTypeEnum;
-  is_deleted: boolean;
+  deleted: boolean;
   expires_at: number;
   drive_id: string;
-  restore_trash_prior_folder_id: FolderID | undefined;
+  restore_trash_prior_folder_uuid: FolderID | undefined;
   has_sovereign_permissions: boolean;
-  shortcut_to_folder_id: FolderID | undefined;
+  shortcut_to: FolderID | undefined;
   notes: string | undefined;
   external_id: string | undefined;
   external_payload: string | undefined;
   subfolder_uuids: FolderID[];
   file_uuids: FileID[];
   labels: string[];
-  created_by: string;
   last_updated_date_ms: number;
   last_updated_by: string;
-  deleted: boolean;
 } | null> {
   const rows = await db.queryDrive(
     orgId,
@@ -1418,24 +1429,23 @@ export async function getFolderMetadata(
       name,
       parent_folder_id,
       full_directory_path,
-      created_by_user_id,
+      created_by,
       created_at,
-      last_updated_at,
-      last_updated_by_user_id,
+      last_updated_date_ms,
+      last_updated_by,
       disk_id,
       disk_type,
-      is_deleted,
+      deleted,
       expires_at,
       drive_id,
-      restore_trash_prior_folder_id,
+      restore_trash_prior_folder_uuid,
       has_sovereign_permissions,
-      shortcut_to_folder_id,
+      shortcut_to,
       notes,
       external_id,
       external_payload,
       subfolder_uuids,
       file_uuids,
-      labels,
       created_by,
       last_updated_date_ms,
       last_updated_by,
@@ -1455,30 +1465,27 @@ export async function getFolderMetadata(
     name: row.name,
     parent_folder_uuid: row.parent_folder_id as FolderID | undefined,
     full_directory_path: row.full_directory_path,
-    created_by_user_id: row.created_by_user_id,
+    created_by: row.created_by,
     created_at: row.created_at,
-    last_updated_at: row.last_updated_at,
-    last_updated_by_user_id: row.last_updated_by_user_id,
+
     disk_id: row.disk_id,
     disk_type: row.disk_type,
-    is_deleted: row.is_deleted === 1,
+    deleted: row.deleted === 1,
     expires_at: row.expires_at,
     drive_id: row.drive_id,
-    restore_trash_prior_folder_id: row.restore_trash_prior_folder_id as
+    restore_trash_prior_folder_uuid: row.restore_trash_prior_folder_uuid as
       | FolderID
       | undefined,
     has_sovereign_permissions: row.has_sovereign_permissions === 1,
-    shortcut_to_folder_id: row.shortcut_to_folder_id as FolderID | undefined,
+    shortcut_to: row.shortcut_to as FolderID | undefined,
     notes: row.notes,
     external_id: row.external_id,
     external_payload: row.external_payload,
     subfolder_uuids: row.subfolder_uuids as FolderID[],
     file_uuids: row.file_uuids as FileID[],
-    labels: row.labels as string[],
-    created_by: row.created_by as string,
+    labels: [],
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
-    deleted: row.deleted,
   };
 }
 
@@ -1499,21 +1506,17 @@ export async function getFileMetadata(
   version_id: FileVersionID;
   extension: string;
   full_directory_path: string;
-  created_by_user_id: string;
   created_at: number;
   disk_id: string;
   disk_type: DiskTypeEnum;
   file_size: number;
   raw_url: string;
-  last_updated_at: number;
-  last_updated_by_user_id: string;
-  is_deleted: boolean;
   drive_id: string;
   upload_status: UploadStatus;
   expires_at: number;
-  restore_trash_prior_folder_id: FolderID | undefined;
+  restore_trash_prior_folder_uuid: FolderID | undefined;
   has_sovereign_permissions: boolean;
-  shortcut_to_file_id: FileID | undefined;
+  shortcut_to: FileID | undefined;
   notes: string | undefined;
   external_id: string | undefined;
   external_payload: string | undefined;
@@ -1527,38 +1530,34 @@ export async function getFileMetadata(
   const rows = await db.queryDrive(
     orgId,
     `SELECT
-      id,
-      name,
-      parent_folder_id,
-      version_id,
-      extension,
-      full_directory_path,
-      created_by_user_id,
-      created_at,
-      disk_id,
-      disk_type,
-      file_size,
-      raw_url,
-      last_updated_at,
-      last_updated_by_user_id,
-      is_deleted,
-      drive_id,
-      upload_status,
-      expires_at,
-      restore_trash_prior_folder_id,
-      has_sovereign_permissions,
-      shortcut_to_file_id,
-      notes,
-      external_id,
-      external_payload,
-      file_version,
-      labels,
-      created_by,
-      last_updated_date_ms,
-      last_updated_by,
-      deleted
-    FROM files
-    WHERE id = ?`,
+      f.id,
+      f.name,
+      f.parent_folder_id,
+      f.version_id,
+      f.extension,
+      f.full_directory_path,
+      f.created_by,
+      f.created_at,
+      f.disk_id,
+      f.disk_type,
+      f.file_size,
+      f.raw_url,
+      f.last_updated_date_ms,
+      f.last_updated_by,
+      f.deleted,
+      f.drive_id,
+      f.upload_status,
+      f.expires_at,
+      f.restore_trash_prior_folder_uuid,
+      f.has_sovereign_permissions,
+      f.shortcut_to,
+      f.notes,
+      f.external_id,
+      f.external_payload,
+      fv.file_version -- Select file_version from the joined table
+    FROM files AS f
+    JOIN file_versions AS fv ON f.version_id = fv.version_id -- Join file_versions table
+    WHERE f.id = ?`,
     [fileId]
   );
 
@@ -1574,31 +1573,27 @@ export async function getFileMetadata(
     version_id: row.version_id,
     extension: row.extension,
     full_directory_path: row.full_directory_path,
-    created_by_user_id: row.created_by_user_id,
+    created_by: row.created_by,
     created_at: row.created_at,
     disk_id: row.disk_id,
     disk_type: row.disk_type,
     file_size: row.file_size,
     raw_url: row.raw_url,
-    last_updated_at: row.last_updated_at,
-    last_updated_by_user_id: row.last_updated_by_user_id,
-    is_deleted: row.is_deleted === 1,
+    deleted: row.deleted === 1,
     drive_id: row.drive_id,
     upload_status: row.upload_status,
     expires_at: row.expires_at,
-    restore_trash_prior_folder_id: row.restore_trash_prior_folder_id as
+    restore_trash_prior_folder_uuid: row.restore_trash_prior_folder_uuid as
       | FolderID
       | undefined,
     has_sovereign_permissions: row.has_sovereign_permissions === 1,
-    shortcut_to_file_id: row.shortcut_to_file_id as FileID | undefined,
+    shortcut_to: row.shortcut_to as FileID | undefined,
     notes: row.notes,
     external_id: row.external_id,
     external_payload: row.external_payload,
-    file_version: row.file_version,
-    labels: row.labels,
-    created_by: row.created_by,
+    file_version: row.file_version, // This line is now correct
+    labels: [],
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
-    deleted: row.deleted,
   };
 }

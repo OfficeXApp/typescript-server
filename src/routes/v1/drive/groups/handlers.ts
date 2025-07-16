@@ -209,7 +209,7 @@ export async function getGroupHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -351,7 +351,7 @@ export async function listGroupsHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -444,7 +444,7 @@ export async function createGroupHandler(
     await dbHelpers.transaction("drive", orgId, (database) => {
       // 1. Insert the group itself
       const groupStmt = database.prepare(
-        `INSERT INTO groups (
+        `INSERT INTO groups ( 
           id, name, owner, avatar, private_note, public_note,
           created_at, last_modified_at, drive_id, endpoint_url,
           external_id, external_payload
@@ -500,7 +500,7 @@ export async function createGroupHandler(
       const groupSelfPermissionStmt = database.prepare(
         `INSERT INTO permissions_system (
           id, resource_type, resource_identifier, grantee_type, grantee_id,
-          granted_by_user_id, begin_date_ms, expiry_date_ms, note,
+          granted_by, begin_date_ms, expiry_date_ms, note,
           created_at, last_modified_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
@@ -549,7 +549,7 @@ export async function createGroupHandler(
           user_id: requesterApiKey.user_id as UserID,
           name: ownerContact[0]?.name || "",
           avatar: ownerContact[0]?.avatar,
-          note: "Owner",
+          note: "Group Creator",
           group_id: groupId as GroupID,
           is_admin: true,
           invite_id: "", // This would need to be fetched if we want the actual invite ID here
@@ -570,7 +570,7 @@ export async function createGroupHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -749,7 +749,7 @@ export async function updateGroupHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -858,7 +858,7 @@ export async function deleteGroupHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }
@@ -917,7 +917,7 @@ export async function validateGroupMemberHandler(
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
-        message: "Internal server error",
+        message: `Internal server error - ${error}`,
       })
     );
   }

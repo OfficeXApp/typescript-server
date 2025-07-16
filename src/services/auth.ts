@@ -1,7 +1,8 @@
 // src/services/auth.ts
 
 import { Principal } from "@dfinity/principal";
-import { sign, verify, getPublicKey } from "@noble/ed25519";
+import * as ed from "@noble/ed25519";
+import { sign, verify, getPublicKey, utils } from "@noble/ed25519";
 import { mnemonicToSeed, validateMnemonic } from "bip39";
 import { getAddress, HDNodeWallet } from "ethers";
 import {
@@ -12,43 +13,22 @@ import { FastifyRequest } from "fastify"; // Import FastifyRequest
 import {
   ApiKey,
   ApiKeyID,
+  ApiKeyProof,
   ApiKeyValue,
+  AuthJsonDecoded,
+  AuthTypeEnum,
   DriveID,
   FactoryApiKey,
   IDPrefixEnum,
+  SignatureProof,
   UserID,
 } from "@officexapp/types";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "./database";
+import { webcrypto } from "node:crypto";
+import { sha512 } from "@noble/hashes/sha512";
 
-// --- Types (Equivalent to Rust structs/enums) ---
-
-export enum AuthTypeEnum {
-  Signature = "Signature",
-  ApiKey = "ApiKey",
-}
-
-export interface Challenge {
-  timestamp_ms: number;
-  self_auth_principal: number[]; // Raw public key bytes
-  canonical_principal: string;
-  // Add other fields from your Rust Challenge if any
-}
-
-export interface SignatureProof {
-  auth_type: AuthTypeEnum.Signature;
-  challenge: Challenge;
-  signature: number[]; // Signature bytes
-}
-
-export interface ApiKeyProof {
-  auth_type: AuthTypeEnum.ApiKey;
-  value: string;
-}
-
-export type AuthJsonDecoded = SignatureProof | ApiKeyProof;
-
-// Removed: export interface HttpRequest { ... } - Now using FastifyRequest
+ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 
 export interface HttpResponse {
   statusCode: number;
@@ -110,7 +90,7 @@ function debug_log(...args: any[]): void {
 
 function format_user_id(principalText: string): UserID {
   // Implement your user ID formatting logic here, likely based on the principal
-  return `user_${principalText.replace(/[^a-zA-Z0-9]/g, "_")}`; // Simple sanitization
+  return `${IDPrefixEnum.User}${principalText}`;
 }
 
 function create_response(
