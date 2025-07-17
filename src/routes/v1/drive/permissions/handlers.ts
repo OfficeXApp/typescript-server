@@ -50,6 +50,7 @@ import {
   IResponseRedeemSystemPermission,
   SystemPermission,
   SystemPermissionID,
+  GenerateID,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { v4 as uuidv4 } from "uuid";
@@ -74,10 +75,10 @@ import { authenticateRequest } from "../../../../services/auth";
 
 // Constants for ID prefixes to match Rust enum variants in string format
 export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
-export const USER_ID_PREFIX = "UserID_";
-export const GROUP_ID_PREFIX = "GroupID_";
-export const PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX =
-  "PlaceholderDirectoryPermissionGranteeID_";
+export const USER_ID_PREFIX = IDPrefixEnum.User;
+export const GROUP_ID_PREFIX = IDPrefixEnum.Group;
+export const PLACEHOLDER_GRANTEE_ID_PREFIX =
+  IDPrefixEnum.PlaceholderPermissionGrantee;
 
 // --- Helper Functions for Internal Mapping ---
 
@@ -91,6 +92,7 @@ function parseGranteeIDForDb(idStr: GranteeID): {
   type: string;
   id: string | null;
 } {
+  console.log(`>>> parseGranteeIDForDb: ${idStr}`);
   if (idStr === PUBLIC_GRANTEE_ID_STRING) {
     return { type: "Public", id: null };
   }
@@ -100,7 +102,7 @@ function parseGranteeIDForDb(idStr: GranteeID): {
   if (idStr.startsWith(GROUP_ID_PREFIX)) {
     return { type: "Group", id: idStr };
   }
-  if (idStr.startsWith(PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX)) {
+  if (idStr.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX)) {
     return {
       type: "Placeholder",
       id: idStr,
@@ -326,7 +328,6 @@ export async function createDirectoryPermission(
     metadata?: PermissionMetadata;
     external_id?: string;
     external_payload?: string;
-    redeem_code?: string;
   },
   requesterId: UserID
 ): Promise<DirectoryPermissionFE> {
@@ -334,11 +335,23 @@ export async function createDirectoryPermission(
     data.id || IDPrefixEnum.DirectoryPermission + uuidv4();
   const currentTime = Date.now();
 
+  const granteeIdForDb =
+    data.granted_to || GenerateID.PlaceholderPermissionGrantee();
+
   const { type: resourceType, id: resourceUUID } =
     parseDirectoryResourceIDForDb(data.resource_id);
-  const { type: granteeType, id: granteeUUID } = parseGranteeIDForDb(
-    data.granted_to || PUBLIC_GRANTEE_ID_STRING
-  );
+  const { type: granteeType, id: granteeUUID } =
+    parseGranteeIDForDb(granteeIdForDb);
+
+  console.log(`
+    >>> 
+
+    resourceType: ${resourceType}
+    resourceUUID: ${resourceUUID}
+    granteeType: ${granteeType}
+    granteeUUID: ${granteeUUID}
+    
+    `);
 
   let resourcePath = "";
   if (resourceType === "File") {
@@ -363,6 +376,11 @@ export async function createDirectoryPermission(
       metadataContent = data.metadata.content.DirectoryPassword;
     }
   }
+
+  const redeem_code =
+    !data.granted_to && granteeIdForDb.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX)
+      ? GenerateID.RedeemCode()
+      : null;
 
   // 1. Run the synchronous transaction to write the data to the database.
   dbHelpers.transaction("drive", orgId, (tx) => {
@@ -389,7 +407,7 @@ export async function createDirectoryPermission(
       data.note || "",
       currentTime,
       currentTime,
-      data.redeem_code || null,
+      redeem_code || null,
       null, // `from_placeholder_grantee` is null on creation
       metadataType,
       metadataContent,
@@ -599,9 +617,7 @@ export async function redeemDirectoryPermission(
     return { error: "Permission not found" };
   }
   if (
-    !existingPermission.granted_to.startsWith(
-      PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-    )
+    !existingPermission.granted_to.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX)
   ) {
     return { error: "Permission is not a redeemable placeholder" };
   }
@@ -779,12 +795,8 @@ export async function getSystemPermissionsForRecord(
         orgId
       );
     } else if (
-      granteeId.startsWith(
-        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-      ) && // Placeholder for system permissions also
-      permissionGrantedTo.startsWith(
-        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-      )
+      granteeId.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX) && // Placeholder for system permissions also
+      permissionGrantedTo.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX)
     ) {
       applies = granteeId === permissionGrantedTo;
     }
@@ -1289,9 +1301,7 @@ export async function redeemSystemPermission(
     return { error: "Permission not found" };
   }
   if (
-    !existingPermission.granted_to.startsWith(
-      PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-    )
+    !existingPermission.granted_to.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX)
   ) {
     return { error: "Permission is not a redeemable placeholder" };
   }
