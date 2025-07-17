@@ -1042,13 +1042,9 @@ export async function redeemGroupInviteHandler(
       );
 
       const responseData: IResponseRedeemGroupInvite = {
-        ok: {
-          data: {
-            invite: {
-              ...newInvite,
-              invitee_id: newInvite.invitee_id || "PUBLIC",
-            },
-          },
+        invite: {
+          ...newInvite,
+          invitee_id: newInvite.invitee_id || "PUBLIC",
         },
       };
 
@@ -1116,13 +1112,9 @@ export async function redeemGroupInviteHandler(
       );
 
       const responseData: IResponseRedeemGroupInvite = {
-        ok: {
-          data: {
-            invite: {
-              ...updatedInvite,
-              invitee_id: updatedInvite.invitee_id || "PUBLIC",
-            },
-          },
+        invite: {
+          ...updatedInvite,
+          invitee_id: updatedInvite.invitee_id || "PUBLIC",
         },
       };
 
@@ -1157,13 +1149,9 @@ export async function redeemGroupInviteHandler(
       );
 
       const responseData: IResponseRedeemGroupInvite = {
-        ok: {
-          data: {
-            invite: {
-              ...redeemedInvite,
-              invitee_id: redeemedInvite.invitee_id,
-            },
-          },
+        invite: {
+          ...redeemedInvite,
+          invitee_id: redeemedInvite.invitee_id,
         },
       };
       return reply.status(200).send(createApiResponse(responseData));
