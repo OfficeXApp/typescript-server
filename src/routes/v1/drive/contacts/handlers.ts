@@ -1261,12 +1261,6 @@ export async function redeemContactHandler(
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    const hasInviteTablePermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.INVITE,
-      org_id
-    );
-
     const currentContactRecordResourceId: SystemResourceID =
       `${currentPlainUserId}` as SystemResourceID;
     const currentContactRecordPermissions = await checkSystemPermissions(
@@ -1278,7 +1272,7 @@ export async function redeemContactHandler(
       SystemPermissionType.EDIT
     );
 
-    if (!isOwner && !hasInviteTablePermission && !canEditCurrentContact) {
+    if (!isOwner && !canEditCurrentContact) {
       return reply.status(403).send(
         createApiResponse(undefined, {
           code: 403,

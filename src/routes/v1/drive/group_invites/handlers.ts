@@ -927,24 +927,6 @@ export async function redeemGroupInviteHandler(
       );
     }
 
-    // PERMIT: Check if user has INVITE permission on the group record (to join it)
-    const canJoinGroupViaPermissions = (
-      await checkSystemPermissions(
-        invite.group_id as SystemResourceID,
-        currentUserId,
-        orgId
-      )
-    ).includes(SystemPermissionType.INVITE);
-
-    if (!canJoinGroupViaPermissions) {
-      return reply.status(403).send(
-        createApiResponse(undefined, {
-          code: 403,
-          message: "Forbidden: Not allowed to join this group",
-        })
-      );
-    }
-
     const now = Date.now();
 
     // Handle different invite types
