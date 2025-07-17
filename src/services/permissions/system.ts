@@ -190,15 +190,11 @@ export async function hasSystemManagePermission(
 export async function checkSystemPermissions(
   resourceId: SystemResourceID,
   granteeId: GranteeID,
-  orgId: DriveID // Ensure orgId is DriveID
+  orgId: DriveID
 ): Promise<SystemPermissionType[]> {
   const allPermissions = new Set<SystemPermissionType>();
+  const isOwner = (await getDriveOwnerId(orgId)) === granteeId;
 
-  const isOwner =
-    (await getDriveOwnerId(orgId)) ===
-    (granteeId.startsWith(IDPrefixEnum.User)
-      ? (granteeId as UserID)
-      : undefined);
   if (isOwner) {
     return [
       SystemPermissionType.CREATE,
@@ -209,6 +205,7 @@ export async function checkSystemPermissions(
     ];
   }
 
+  // Check direct permissions for the grantee
   const directPermissions = await checkSystemResourcePermissions(
     resourceId,
     granteeId,
@@ -216,29 +213,39 @@ export async function checkSystemPermissions(
   );
   directPermissions.forEach((p) => allPermissions.add(p));
 
+  // Check public permissions
   const publicPermissions = await checkSystemResourcePermissions(
     resourceId,
-    PUBLIC_GRANTEE_ID_STRING,
+    "PUBLIC",
     orgId
   );
   publicPermissions.forEach((p) => allPermissions.add(p));
 
+  // If the grantee is a user, check their group permissions
   if (granteeId.startsWith(IDPrefixEnum.User)) {
     const userId = granteeId as UserID;
-    const plainUserId = userId;
 
-    // Get all groups the user is directly a member of via contact_groups table
-    const userGroupsRows = await db.queryDrive(
-      orgId,
-      `SELECT group_id FROM contact_groups WHERE user_id = ?`,
-      [plainUserId]
-    );
+    // *** CORRECTED LOGIC ***
+    // Get all groups the user is a member of via group_invites
+    const currentTime = Date.now();
+    const userGroupsQuery = `
+        SELECT DISTINCT group_id FROM group_invites
+        WHERE invitee_id = ?
+        AND invitee_type = 'USER'
+        AND active_from <= ?
+        AND (expires_at <= 0 OR expires_at > ?)
+    `;
+    const userGroupsRows = await db.queryDrive(orgId, userGroupsQuery, [
+      userId,
+      currentTime,
+      currentTime,
+    ]);
 
     for (const row of userGroupsRows) {
-      const groupId = `${row.group_id}` as GroupID;
+      const groupId = row.group_id as GroupID;
       const groupPermissions = await checkSystemResourcePermissions(
         resourceId,
-        groupId,
+        groupId, // Check permissions for the group
         orgId
       );
       groupPermissions.forEach((p) => allPermissions.add(p));
@@ -384,13 +391,20 @@ export async function checkSystemResourcePermissionsLabels(
 
   if (granteeId.startsWith(IDPrefixEnum.User)) {
     const userId = granteeId as UserID;
-    const plainUserId = userId;
 
-    const userGroupsRows = await db.queryDrive(
-      orgId,
-      `SELECT group_id FROM contact_groups WHERE user_id = ?`,
-      [plainUserId]
-    );
+    const currentTime = Date.now();
+    const userGroupsQuery = `
+    SELECT DISTINCT group_id FROM group_invites
+    WHERE invitee_id = ?
+    AND invitee_type = 'USER'
+    AND active_from <= ?
+    AND (expires_at <= 0 OR expires_at > ?)
+`;
+    const userGroupsRows = await db.queryDrive(orgId, userGroupsQuery, [
+      userId,
+      currentTime,
+      currentTime,
+    ]);
 
     for (const row of userGroupsRows) {
       const groupId = `${row.group_id}` as GroupID;

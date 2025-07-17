@@ -72,6 +72,7 @@ import {
   mapDbRowToSystemPermission,
 } from "../../../../services/permissions/system";
 import { authenticateRequest } from "../../../../services/auth";
+import { isUserInGroup } from "../../../../services/groups";
 
 // Constants for ID prefixes to match Rust enum variants in string format
 export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
@@ -128,19 +129,6 @@ function parseDirectoryResourceIDForDb(idStr: DirectoryResourceID): {
     return { type: "Folder", id: idStr };
   }
   throw new Error(`Invalid DirectoryResourceID format for DB: ${idStr}`);
-}
-
-async function isUserInGroup(
-  userId: UserID,
-  groupId: GroupID,
-  orgId: string
-): Promise<boolean> {
-  const rows = await db.queryDrive(
-    orgId,
-    "SELECT 1 FROM contact_groups WHERE user_id = ? AND group_id = ?",
-    [userId, groupId]
-  );
-  return rows.length > 0;
 }
 
 // --- Directory Permission Core Logic ---

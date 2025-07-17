@@ -103,58 +103,73 @@ async function redactContact(
 
   redactedContact.labels = contact.labels;
 
-  // Fetch real group data and filter based on permissions.
-  // We need to query the `contact_groups` join table to get group IDs associated with this contact.
-  const plainContactIdForGroups = contact.id;
-  const contactGroupsQuery = `
-    SELECT group_id FROM contact_groups WHERE user_id = ?;
+  // Use a map to store group data, preventing duplicates. Key is GroupID.
+  const groupDataMap = new Map<
+    GroupID,
+    {
+      invite_id?: GroupInviteID;
+      is_admin: boolean;
+    }
+  >();
+
+  // 1. Get all groups the contact is a member of via invites
+  const userInvitesQuery = `
+    SELECT id, group_id, role FROM group_invites
+    WHERE invitee_id = ? AND invitee_type = 'USER';
   `;
-  const contactGroupRows: { group_id: string }[] = await db.queryDrive(
+  const inviteRows: { id: string; group_id: string; role: string }[] =
+    await db.queryDrive(orgId, userInvitesQuery, [plainContactId]);
+
+  for (const row of inviteRows) {
+    groupDataMap.set(row.group_id as GroupID, {
+      invite_id: row.id as GroupInviteID,
+      is_admin: row.role === GroupRole.ADMIN,
+    });
+  }
+
+  // 2. Get all groups the contact owns
+  const ownedGroupsQuery = `SELECT id FROM groups WHERE owner = ?;`;
+  const ownedGroupRows: { id: string }[] = await db.queryDrive(
     orgId,
-    contactGroupsQuery,
-    [plainContactIdForGroups]
+    ownedGroupsQuery,
+    [plainContactId]
   );
 
+  for (const row of ownedGroupRows) {
+    const groupId = row.id as GroupID;
+    const existingData = groupDataMap.get(groupId);
+    // Ownership always confers admin rights and takes precedence.
+    groupDataMap.set(groupId, {
+      invite_id: existingData?.invite_id, // Keep invite_id if it exists
+      is_admin: true, // Owner is always an admin
+    });
+  }
+
+  // 3. Fetch details for all collected group IDs at once
   const groupPreviews: ContactGroupPreview[] = [];
-  for (const row of contactGroupRows) {
-    const groupId: GroupID = `${row.group_id}` as GroupID;
-    const group = await getGroupById(groupId, orgId);
+  const allGroupIds = Array.from(groupDataMap.keys());
 
-    if (group) {
-      // Find the specific invite for this user within this group
-      const memberInviteQuery = `
-        SELECT id, role FROM group_invites
-        WHERE group_id = ? AND invitee_type = 'USER' AND invitee_id = ?;
-      `;
-      const memberInviteRows: { id: string; role: string }[] =
-        await db.queryDrive(orgId, memberInviteQuery, [
-          group.id,
-          plainContactIdForGroups,
-        ]);
+  if (allGroupIds.length > 0) {
+    const groupDetailsQuery = `
+      SELECT id, name, avatar FROM groups WHERE id IN (${allGroupIds.map(() => "?").join(",")});
+    `;
+    const groupDetailsRows: { id: string; name: string; avatar?: string }[] =
+      await db.queryDrive(orgId, groupDetailsQuery, allGroupIds);
 
-      let is_admin = false;
-      let invite_id: GroupInviteID | undefined;
-
-      if (memberInviteRows.length > 0) {
-        const inviteRow = memberInviteRows[0];
-        is_admin = inviteRow.role === GroupRole.ADMIN;
-        invite_id = `${inviteRow.id}` as GroupInviteID;
-      } else {
-        // If no direct invite found, check if the user is the owner of the group
-        if (group.owner === contact.id) {
-          is_admin = true;
-          // For owner, there might not be an explicit invite record, generate a placeholder invite ID
-          invite_id = `${IDPrefixEnum.GroupInvite}OWNER_DEFAULT`; // Placeholder
-        }
+    for (const groupDetail of groupDetailsRows) {
+      const groupId = groupDetail.id as GroupID;
+      const membershipData = groupDataMap.get(groupId);
+      if (membershipData) {
+        groupPreviews.push({
+          group_id: groupId,
+          invite_id:
+            membershipData.invite_id ||
+            (`${IDPrefixEnum.GroupInvite}OWNER_DEFAULT` as GroupInviteID), // Provide placeholder for owners without explicit invites
+          is_admin: membershipData.is_admin,
+          group_name: groupDetail.name,
+          group_avatar: groupDetail.avatar,
+        });
       }
-
-      groupPreviews.push({
-        group_id: group.id,
-        invite_id: invite_id || ("" as GroupInviteID), // Provide a default empty string or handle undefined in FE
-        is_admin,
-        group_name: group.name,
-        group_avatar: group.avatar,
-      });
     }
   }
   redactedContact.group_previews = groupPreviews;
@@ -764,15 +779,6 @@ export async function createContactHandler(
               Date.now(),
               Date.now()
             );
-
-          // Insert into contact_groups join table
-          database
-            .prepare(
-              `
-            INSERT INTO contact_groups (user_id, group_id) VALUES (?, ?);
-          `
-            )
-            .run(plainContactId, plainDefaultGroupId);
         }
       }
     });
@@ -1129,11 +1135,6 @@ export async function deleteContactHandler(
       // Delete from contacts table
       database.prepare("DELETE FROM contacts WHERE id = ?").run(plainContactId);
 
-      // Clean up related entries in `contact_groups`
-      database
-        .prepare("DELETE FROM contact_groups WHERE user_id = ?")
-        .run(plainContactId);
-
       // Clean up related entries in `group_invites` where this user is the invitee
       database
         .prepare(
@@ -1380,11 +1381,6 @@ export async function redeemContactHandler(
             "INSERT INTO contact_id_superswap_history (old_user_id, new_user_id, swapped_at) VALUES (?, ?, ?)"
           )
           .run(currentPlainUserId, newPlainUserId, Date.now());
-
-        // 12. Update `contact_groups` (membership in groups)
-        database
-          .prepare("UPDATE contact_groups SET user_id = ? WHERE user_id = ?")
-          .run(newPlainUserId, currentPlainUserId);
 
         updateCount = 1;
       });

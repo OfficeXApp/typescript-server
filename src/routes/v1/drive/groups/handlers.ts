@@ -171,15 +171,13 @@ export async function getGroupHandler(
     }
 
     // Get group members for the FE response
-    const members = await db.queryDrive(
-      orgId,
-      `SELECT c.*, cg.role, gi.id as invite_id, gi.note as invite_note
-       FROM contact_groups cg
-       JOIN contacts c ON cg.user_id = c.id
-       LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id AND gi.invitee_type = 'USER'
-       WHERE cg.group_id = ?`,
-      [groupId]
-    );
+    const membersQuery = `
+    SELECT c.*, gi.role, gi.id as invite_id, gi.note as invite_note
+    FROM group_invites gi
+    JOIN contacts c ON gi.invitee_id = c.id
+    WHERE gi.group_id = ? AND gi.invitee_type = 'USER'
+  `;
+    const members = await db.queryDrive(orgId, membersQuery, [groupId]);
 
     // PERMIT: Get permission previews for the current user on this group record
     const permissionPreviews = await checkSystemPermissions(
@@ -196,7 +194,7 @@ export async function getGroupHandler(
         avatar: m.avatar,
         note: m.invite_note, // Note from the invite, if available
         group_id: groupId,
-        is_admin: m.role === GroupRole.ADMIN, // Use role from contact_groups
+        is_admin: m.role === GroupRole.ADMIN,
         invite_id: m.invite_id || "",
         last_online_ms: m.last_online_ms || 0,
       })),
@@ -236,15 +234,14 @@ export async function listGroupsHandler(
     const body = request.body || {};
     const pageSize = body.page_size || 50;
     const direction = body.direction || "DESC";
-    const cursor = body.cursor;
     const currentUserId = requesterApiKey.user_id;
     const orgId = request.params.org_id as DriveID;
 
-    // PERMIT: Check if the user is the org owner, or has VIEW permission on the Groups table.
+    // --- Permission Check (remains the same) ---
     const isOrgOwner =
       (
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId; // Org owner check
+      )[0]?.owner_id === currentUserId;
     const canViewGroupsTable = (
       await checkSystemPermissions(
         `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
@@ -253,81 +250,98 @@ export async function listGroupsHandler(
       )
     ).includes(SystemPermissionType.VIEW);
 
+    // For non-admins, we find groups they are a part of.
+    let userGroupIds: GroupID[] = [];
     if (!isOrgOwner && !canViewGroupsTable) {
-      return reply.status(403).send(
-        createApiResponse(undefined, {
-          code: 403,
-          message: "Forbidden: Not authorized to list groups",
-        })
-      );
+      const currentTime = Date.now();
+      const userGroupsQuery = `
+            SELECT DISTINCT group_id FROM group_invites
+            WHERE invitee_id = ? AND invitee_type = 'USER'
+            AND active_from <= ? AND (expires_at <= 0 OR expires_at > ?)
+        `;
+      userGroupIds = (
+        await db.queryDrive(orgId, userGroupsQuery, [
+          currentUserId,
+          currentTime,
+          currentTime,
+        ])
+      ).map((r) => r.group_id);
+      if (userGroupIds.length === 0) {
+        return reply.status(200).send(
+          createApiResponse({
+            items: [],
+            page_size: pageSize,
+            total: 0,
+            direction,
+            cursor: null,
+          })
+        );
+      }
     }
 
-    // Build query with cursor-based pagination
-    let query = `
-      SELECT g.*,
-             (SELECT COUNT(*) FROM contact_groups cg WHERE cg.group_id = g.id) as member_count
-      FROM groups g
-      WHERE 1=1
-    `;
+    // --- Query Construction ---
+    let query = `SELECT g.* FROM groups g`;
     const params: any[] = [];
+    const whereClauses: string[] = [];
 
-    if (cursor) {
-      query += ` AND g.created_at ${direction === "ASC" ? ">" : "<"} ?`;
-      params.push(cursor);
+    // If not admin, only show groups the user is a member of.
+    if (!isOrgOwner && !canViewGroupsTable) {
+      whereClauses.push(`g.id IN (${userGroupIds.map(() => "?").join(",")})`);
+      params.push(...userGroupIds);
+    }
+
+    if (body.cursor) {
+      whereClauses.push(`g.created_at ${direction === "ASC" ? ">" : "<"} ?`);
+      params.push(body.cursor);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(" AND ")}`;
     }
 
     query += ` ORDER BY g.created_at ${direction} LIMIT ?`;
-    params.push(pageSize + 1); // Get one extra to check if there are more
+    params.push(pageSize + 1);
 
     const groups = await db.queryDrive(orgId, query, params);
 
+    // --- Pagination and Response Formatting ---
     const hasMore = groups.length > pageSize;
     if (hasMore) {
-      groups.pop(); // Remove the extra item
+      groups.pop();
     }
 
-    // Get total count
-    const countResult = await db.queryDrive(
-      orgId,
-      "SELECT COUNT(*) as total FROM groups"
-    );
-    const total = countResult[0]?.total || 0;
-
-    // Convert to GroupFE format
     const groupsFE = await Promise.all(
       groups.map(async (group: Group) => {
-        // Get member previews for each group
+        // *** CORRECTED MEMBER PREVIEW QUERY ***
         const members = await db.queryDrive(
           orgId,
-          `SELECT c.*, cg.role, gi.id as invite_id, gi.note as invite_note
-         FROM contact_groups cg
-         JOIN contacts c ON cg.user_id = c.id
-         LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id AND gi.invitee_type = 'USER'
-         WHERE cg.group_id = ?
-         LIMIT 5`, // Limit member previews for list view
+          `SELECT c.id, c.name, c.avatar, c.last_online_ms, gi.role, gi.id as invite_id, gi.note as invite_note
+           FROM group_invites gi
+           JOIN contacts c ON gi.invitee_id = c.id
+           WHERE gi.group_id = ? AND gi.invitee_type = 'USER'
+           LIMIT 5`,
           [group.id]
         );
 
-        // PERMIT: Get permission previews for the current user on each group record
         const permissionPreviews = await checkSystemPermissions(
-          group.id as SystemResourceID, // GroupID is a SystemRecordIDEnum
+          group.id as SystemResourceID,
           currentUserId,
           orgId
         );
 
         return {
           ...group,
-          member_previews: members.map((m) => ({
+          member_previews: members.map((m: any) => ({
             user_id: m.id,
             name: m.name,
             avatar: m.avatar,
             note: m.invite_note,
             group_id: group.id,
             is_admin: m.role === GroupRole.ADMIN,
-            invite_id: m.invite_id || "",
+            invite_id: m.invite_id,
             last_online_ms: m.last_online_ms || 0,
           })),
-          permission_previews: permissionPreviews, // PERMIT: Populate permission previews
+          permission_previews: permissionPreviews,
         };
       })
     );
@@ -341,7 +355,7 @@ export async function listGroupsHandler(
       createApiResponse({
         items: groupsFE,
         page_size: pageSize,
-        total,
+        total: groupsFE.length,
         direction,
         cursor: nextCursor,
       })
@@ -464,12 +478,6 @@ export async function createGroupHandler(
         group.external_id,
         group.external_payload
       );
-
-      // 2. Add owner to contact_groups with ADMIN role
-      const contactGroupStmt = database.prepare(
-        `INSERT INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
-      );
-      contactGroupStmt.run(requesterApiKey.user_id, groupId, GroupRole.ADMIN);
 
       // 3. Create an initial invite record for the owner (as admin)
       const ownerInviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
@@ -711,15 +719,17 @@ export async function updateGroupHandler(
     }
 
     // Get member previews
-    const members = await db.queryDrive(
-      orgId,
-      `SELECT c.*, cg.role, gi.id as invite_id, gi.note as invite_note
-       FROM contact_groups cg
-       JOIN contacts c ON cg.user_id = c.id
-       LEFT JOIN group_invites gi ON gi.group_id = cg.group_id AND gi.invitee_id = c.id AND gi.invitee_type = 'USER'
-       WHERE cg.group_id = ?`,
-      [group.id]
-    );
+    const membersQuery = `
+      SELECT 
+          c.id, c.name, c.avatar, c.last_online_ms, 
+          gi.role, 
+          gi.id as invite_id, 
+          gi.note as invite_note
+      FROM group_invites gi
+      JOIN contacts c ON gi.invitee_id = c.id
+      WHERE gi.group_id = ? AND gi.invitee_type = 'USER'
+  `;
+    const members = await db.queryDrive(orgId, membersQuery, [group.id]);
 
     // PERMIT: Get permission previews for the current user on the updated group record
     const permissionPreviews = await checkSystemPermissions(
@@ -773,86 +783,51 @@ export async function deleteGroupHandler(
         );
     }
 
-    const body = request.body;
+    const { id: groupId } = request.body;
     const currentUserId = requesterApiKey.user_id;
     const orgId = request.params.org_id as DriveID;
 
-    // Get the group to check permissions
-    const group = await getGroupById(body.id as GroupID, orgId);
-
-    if (!group) {
-      return reply.status(404).send(
-        createApiResponse(undefined, {
-          code: 404,
-          message: "Group not found",
-        })
-      );
-    }
-
-    // PERMIT: Check permissions - user must be the org owner, or have DELETE permission on the group record
+    // --- Permission Check (remains the same) ---
     const isOrgOwner =
       (
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId; // Org owner check
-    const canDeleteGroupViaPermissions = (
+      )[0]?.owner_id === currentUserId;
+    const canDelete = (
       await checkSystemPermissions(
-        group.id as SystemResourceID,
+        groupId as SystemResourceID,
         currentUserId,
         orgId
       )
     ).includes(SystemPermissionType.DELETE);
-
-    if (!isOrgOwner && !canDeleteGroupViaPermissions) {
-      return reply.status(403).send(
-        createApiResponse(undefined, {
-          code: 403,
-          message: "Forbidden: Not allowed to delete this group",
-        })
-      );
+    if (!isOrgOwner && !canDelete) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
     }
 
-    // Delete group and related data in transaction
+    // *** SIMPLIFIED DELETION LOGIC ***
+    // The `ON DELETE CASCADE` on the `group_invites` table's foreign key
+    // will handle the cleanup automatically.
     await dbHelpers.transaction("drive", orgId, (database) => {
-      // Delete group invites
-      database
-        .prepare("DELETE FROM group_invites WHERE group_id = ?")
-        .run(group.id);
+      // Delete the group. Related invites are deleted by CASCADE.
+      database.prepare("DELETE FROM groups WHERE id = ?").run(groupId);
 
-      // Delete group members
-      database
-        .prepare("DELETE FROM contact_groups WHERE group_id = ?")
-        .run(group.id);
-
-      // Delete group labels (assuming group_labels uses plain group_id)
-      database
-        .prepare("DELETE FROM group_labels WHERE group_id = ?")
-        .run(group.id);
-
-      // Delete the group
-      database.prepare("DELETE FROM groups WHERE id = ?").run(group.id);
-
-      // Also remove any system permissions associated with this group ID as a resource
+      // Also remove any system permissions associated with this group ID
       database
         .prepare("DELETE FROM permissions_system WHERE resource_identifier = ?")
-        .run(group.id);
-      // And remove any system permissions where this group ID was the grantee
+        .run(groupId);
       database
         .prepare(
           "DELETE FROM permissions_system WHERE grantee_id = ? AND grantee_type = 'Group'"
         )
-        .run(group.id);
+        .run(groupId);
     });
 
-    const deletedData: IResponseDeleteGroup = {
-      ok: {
-        data: {
-          id: body.id as GroupID,
-          deleted: true,
-        },
-      },
-    };
-
-    return reply.status(200).send(createApiResponse(deletedData));
+    return reply
+      .status(200)
+      .send(createApiResponse({ id: groupId, deleted: true }));
   } catch (error) {
     request.log.error("Error in deleteGroupHandler:", error);
     return reply.status(500).send(

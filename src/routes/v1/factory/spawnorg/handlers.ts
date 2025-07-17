@@ -816,42 +816,28 @@ export async function redeemGiftcardSpawnOrgHandler(
         null
       );
 
-      const insertContactGroupStmt = driveDatabase.prepare(
-        `INSERT INTO contact_groups (
-            user_id, group_id, role
-          ) VALUES (?, ?, ?)`
-      );
-      insertContactGroupStmt.run(
-        ownerId, // The owner is the user_id for this junction
-        groupID, // The ID of the group just created
-        GroupRole.ADMIN // The owner is an ADMIN of this group
+      const insertOwnerInviteStmt = driveDatabase.prepare(
+        `INSERT INTO group_invites (
+            id, group_id, inviter_id, invitee_id, invitee_type, role, note,
+            active_from, expires_at, created_at, last_modified_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
 
-      // create group invites
-      const inviteID = GenerateID.GroupInvite();
-      const insertGroupInviteStmt = driveDatabase.prepare(
-        `INSERT INTO group_invites (
-            id, group_id, inviter_id, invitee_type, invitee_id, role, note,
-            active_from, expires_at, created_at, last_modified_at, redeem_code,
-            from_placeholder_invitee, external_id, external_payload
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      insertGroupInviteStmt.run(
-        inviteID,
-        groupID,
-        ownerId,
-        GroupInviteeTypeEnum.USER,
-        ownerId,
-        GroupRole.ADMIN,
-        noteForSpawn,
-        currentTime,
-        currentTime,
-        currentTime,
-        currentTime,
-        redeemCode,
-        null,
-        null,
-        null
+      const ownerInviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
+      const now = Date.now();
+
+      insertOwnerInviteStmt.run(
+        ownerInviteId,
+        groupID, // The ID of the default group just created
+        ownerId, // The owner is the inviter
+        ownerId, // The owner is also the invitee
+        "USER", // The invitee type is a user
+        GroupRole.ADMIN, // The owner is an ADMIN of this group
+        "Initial group owner.", // A note for the invite
+        now, // active_from
+        -1, // expires_at (never)
+        now, // created_at
+        now // last_modified_at
       );
     });
     // --- End: New Drive DB Creation and Initialization ---

@@ -331,14 +331,6 @@ CREATE TABLE contact_id_superswap_history (
 -- Junction Tables for Many-to-Many Relationships
 -- =============================================
 
--- Junction Table for `Contact.groups`
-CREATE TABLE contact_groups (
-    user_id TEXT NOT NULL,
-    group_id TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'MEMBER', 
-    PRIMARY KEY (user_id, group_id)
-);
-
 -- Junction Table for `Contact.past_user_ids`
 CREATE TABLE contact_past_ids (
     user_id TEXT NOT NULL,

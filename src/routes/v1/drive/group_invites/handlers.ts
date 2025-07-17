@@ -510,11 +510,14 @@ export async function createGroupInviteHandler(
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
 
+      // The invitee_id column stores the UserID or PlaceholderID. It is NULL for PUBLIC invites.
+      const dbInviteeId = inviteeType === "PUBLIC" ? null : invite.invitee_id;
+
       stmt.run(
         invite.id,
         invite.group_id,
         invite.inviter_id,
-        inviteeType === "USER" ? invite.invitee_id : null, // Store actual invitee_id only for USER type, otherwise NULL
+        dbInviteeId,
         inviteeType,
         invite.role,
         invite.note,
@@ -527,14 +530,6 @@ export async function createGroupInviteHandler(
         invite.external_id,
         invite.external_payload
       );
-
-      // If it's a direct user invite, add them to the contact_groups table immediately
-      if (inviteeType === "USER" && invite.invitee_id) {
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
-        );
-        memberStmt.run(invite.invitee_id, invite.group_id, invite.role);
-      }
     });
 
     // Get group info for FE response
@@ -712,18 +707,6 @@ export async function updateGroupInviteHandler(
         `UPDATE group_invites SET ${updates.join(", ")} WHERE id = ?`
       );
       stmt.run(...values);
-
-      // If the role is being updated and it's a direct user invite, update contact_groups
-      if (
-        body.role !== undefined &&
-        invite.invitee_id &&
-        invite.invitee_id.startsWith(IDPrefixEnum.User)
-      ) {
-        const updateMemberRoleStmt = database.prepare(
-          `UPDATE contact_groups SET role = ? WHERE user_id = ? AND group_id = ?`
-        );
-        updateMemberRoleStmt.run(body.role, invite.invitee_id, invite.group_id);
-      }
     });
 
     // Get updated invite with additional info
@@ -851,20 +834,9 @@ export async function deleteGroupInviteHandler(
 
     // Delete invite and remove user from group if needed
     await dbHelpers.transaction("drive", orgId, (database) => {
-      // Delete the invite
+      // Just delete the invite. This effectively removes the user's membership.
       database.prepare("DELETE FROM group_invites WHERE id = ?").run(invite.id);
 
-      // Remove user from group if they were added via a direct user invite
-      if (
-        invite.invitee_id &&
-        invite.invitee_id.startsWith(IDPrefixEnum.User)
-      ) {
-        database
-          .prepare(
-            "DELETE FROM contact_groups WHERE user_id = ? AND group_id = ?"
-          )
-          .run(invite.invitee_id, invite.group_id);
-      }
       // Also remove any system permissions associated with this invite ID as a resource
       database
         .prepare("DELETE FROM permissions_system WHERE resource_identifier = ?")
@@ -981,7 +953,7 @@ export async function redeemGroupInviteHandler(
       const newInviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
 
       await dbHelpers.transaction("drive", orgId, (database) => {
-        // Create new invite
+        // Create new invite for the redeeming user
         const stmt = database.prepare(
           `INSERT INTO group_invites (
               id, group_id, inviter_id, invitee_id, invitee_type, role, note,
@@ -1000,23 +972,17 @@ export async function redeemGroupInviteHandler(
           invite.inviter_id,
           body.user_id,
           "USER",
-          invite.role, // Maintain the original role from the public invite
+          invite.role,
           userNote,
           invite.active_from,
           invite.expires_at,
           now,
           now,
-          null, // Clear redeem code for the new specific invite
-          invite.id, // Reference the original public invite as from_placeholder_invitee
+          null,
+          invite.id,
           invite.external_id,
           invite.external_payload
         );
-
-        // Add user to group
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
-        );
-        memberStmt.run(body.user_id, invite.group_id, invite.role);
       });
 
       // Get the new invite with additional info
@@ -1034,7 +1000,6 @@ export async function redeemGroupInviteHandler(
         );
       }
 
-      // PERMIT: Get permission previews for the current user on the newly redeemed invite record
       const permissionPreviews = await checkSystemPermissions(
         newInvite.id as SystemResourceID,
         currentUserId,
@@ -1063,7 +1028,6 @@ export async function redeemGroupInviteHandler(
       }
 
       await dbHelpers.transaction("drive", orgId, (database) => {
-        // Update invite
         const userNote = body.note
           ? `Note from User: ${body.note}, Prior Original Note: ${invite.note}`
           : invite.note;
@@ -1077,21 +1041,14 @@ export async function redeemGroupInviteHandler(
         stmt.run(
           body.user_id,
           "USER",
-          invite.role, // Maintain the original role from the placeholder invite
+          invite.role,
           userNote,
           now,
-          invite.invitee_id, // Store the original placeholder ID here
+          invite.invitee_id,
           invite.id
         );
-
-        // Add user to group
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
-        );
-        memberStmt.run(body.user_id, invite.group_id, invite.role);
       });
 
-      // Get updated invite
       const updatedInvite = await getGroupInviteById(invite.id, orgId);
 
       if (!updatedInvite) {
@@ -1104,7 +1061,6 @@ export async function redeemGroupInviteHandler(
         );
       }
 
-      // PERMIT: Get permission previews for the current user on the updated invite record
       const permissionPreviews = await checkSystemPermissions(
         updatedInvite.id as SystemResourceID,
         currentUserId,
@@ -1120,17 +1076,6 @@ export async function redeemGroupInviteHandler(
 
       return reply.status(200).send(createApiResponse(responseData));
     } else if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
-      // If it's a direct user invite, and the user matches, just ensure they are in contact_groups
-      // (This should already be handled during invite creation, but good for idempotency or
-      // if invite was deleted from contact_groups without invite being deleted)
-      await dbHelpers.transaction("drive", orgId, (database) => {
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
-        );
-        memberStmt.run(invite.invitee_id, invite.group_id, invite.role);
-      });
-
-      // Get updated invite (no change to invite record itself, just confirmation of membership)
       const redeemedInvite = await getGroupInviteById(invite.id, orgId);
 
       if (!redeemedInvite) {
@@ -1141,12 +1086,6 @@ export async function redeemGroupInviteHandler(
           })
         );
       }
-
-      const permissionPreviews = await checkSystemPermissions(
-        redeemedInvite.id as SystemResourceID,
-        currentUserId,
-        orgId
-      );
 
       const responseData: IResponseRedeemGroupInvite = {
         invite: {
