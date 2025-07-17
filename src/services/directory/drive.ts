@@ -1079,7 +1079,7 @@ export async function moveFile(
       .prepare(
         `SELECT id FROM permissions_directory WHERE resource_type = 'File' AND resource_id = ?`
       )
-      .all(fileId.substring(IDPrefixEnum.File.length)) as { id: string }[];
+      .all(fileId) as { id: string }[];
     for (const perm of permissionsToUpdate) {
       tx.prepare(
         `UPDATE permissions_directory SET resource_path = ? WHERE id = ?`
@@ -1189,7 +1189,7 @@ async function moveFolderTransaction(
     .prepare(
       `SELECT id FROM permissions_directory WHERE resource_type = 'Folder' AND resource_id = ?`
     )
-    .all(folderId.substring(IDPrefixEnum.Folder.length)) as { id: string }[];
+    .all(folderId) as { id: string }[];
   for (const perm of permissionsToUpdate) {
     tx.prepare(
       `UPDATE permissions_directory SET resource_path = ? WHERE id = ?`

@@ -383,11 +383,11 @@ export async function ensureRootFolder(
       insertPermission.run(
         permissionId,
         "Folder",
-        rootFolder.id.substring(IDPrefixEnum.Folder.length), // Store plain ID
+        rootFolder.id, // Store plain ID
         rootPath,
         "User",
-        userId.substring(IDPrefixEnum.User.length), // Store plain ID
-        userId.substring(IDPrefixEnum.User.length), // Store plain ID
+        userId, // Store plain ID
+        userId, // Store plain ID
         0, // Immediate
         -1, // Never expires
         1, // Inheritable
@@ -442,11 +442,11 @@ export async function ensureRootFolder(
       insertPermission.run(
         permissionId,
         "Folder",
-        trashFolderId.substring(IDPrefixEnum.Folder.length), // Store plain ID
+        trashFolderId, // Store plain ID
         trashPath,
         "User",
-        userId.substring(IDPrefixEnum.User.length), // Store plain ID
-        userId.substring(IDPrefixEnum.User.length), // Store plain ID
+        userId, // Store plain ID
+        userId, // Store plain ID
         0, // Immediate
         -1, // Never expires
         0, // Not inheritable (sovereign permissions - Rust had `has_sovereign_permissions` for this logic)
@@ -552,11 +552,11 @@ export async function ensureFolderStructure(
         ).run(
           permissionId,
           "Folder",
-          newFolderId.substring(IDPrefixEnum.Folder.length),
+          newFolderId,
           currentPath,
           "User",
-          userId.substring(IDPrefixEnum.User.length),
-          userId.substring(IDPrefixEnum.User.length),
+          userId,
+          userId,
           0, // Immediate
           -1, // Never expires
           isFinalFolder && hasSovereignPermissions ? 0 : 1, // If sovereign, not inheritable from parents
@@ -630,7 +630,7 @@ export async function updateSubfolderPaths(
             `SELECT id, resource_path FROM permissions_directory
              WHERE resource_type = 'File' AND resource_id = ?`
           )
-          .all(file.id.substring(IDPrefixEnum.File.length)) as {
+          .all(file.id) as {
           id: string;
           resource_path: string;
         }[];
@@ -667,7 +667,7 @@ export async function updateSubfolderPaths(
           `SELECT id, resource_path FROM permissions_directory
            WHERE resource_type = 'Folder' AND resource_id = ?`
         )
-        .all(currentFolderId.substring(IDPrefixEnum.Folder.length)) as {
+        .all(currentFolderId) as {
         id: string;
         resource_path: string;
       }[];

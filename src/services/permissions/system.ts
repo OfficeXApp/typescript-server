@@ -28,26 +28,17 @@ import {
 // This function is generally not needed for DB queries as resource_identifier stores the full prefixed ID for records.
 // It might be useful if you need the UUID part for other logic.
 function extractPlainSystemRecordId(id: string): string {
-  if (id.startsWith(IDPrefixEnum.Drive))
-    return id.substring(IDPrefixEnum.Drive.length);
-  if (id.startsWith(IDPrefixEnum.Disk))
-    return id.substring(IDPrefixEnum.Disk.length);
-  if (id.startsWith(IDPrefixEnum.User))
-    return id.substring(IDPrefixEnum.User.length);
-  if (id.startsWith(IDPrefixEnum.Group))
-    return id.substring(IDPrefixEnum.Group.length);
-  if (id.startsWith(IDPrefixEnum.ApiKey))
-    return id.substring(IDPrefixEnum.ApiKey.length);
-  if (id.startsWith(IDPrefixEnum.SystemPermission))
-    return id.substring(IDPrefixEnum.SystemPermission.length);
-  if (id.startsWith(IDPrefixEnum.DirectoryPermission))
-    return id.substring(IDPrefixEnum.DirectoryPermission.length);
-  if (id.startsWith(IDPrefixEnum.Webhook))
-    return id.substring(IDPrefixEnum.Webhook.length);
-  if (id.startsWith(IDPrefixEnum.LabelID))
-    return id.substring(IDPrefixEnum.LabelID.length);
+  if (id.startsWith(IDPrefixEnum.Drive)) return id;
+  if (id.startsWith(IDPrefixEnum.Disk)) return id;
+  if (id.startsWith(IDPrefixEnum.User)) return id;
+  if (id.startsWith(IDPrefixEnum.Group)) return id;
+  if (id.startsWith(IDPrefixEnum.ApiKey)) return id;
+  if (id.startsWith(IDPrefixEnum.SystemPermission)) return id;
+  if (id.startsWith(IDPrefixEnum.DirectoryPermission)) return id;
+  if (id.startsWith(IDPrefixEnum.Webhook)) return id;
+  if (id.startsWith(IDPrefixEnum.LabelID)) return id;
   // Assuming "Unknown_" prefix for SystemRecordIDEnum.Unknown in Rust Display
-  if (id.startsWith("Unknown_")) return id.substring("Unknown_".length);
+  if (id.startsWith("Unknown_")) return id;
   return id; // Fallback for cases like directly passed UUIDs or if it's already plain
 }
 
@@ -61,7 +52,7 @@ function parseSystemResourceIDString(idStr: string): {
   value: string; // The actual ID or table enum value without its prefix for DB lookup
 } {
   if (idStr.startsWith("TABLE_")) {
-    return { type: "Table", value: idStr.substring("TABLE_".length) };
+    return { type: "Table", value: idStr };
   } else {
     // If it's a Record, the `resource_identifier` in DB is the full prefixed ID.
     // So, we just use the `idStr` directly as the value for the query.
@@ -79,14 +70,13 @@ export function mapDbRowToSystemPermission(row: any): SystemPermission {
       grantedTo = PUBLIC_GRANTEE_ID_STRING;
       break;
     case "User":
-      grantedTo = `${IDPrefixEnum.User}${granteeIdPart}` as UserID;
+      grantedTo = `${granteeIdPart}` as UserID;
       break;
     case "Group":
-      grantedTo = `${IDPrefixEnum.Group}${granteeIdPart}` as GroupID;
+      grantedTo = `${granteeIdPart}` as GroupID;
       break;
     case "Placeholder":
-      grantedTo =
-        `${IDPrefixEnum.PlaceholderPermissionGrantee}${granteeIdPart}` as `PlaceholderPermissionGranteeID_${string}`;
+      grantedTo = `${granteeIdPart}` as GranteeID;
       break;
     default:
       console.warn(
@@ -139,7 +129,7 @@ export function mapDbRowToSystemPermission(row: any): SystemPermission {
     id: row.id,
     resource_id: resourceIdWithPrefix,
     granted_to: grantedTo,
-    granted_by: `${IDPrefixEnum.User}${row.granted_by}` as UserID,
+    granted_by: `${row.granted_by}` as UserID,
     permission_types: (row.permission_types_list || "")
       .split(",")
       .filter(Boolean)
@@ -245,7 +235,7 @@ export async function checkSystemPermissions(
     );
 
     for (const row of userGroupsRows) {
-      const groupId = `${IDPrefixEnum.Group}${row.group_id}` as GroupID;
+      const groupId = `${row.group_id}` as GroupID;
       const groupPermissions = await checkSystemResourcePermissions(
         resourceId,
         groupId,
@@ -403,7 +393,7 @@ export async function checkSystemResourcePermissionsLabels(
     );
 
     for (const row of userGroupsRows) {
-      const groupId = `${IDPrefixEnum.Group}${row.group_id}` as GroupID;
+      const groupId = `${row.group_id}` as GroupID;
       const groupPermissions =
         await checkSystemResourcePermissionsLabelsInternal(
           resourceId,

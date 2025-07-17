@@ -104,14 +104,6 @@ function validateRedeemGiftcardRefuelRequest(body: RedeemGiftcardRefuelData): {
   return { valid: true };
 }
 
-// Helper to format UserID (mimics Rust's format_user_id)
-function formatUserId(principal: string): string {
-  // In a real TS environment, this would involve more complex logic
-  // to convert a principal string to your UserID format.
-  // For this simulation, we'll keep it simple as a direct mapping.
-  return `UserID_${principal.substring(0, 8)}`; // Example: UserID_xxxxx...
-}
-
 // Placeholder for `deposit_cycles` - this would be an inter-canister call in a real IC setup.
 // Here, it's simulated.
 async function depositCycles(
@@ -579,7 +571,7 @@ export async function redeemGiftcardRefuelHandler(
 
     const redeemCode = `REDEEM_${Date.now()}`;
     const currentTime = Date.now();
-    const userId = formatUserId(body.icp_principal);
+    const userId = `UserID_${body.icp_principal}`;
 
     try {
       await depositCycles(body.icp_principal, giftcard.gas_cycles_included);

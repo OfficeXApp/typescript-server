@@ -95,17 +95,15 @@ function parseGranteeIDForDb(idStr: GranteeID): {
     return { type: "Public", id: null };
   }
   if (idStr.startsWith(USER_ID_PREFIX)) {
-    return { type: "User", id: idStr.substring(USER_ID_PREFIX.length) };
+    return { type: "User", id: idStr };
   }
   if (idStr.startsWith(GROUP_ID_PREFIX)) {
-    return { type: "Group", id: idStr.substring(GROUP_ID_PREFIX.length) };
+    return { type: "Group", id: idStr };
   }
   if (idStr.startsWith(PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX)) {
     return {
       type: "Placeholder",
-      id: idStr.substring(
-        PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX.length
-      ),
+      id: idStr,
     };
   }
   throw new Error(`Invalid GranteeID format for DB: ${idStr}`);
@@ -122,10 +120,10 @@ function parseDirectoryResourceIDForDb(idStr: DirectoryResourceID): {
   id: string;
 } {
   if (idStr.startsWith(IDPrefixEnum.File)) {
-    return { type: "File", id: idStr.substring(IDPrefixEnum.File.length) };
+    return { type: "File", id: idStr };
   }
   if (idStr.startsWith(IDPrefixEnum.Folder)) {
-    return { type: "Folder", id: idStr.substring(IDPrefixEnum.Folder.length) };
+    return { type: "Folder", id: idStr };
   }
   throw new Error(`Invalid DirectoryResourceID format for DB: ${idStr}`);
 }
@@ -366,7 +364,8 @@ export async function createDirectoryPermission(
     }
   }
 
-  return dbHelpers.transaction("drive", orgId, async (tx) => {
+  // 1. Run the synchronous transaction to write the data to the database.
+  dbHelpers.transaction("drive", orgId, (tx) => {
     tx.prepare(
       `
         INSERT INTO permissions_directory (
@@ -404,18 +403,25 @@ export async function createDirectoryPermission(
     for (const type of data.permission_types) {
       insertPermTypeStmt.run(newPermissionId, type);
     }
-
-    const createdPermission = await getDirectoryPermissionById(
-      orgId,
-      newPermissionId,
-      requesterId,
-      true
-    );
-    if (!createdPermission) {
-      throw new Error("Failed to retrieve newly created permission.");
-    }
-    return castToDirectoryPermissionFE(createdPermission, requesterId, orgId);
   });
+
+  // 2. Fetch the newly created permission AFTER the transaction has successfully committed.
+  const createdPermission = await getDirectoryPermissionById(
+    orgId,
+    newPermissionId,
+    requesterId,
+    true // Skip authorization check since we just created it
+  );
+
+  if (!createdPermission) {
+    // If it's not found, the transaction likely failed and rolled back.
+    throw new Error(
+      "Failed to retrieve newly created permission after transaction."
+    );
+  }
+
+  // 3. Cast the fetched permission to the front-end format and return it.
+  return castToDirectoryPermissionFE(createdPermission, requesterId, orgId);
 }
 
 /**
@@ -453,7 +459,8 @@ export async function updateDirectoryPermission(
     }
   }
 
-  const result = await dbHelpers.transaction("drive", orgId, async (tx) => {
+  // 1. Run the synchronous transaction to update the database.
+  dbHelpers.transaction("drive", orgId, (tx) => {
     let updateFields: string[] = [];
     let updateParams: any[] = [];
 
@@ -490,10 +497,11 @@ export async function updateDirectoryPermission(
       updateParams.push(data.redeem_code);
     }
 
-    updateFields.push("last_modified_at = ?");
-    updateParams.push(currentTime);
-
+    // Only add last_modified_at if there are other fields to update
     if (updateFields.length > 0) {
+      updateFields.push("last_modified_at = ?");
+      updateParams.push(currentTime);
+
       const updateQuery = `
         UPDATE permissions_directory
         SET ${updateFields.join(", ")}
@@ -513,20 +521,22 @@ export async function updateDirectoryPermission(
         insertPermTypeStmt.run(data.id, type);
       }
     }
-
-    const updatedPermission = await getDirectoryPermissionById(
-      orgId,
-      data.id,
-      requesterId,
-      true
-    );
-    return updatedPermission;
   });
 
-  if (!result) {
+  // 2. Fetch the updated permission after the transaction.
+  const updatedPermission = await getDirectoryPermissionById(
+    orgId,
+    data.id,
+    requesterId,
+    true
+  );
+
+  if (!updatedPermission) {
     return null;
   }
-  return castToDirectoryPermissionFE(result, requesterId, orgId);
+
+  // 3. Cast to the front-end type and return.
+  return castToDirectoryPermissionFE(updatedPermission, requesterId, orgId);
 }
 
 /**
@@ -588,7 +598,6 @@ export async function redeemDirectoryPermission(
   if (!existingPermission) {
     return { error: "Permission not found" };
   }
-
   if (
     !existingPermission.granted_to.startsWith(
       PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
@@ -602,7 +611,6 @@ export async function redeemDirectoryPermission(
   ) {
     return { error: "Invalid redeem code" };
   }
-
   if (
     existingPermission.expiry_date_ms > 0 &&
     existingPermission.expiry_date_ms <= currentTime
@@ -616,11 +624,12 @@ export async function redeemDirectoryPermission(
     return { error: "Permission is not yet active" };
   }
 
-  return dbHelpers.transaction("drive", orgId, async (tx) => {
-    const { type: newGranteeType, id: newGranteeId } = parseGranteeIDForDb(
-      data.user_id
-    );
+  // 1. Run the synchronous transaction to update the database.
+  const { type: newGranteeType, id: newGranteeId } = parseGranteeIDForDb(
+    data.user_id
+  );
 
+  dbHelpers.transaction("drive", orgId, (tx) => {
     tx.prepare(
       `
       UPDATE permissions_directory
@@ -636,31 +645,33 @@ export async function redeemDirectoryPermission(
     ).run(
       newGranteeType,
       newGranteeId,
-      existingPermission.granted_to, // Store original placeholder as from_placeholder_grantee
+      existingPermission.granted_to, // Store original placeholder
       data.note || existingPermission.note,
       currentTime,
       data.permission_id
     );
-
-    const updatedPermission = await getDirectoryPermissionById(
-      orgId,
-      data.permission_id,
-      data.requesterId,
-      true
-    );
-
-    if (!updatedPermission) {
-      return { error: "Failed to redeem permission: internal error." };
-    }
-
-    return {
-      permission: await castToDirectoryPermissionFE(
-        updatedPermission,
-        data.requesterId,
-        orgId
-      ),
-    };
   });
+
+  // 2. Fetch the updated permission after the transaction.
+  const updatedPermission = await getDirectoryPermissionById(
+    orgId,
+    data.permission_id,
+    data.requesterId,
+    true
+  );
+
+  if (!updatedPermission) {
+    return { error: "Failed to redeem permission: internal error." };
+  }
+
+  // 3. Cast and return the successful result.
+  return {
+    permission: await castToDirectoryPermissionFE(
+      updatedPermission,
+      data.requesterId,
+      orgId
+    ),
+  };
 }
 
 // --- System Permission Core Logic ---
@@ -702,10 +713,10 @@ export async function getSystemPermissionsForRecord(
 
   if (resourceId.startsWith("TABLE_")) {
     resourceType = "Table";
-    resourceIdentifier = resourceId.substring("TABLE_".length);
+    resourceIdentifier = resourceId;
   } else if (resourceId.startsWith("RECORD_")) {
     resourceType = "Record";
-    resourceIdentifier = resourceId.substring("RECORD_".length);
+    resourceIdentifier = resourceId;
   } else {
     // Fallback or throw for unknown system resource IDs
     console.warn(
@@ -997,7 +1008,7 @@ export async function createSystemPermission(
   },
   requesterId: UserID
 ): Promise<any> {
-  // SystemPermissionFE
+  // Note: Returns SystemPermissionFE
   const newPermissionId = data.id || IDPrefixEnum.SystemPermission + uuidv4();
   const currentTime = Date.now();
 
@@ -1005,19 +1016,16 @@ export async function createSystemPermission(
     data.granted_to || PUBLIC_GRANTEE_ID_STRING
   );
 
-  // Determine resource_type ('Table' or 'Record') and resource_identifier
   let resourceType: string;
   let resourceIdentifier: string;
-
   if (data.resource_id.startsWith("TABLE_")) {
     resourceType = "Table";
-    resourceIdentifier = data.resource_id.substring("TABLE_".length);
+    resourceIdentifier = data.resource_id;
   } else if (data.resource_id.startsWith("RECORD_")) {
     resourceType = "Record";
-    resourceIdentifier = data.resource_id.substring("RECORD_".length);
+    resourceIdentifier = data.resource_id;
   } else {
-    // Default or throw error for invalid resource_id format
-    resourceType = "Unknown"; // Or throw new Error
+    resourceType = "Unknown";
     resourceIdentifier = data.resource_id;
   }
 
@@ -1031,7 +1039,8 @@ export async function createSystemPermission(
     }
   }
 
-  return dbHelpers.transaction("drive", orgId, async (tx) => {
+  // 1. Run the synchronous transaction to create the records.
+  dbHelpers.transaction("drive", orgId, (tx) => {
     tx.prepare(
       `
         INSERT INTO permissions_system (
@@ -1067,18 +1076,21 @@ export async function createSystemPermission(
     for (const type of data.permission_types) {
       insertPermTypeStmt.run(newPermissionId, type);
     }
-
-    const createdPermission = await getSystemPermissionById(
-      orgId,
-      newPermissionId,
-      requesterId,
-      true
-    );
-    if (!createdPermission) {
-      throw new Error("Failed to retrieve newly created system permission.");
-    }
-    return castToSystemPermissionFE(createdPermission, requesterId, orgId);
   });
+
+  // 2. Fetch the newly created permission after the transaction.
+  const createdPermission = await getSystemPermissionById(
+    orgId,
+    newPermissionId,
+    requesterId,
+    true
+  );
+  if (!createdPermission) {
+    throw new Error("Failed to retrieve newly created system permission.");
+  }
+
+  // 3. Cast and return the result.
+  return castToSystemPermissionFE(createdPermission, requesterId, orgId);
 }
 
 /**
@@ -1105,7 +1117,7 @@ export async function updateSystemPermission(
   },
   requesterId: UserID
 ): Promise<any | null> {
-  // SystemPermissionFE
+  // Note: Returns SystemPermissionFE
   const currentTime = Date.now();
 
   const metadataType = data.metadata?.metadata_type || null;
@@ -1118,20 +1130,20 @@ export async function updateSystemPermission(
     }
   }
 
-  const result = await dbHelpers.transaction("drive", orgId, async (tx) => {
+  // 1. Run the synchronous transaction to update the database.
+  dbHelpers.transaction("drive", orgId, (tx) => {
     let updateFields: string[] = [];
     let updateParams: any[] = [];
 
-    // Only update resource_type and resource_identifier if resource_id is provided
     if (data.resource_id !== undefined) {
       let resourceType: string;
       let resourceIdentifier: string;
       if (data.resource_id.startsWith("TABLE_")) {
         resourceType = "Table";
-        resourceIdentifier = data.resource_id.substring("TABLE_".length);
+        resourceIdentifier = data.resource_id;
       } else if (data.resource_id.startsWith("RECORD_")) {
         resourceType = "Record";
-        resourceIdentifier = data.resource_id.substring("RECORD_".length);
+        resourceIdentifier = data.resource_id;
       } else {
         resourceType = "Unknown";
         resourceIdentifier = data.resource_id;
@@ -1139,7 +1151,6 @@ export async function updateSystemPermission(
       updateFields.push("resource_type = ?", "resource_identifier = ?");
       updateParams.push(resourceType, resourceIdentifier);
     }
-
     if (data.granted_to !== undefined) {
       const { type: granteeType, id: granteeUUID } = parseGranteeIDForDb(
         data.granted_to
@@ -1176,10 +1187,10 @@ export async function updateSystemPermission(
       updateParams.push(data.redeem_code);
     }
 
-    updateFields.push("last_modified_at = ?");
-    updateParams.push(currentTime);
-
     if (updateFields.length > 0) {
+      updateFields.push("last_modified_at = ?");
+      updateParams.push(currentTime);
+
       const updateQuery = `
         UPDATE permissions_system
         SET ${updateFields.join(", ")}
@@ -1199,20 +1210,22 @@ export async function updateSystemPermission(
         insertPermTypeStmt.run(data.id, type);
       }
     }
-
-    const updatedPermission = await getSystemPermissionById(
-      orgId,
-      data.id,
-      requesterId,
-      true
-    );
-    return updatedPermission;
   });
 
-  if (!result) {
+  // 2. Fetch the updated permission after the transaction.
+  const updatedPermission = await getSystemPermissionById(
+    orgId,
+    data.id,
+    requesterId,
+    true
+  );
+
+  if (!updatedPermission) {
     return null;
   }
-  return castToSystemPermissionFE(result, requesterId, orgId);
+
+  // 3. Cast and return the result.
+  return castToSystemPermissionFE(updatedPermission, requesterId, orgId);
 }
 
 /**
@@ -1262,7 +1275,7 @@ export async function redeemSystemPermission(
     requesterId: UserID;
   }
 ): Promise<{ permission?: any; error?: string }> {
-  // SystemPermissionFE
+  // Note: Returns SystemPermissionFE
   const currentTime = Date.now();
 
   const existingPermission = await getSystemPermissionById(
@@ -1275,13 +1288,11 @@ export async function redeemSystemPermission(
   if (!existingPermission) {
     return { error: "Permission not found" };
   }
-
   if (
     !existingPermission.granted_to.startsWith(
       PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
     )
   ) {
-    // Using same placeholder prefix
     return { error: "Permission is not a redeemable placeholder" };
   }
   if (
@@ -1290,7 +1301,6 @@ export async function redeemSystemPermission(
   ) {
     return { error: "Invalid redeem code" };
   }
-
   if (
     existingPermission.expiry_date_ms > 0 &&
     existingPermission.expiry_date_ms <= currentTime
@@ -1304,11 +1314,12 @@ export async function redeemSystemPermission(
     return { error: "Permission is not yet active" };
   }
 
-  return dbHelpers.transaction("drive", orgId, async (tx) => {
-    const { type: newGranteeType, id: newGranteeId } = parseGranteeIDForDb(
-      data.user_id
-    );
+  // 1. Run the synchronous transaction to update the database.
+  const { type: newGranteeType, id: newGranteeId } = parseGranteeIDForDb(
+    data.user_id
+  );
 
+  dbHelpers.transaction("drive", orgId, (tx) => {
     tx.prepare(
       `
       UPDATE permissions_system
@@ -1324,31 +1335,33 @@ export async function redeemSystemPermission(
     ).run(
       newGranteeType,
       newGranteeId,
-      existingPermission.granted_to, // Store original placeholder as from_placeholder_grantee
+      existingPermission.granted_to, // Store original placeholder
       data.note || existingPermission.note,
       currentTime,
       data.permission_id
     );
-
-    const updatedPermission = await getSystemPermissionById(
-      orgId,
-      data.permission_id,
-      data.requesterId,
-      true
-    );
-
-    if (!updatedPermission) {
-      return { error: "Failed to redeem permission: internal error." };
-    }
-
-    return {
-      permission: await castToSystemPermissionFE(
-        updatedPermission,
-        data.requesterId,
-        orgId
-      ),
-    };
   });
+
+  // 2. Fetch the updated permission after the transaction.
+  const updatedPermission = await getSystemPermissionById(
+    orgId,
+    data.permission_id,
+    data.requesterId,
+    true
+  );
+
+  if (!updatedPermission) {
+    return { error: "Failed to redeem permission: internal error." };
+  }
+
+  // 3. Cast and return the successful result.
+  return {
+    permission: await castToSystemPermissionFE(
+      updatedPermission,
+      data.requesterId,
+      orgId
+    ),
+  };
 }
 
 // Directory Permissions Handlers
@@ -1496,7 +1509,7 @@ export async function createDirectoryPermissionsHandler(
     );
     reply.status(201).send({
       ok: {
-        data: createdPermissionFE,
+        data: { permission: createdPermissionFE },
       } as IResponseCreateDirectoryPermission["ok"],
     });
   } catch (error: any) {
@@ -1536,7 +1549,7 @@ export async function updateDirectoryPermissionsHandler(
     if (updatedPermissionFE) {
       reply.send({
         ok: {
-          data: updatedPermissionFE,
+          data: { permission: updatedPermissionFE },
         } as IResponseUpdateDirectoryPermission["ok"],
       });
     } else {

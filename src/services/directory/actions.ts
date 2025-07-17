@@ -38,7 +38,7 @@ import {
   FolderRecordFE,
   FilePathBreadcrumb,
 } from "@officexapp/types";
-import { db } from "../database";
+import { db, dbHelpers } from "../database";
 import path from "path";
 
 // #region Service Imports
@@ -593,32 +593,27 @@ export async function pipeAction(
 
       // Handle name update separately since it requires path updates
       if (payload.name !== undefined && payload.name !== file.name) {
-        await db.queryDrive(
-          driveId,
-          "UPDATE files SET name = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
-          [payload.name, Date.now(), userId, payload.id]
-        );
-        // Update full_directory_path as well if name changes
         const parentFolder = await driveGetFolderMetadata(
           driveId,
           file.parent_folder_uuid
         );
         if (parentFolder) {
           const newFullPath = `${parentFolder.full_directory_path}${payload.name}`;
-          await db.queryDrive(
-            driveId,
-            "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
-            [newFullPath, Date.now(), userId, payload.id]
-          );
-          // PERMIT FIX: Update resource_path for directory permissions associated with moved/renamed files
-          await db.queryDrive(
-            driveId,
-            "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?",
-            [
-              newFullPath,
-              file.id.substring(IDPrefixEnum.File.length), // Store plain ID
-            ]
-          );
+
+          // Atomically update file name and path using a transaction for safety
+          await dbHelpers.transaction("drive", driveId, (database) => {
+            database
+              .prepare(
+                "UPDATE files SET name = ?, full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
+              )
+              .run(payload.name, newFullPath, Date.now(), userId, payload.id);
+
+            database
+              .prepare(
+                "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?"
+              )
+              .run(newFullPath, file.id);
+          });
         }
       }
 
@@ -628,7 +623,6 @@ export async function pipeAction(
 
       if (payload.labels !== undefined) {
         // TODO: This should update the `file_labels` junction table
-        // For now, it's ignored as it's a separate persistence concern.
       }
       if (payload.expires_at !== undefined) {
         updateFields.push("expires_at = ?");
@@ -644,21 +638,23 @@ export async function pipeAction(
       }
       if (payload.external_payload !== undefined) {
         updateFields.push("external_payload = ?");
-        updateValues.push(payload.external_payload);
+        updateValues.push(JSON.stringify(payload.external_payload));
       }
       if (payload.notes !== undefined) {
         updateFields.push("notes = ?");
         updateValues.push(payload.notes);
       }
       if (payload.shortcut_to !== undefined) {
-        // Check for existence before accessing
         updateFields.push("shortcut_to = ?");
         updateValues.push(payload.shortcut_to);
       }
 
       if (updateFields.length > 0) {
-        const query = `UPDATE files SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?`;
-        await db.queryDrive(driveId, query, [
+        const query = `UPDATE files SET ${updateFields.join(
+          ", "
+        )}, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?`;
+        // Use the new runDrive for a simple, single update
+        await db.runDrive(driveId, query, [
           ...updateValues,
           Date.now(),
           userId,
@@ -1481,7 +1477,7 @@ async function updateSubfolderPathsRecursive(
         "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?",
         [
           newFilePath,
-          file.id.substring(IDPrefixEnum.File.length), // Store plain ID
+          file.id, // Store plain ID
         ]
       );
     }
@@ -1503,7 +1499,7 @@ async function updateSubfolderPathsRecursive(
       "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?",
       [
         updatedPath,
-        currentFolderId.substring(IDPrefixEnum.Folder.length), // Store plain ID
+        currentFolderId, // Store plain ID
       ]
     );
   }

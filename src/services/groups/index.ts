@@ -86,9 +86,9 @@ export async function getGroupById(
   const row = rows[0] as GroupDbRow;
 
   return {
-    id: `${IDPrefixEnum.Group}${row.id}` as GroupID, // Reconstruct prefixed ID
+    id: `${row.id}` as GroupID, // Reconstruct prefixed ID
     name: row.name,
-    owner: `${IDPrefixEnum.User}${row.owner}` as UserID, // Reconstruct prefixed UserID
+    owner: `${row.owner}` as UserID, // Reconstruct prefixed UserID
     avatar: row.avatar || "",
     private_note: row.private_note,
     public_note: row.public_note,
@@ -191,9 +191,9 @@ export async function getGroupInviteById(
   // Map invitee_id based on invitee_type
   let inviteeFullId: GroupInviteeID;
   if (row.invitee_type === "USER" && row.invitee_id) {
-    inviteeFullId = `${IDPrefixEnum.User}${row.invitee_id}` as UserID;
+    inviteeFullId = `${row.invitee_id}` as UserID;
   } else if (row.invitee_type === "PLACEHOLDER" && row.invitee_id) {
-    inviteeFullId = `${IDPrefixEnum.PlaceholderGroupInviteeID}${row.invitee_id}`;
+    inviteeFullId = `${row.invitee_id}`;
   } else if (row.invitee_type === "PUBLIC") {
     inviteeFullId = "PUBLIC";
   } else {
@@ -205,9 +205,9 @@ export async function getGroupInviteById(
   }
 
   return {
-    id: `${IDPrefixEnum.GroupInvite}${row.id}` as GroupInviteID,
-    group_id: `${IDPrefixEnum.Group}${row.group_id}` as GroupID,
-    inviter_id: `${IDPrefixEnum.User}${row.inviter_id}` as UserID,
+    id: `${row.id}` as GroupInviteID,
+    group_id: `${row.group_id}` as GroupID,
+    inviter_id: `${row.inviter_id}` as UserID,
     invitee_id: inviteeFullId,
     role: row.role as GroupRole,
     note: row.note,

@@ -34,10 +34,10 @@ export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
 // Helper to extract the UUID part from a DirectoryResourceID
 function extractPlainDirectoryResourceId(id: DirectoryResourceID): string {
   if (id.startsWith(IDPrefixEnum.File)) {
-    return id.substring(IDPrefixEnum.File.length);
+    return id;
   }
   if (id.startsWith(IDPrefixEnum.Folder)) {
-    return id.substring(IDPrefixEnum.Folder.length);
+    return id;
   }
   return id; // Should not happen if types are strictly enforced
 }
@@ -81,14 +81,14 @@ export function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
       grantedTo = PUBLIC_GRANTEE_ID_STRING;
       break;
     case "User":
-      grantedTo = `${IDPrefixEnum.User}${granteeIdPart}` as UserID;
+      grantedTo = `${granteeIdPart}` as UserID;
       break;
     case "Group":
-      grantedTo = `${IDPrefixEnum.Group}${granteeIdPart}` as GroupID;
+      grantedTo = `${granteeIdPart}` as GroupID;
       break;
     case "Placeholder":
       grantedTo =
-        `${IDPrefixEnum.PlaceholderPermissionGrantee}${granteeIdPart}` as `PlaceholderPermissionGranteeID_${string}`;
+        `${granteeIdPart}` as `PlaceholderPermissionGranteeID_${string}`;
       break;
     default:
       console.warn(
@@ -141,7 +141,7 @@ export function mapDbRowToDirectoryPermission(row: any): DirectoryPermission {
     resource_id: resourceIdWithPrefix,
     resource_path: row.resource_path,
     granted_to: grantedTo,
-    granted_by: `${IDPrefixEnum.User}${row.granted_by}` as UserID,
+    granted_by: `${row.granted_by}` as UserID,
     permission_types: (row.permission_types_list || "")
       .split(",")
       .filter(Boolean)
@@ -242,7 +242,7 @@ export async function castToDirectoryPermissionFE(
   const recordPermissions = await checkSystemPermissions(
     // The Rust SystemRecordIDEnum::Permission(self.id.to_string()) means the SystemPermissionID itself (UUID part).
     // But SystemPermissionID is also prefixed. So this should be the full SystemPermissionID.
-    `${IDPrefixEnum.SystemPermission}${permission.id}` as SystemResourceID,
+    `${permission.id}` as SystemResourceID,
     currentUserId,
     orgId
   );
@@ -444,10 +444,10 @@ export async function checkDirectoryResourcePermissions(
   let dbResourceId: string;
   let dbResourceType: "File" | "Folder";
   if (resourceId.startsWith(IDPrefixEnum.File)) {
-    dbResourceId = resourceId.substring(IDPrefixEnum.File.length);
+    dbResourceId = resourceId;
     dbResourceType = "File";
   } else if (resourceId.startsWith(IDPrefixEnum.Folder)) {
-    dbResourceId = resourceId.substring(IDPrefixEnum.Folder.length);
+    dbResourceId = resourceId;
     dbResourceType = "Folder";
   } else {
     throw new Error(`Invalid DirectoryResourceID format: ${resourceId}`);
@@ -605,10 +605,10 @@ export async function previewDirectoryPermissions(
   let dbResourceId: string;
   let dbResourceType: "File" | "Folder";
   if (resourceId.startsWith(IDPrefixEnum.File)) {
-    dbResourceId = resourceId.substring(IDPrefixEnum.File.length);
+    dbResourceId = resourceId;
     dbResourceType = "File";
   } else if (resourceId.startsWith(IDPrefixEnum.Folder)) {
-    dbResourceId = resourceId.substring(IDPrefixEnum.Folder.length);
+    dbResourceId = resourceId;
     dbResourceType = "Folder";
   } else {
     throw new Error(`Invalid DirectoryResourceID format: ${resourceId}`);
@@ -699,10 +699,10 @@ export async function deriveBreadcrumbVisibilityPreviews(
   let dbResourceId: string;
   let dbResourceType: "File" | "Folder";
   if (resourceId.startsWith(IDPrefixEnum.File)) {
-    dbResourceId = resourceId.substring(IDPrefixEnum.File.length);
+    dbResourceId = resourceId;
     dbResourceType = "File";
   } else if (resourceId.startsWith(IDPrefixEnum.Folder)) {
-    dbResourceId = resourceId.substring(IDPrefixEnum.Folder.length);
+    dbResourceId = resourceId;
     dbResourceType = "Folder";
   } else {
     throw new Error(`Invalid DirectoryResourceID format: ${resourceId}`);
@@ -736,15 +736,13 @@ export async function deriveBreadcrumbVisibilityPreviews(
         permissionGrantedTo = PUBLIC_GRANTEE_ID_STRING;
         break;
       case "User":
-        permissionGrantedTo = `${IDPrefixEnum.User}${granteeIdPart}` as UserID;
+        permissionGrantedTo = `${granteeIdPart}` as UserID;
         break;
       case "Group":
-        permissionGrantedTo =
-          `${IDPrefixEnum.Group}${granteeIdPart}` as GroupID;
+        permissionGrantedTo = `${granteeIdPart}` as GroupID;
         break;
       case "Placeholder":
-        permissionGrantedTo =
-          `${IDPrefixEnum.PlaceholderPermissionGrantee}${granteeIdPart}` as `PlaceholderPermissionGranteeID_${string}`;
+        permissionGrantedTo = `${granteeIdPart}` as GranteeID;
         break;
       default:
         permissionGrantedTo = PUBLIC_GRANTEE_ID_STRING; // Fallback
