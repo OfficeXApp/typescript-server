@@ -73,6 +73,7 @@ import {
   decodeShareTrackHash,
   generateShareTrackHash,
 } from "../webhooks/share";
+import { updateSubfolderPaths } from "./internals";
 
 /**
  * Custom error class for directory actions to return structured errors.
@@ -744,7 +745,7 @@ export async function pipeAction(
         );
 
         // Recursively update paths for all subfolders and files
-        await updateSubfolderPathsRecursive(
+        await updateSubfolderPaths(
           driveId,
           payload.id,
           oldPath,
@@ -1413,94 +1414,5 @@ export async function pipeAction(
         400,
         "Unsupported or unimplemented directory action"
       );
-  }
-}
-
-/**
- * Recursively updates the full_directory_path for all children of a moved/renamed folder.
- * This is a helper function adapted from `src/services/directory/internals.ts`
- * to be directly callable within `actions.ts` for folder updates.
- */
-async function updateSubfolderPathsRecursive(
-  driveId: DriveID,
-  folderId: FolderID,
-  oldPath: string,
-  newPath: string,
-  userId: UserID // Used for updating `last_updated_by` and permission path updates
-): Promise<void> {
-  const queue: FolderID[] = [folderId];
-
-  while (queue.length > 0) {
-    const currentFolderId = queue.shift()!;
-
-    // Fetch the current folder's path from the DB.
-    const currentFolder = (
-      await db.queryDrive(
-        driveId,
-        "SELECT full_directory_path, name FROM folders WHERE id = ?",
-        [currentFolderId]
-      )
-    )[0];
-
-    if (!currentFolder) continue;
-
-    const currentOldPath = currentFolder.full_directory_path;
-    const updatedPath = currentOldPath.replace(oldPath, newPath);
-
-    // Update the folder itself
-    await db.queryDrive(
-      driveId,
-      "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
-      [updatedPath, Date.now(), userId, currentFolderId]
-    );
-
-    // Update child files
-    const childFiles = await db.queryDrive(
-      driveId,
-      "SELECT id, full_directory_path FROM files WHERE parent_folder_id = ?",
-      [currentFolderId]
-    );
-
-    for (const file of childFiles) {
-      const newFilePath = (file.full_directory_path as string).replace(
-        currentOldPath,
-        updatedPath
-      );
-      await db.queryDrive(
-        driveId,
-        "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
-        [newFilePath, Date.now(), userId, file.id]
-      );
-      // PERMIT FIX: Update resource_path for directory permissions associated with moved/renamed files
-      await db.queryDrive(
-        driveId,
-        "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?",
-        [
-          newFilePath,
-          file.id, // Store plain ID
-        ]
-      );
-    }
-
-    // Enqueue child folders and update their paths
-    const childFolders = await db.queryDrive(
-      driveId,
-      "SELECT id FROM folders WHERE parent_folder_id = ?",
-      [currentFolderId]
-    );
-
-    for (const subfolder of childFolders) {
-      queue.push(subfolder.id);
-    }
-
-    // PERMIT FIX: Update resource_path for directory permissions associated with the current folder
-    await db.queryDrive(
-      driveId,
-      "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?",
-      [
-        updatedPath,
-        currentFolderId, // Store plain ID
-      ]
-    );
   }
 }

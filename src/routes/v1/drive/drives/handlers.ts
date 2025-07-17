@@ -503,6 +503,7 @@ export async function createDriveHandler(
       created_at: createdAt,
     };
 
+    // FIX: dbHelpers.transaction is async
     await dbHelpers.transaction("drive", orgId, async (database) => {
       // Insert into drives table
       const stmt = database.prepare(
@@ -719,6 +720,7 @@ export async function updateDriveHandler(
 
     values.push(id); // The ID for the WHERE clause
 
+    // FIX: dbHelpers.transaction is async
     await dbHelpers.transaction("drive", orgId, async (database) => {
       const stmt = database.prepare(
         `UPDATE drives SET ${updates.join(", ")} WHERE id = ?`

@@ -205,7 +205,7 @@ export async function castToDirectoryPermissionFE(
       granteeName = contactRows[0].name;
       granteeAvatar = contactRows[0].avatar;
     } else {
-      granteeName = `User: ${permission.granted_to}`; // Fallback if contact not found
+      granteeName = `${permission.granted_to}`; // Fallback if contact not found
     }
   } else if (permission.granted_to.startsWith(IDPrefixEnum.Group)) {
     const plainGroupId = permission.granted_to as GroupID;
@@ -218,7 +218,7 @@ export async function castToDirectoryPermissionFE(
       granteeName = groupRows[0].name;
       granteeAvatar = groupRows[0].avatar;
     } else {
-      granteeName = `Group: ${permission.granted_to}`; // Fallback if group not found
+      granteeName = `${permission.granted_to}`; // Fallback if group not found
     }
   } else if (
     permission.granted_to.startsWith(IDPrefixEnum.PlaceholderPermissionGrantee)

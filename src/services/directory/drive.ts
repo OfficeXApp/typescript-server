@@ -425,12 +425,13 @@ export async function createFolder(
 
   const folderId = await internals.ensureFolderStructure(
     driveId,
-    finalPath, // Use finalPath after conflict resolution
+    finalPath,
     disk_id,
     userId,
     otherParams.has_sovereign_permissions,
     otherParams.external_id,
     otherParams.external_payload,
+    params.id,
     otherParams.shortcut_to,
     otherParams.notes
   );
@@ -450,14 +451,12 @@ export async function deleteResource(
   driveId: DriveID,
   resourceId: FileID | FolderID,
   permanent: boolean,
-  userId: UserID // PERMIT: Add userId for permission check
+  userId: UserID
 ): Promise<void> {
-  // Determine if it's a file or folder for permission check
   const isFile = resourceId.startsWith(IDPrefixEnum.File);
-  const resourceType = isFile ? "File" : "Folder";
   const tableName = isFile ? "files" : "folders";
 
-  // Fetch the resource to get its parent_folder_id for permission check
+  // --- 1. ASYNC PREPARATION (outside transaction) ---
   const resource: any = (
     await db.queryDrive(driveId, `SELECT * FROM ${tableName} WHERE id = ?`, [
       resourceId,
@@ -465,153 +464,104 @@ export async function deleteResource(
   )[0];
 
   if (!resource) {
-    throw new Error(`${resourceType} not found.`);
-  }
-
-  // Prevent deletion of root and .trash folders (Rust logic)
-  if (
-    !isFile && // Only for folders
-    (resource.parent_folder_id === null || resource.name === ".trash")
-  ) {
-    throw new Error("Cannot delete root or .trash folders.");
-  }
-
-  // If resource is already in trash, only allow permanent deletion (Rust logic)
-  if (resource.restore_trash_prior_folder_uuid && !permanent) {
-    throw new Error("Cannot move to trash: item is already in trash.");
+    throw new Error(`${isFile ? "File" : "Folder"} not found.`);
   }
 
   const parentFolderId = resource.parent_folder_id;
-  const parentFolderResourceId: DirectoryResourceID =
-    `${parentFolderId}` as DirectoryResourceID;
-
-  // PERMIT: Add permission check for DELETE permission on the parent folder
-  const hasDeletePermission = (
-    await checkDirectoryPermissions(parentFolderResourceId, userId, driveId)
-  ).includes(DirectoryPermissionType.DELETE);
-
-  const isOwner = (await getDriveOwnerId(driveId)) === userId;
-
-  if (!isOwner && !hasDeletePermission) {
-    throw new Error(
-      `Permission denied: User ${userId} cannot delete ${resourceType.toLowerCase()} ${resourceId}.`
-    );
+  if (!parentFolderId) {
+    throw new Error("Cannot delete root resource.");
   }
 
-  return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
+  const isOwner = (await getDriveOwnerId(driveId)) === userId;
+  if (!isOwner) {
+    const permissions = await checkDirectoryPermissions(
+      `${parentFolderId}` as DirectoryResourceID,
+      userId,
+      driveId
+    );
+    if (!permissions.includes(DirectoryPermissionType.DELETE)) {
+      throw new Error(
+        `Permission denied to delete in folder ${parentFolderId}.`
+      );
+    }
+  }
+
+  let trashFolder: FolderRecord | null = null;
+  if (!permanent) {
+    const disk = (
+      await db.queryDrive(driveId, "SELECT * FROM disks WHERE id = ?", [
+        resource.disk_id,
+      ])
+    )[0];
+    if (!disk || !disk.trash_folder_id)
+      throw new Error("Trash folder configuration missing.");
+    trashFolder = (
+      await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+        disk.trash_folder_id,
+      ])
+    )[0];
+    if (!trashFolder) throw new Error("Trash folder not found.");
+  }
+
+  // --- 2. SYNCHRONOUS TRANSACTION ---
+  dbHelpers.transaction("drive", driveId, (tx: Database) => {
     if (permanent) {
+      // --- PERMANENT DELETE LOGIC ---
       if (isFile) {
         tx.prepare("DELETE FROM file_versions WHERE file_id = ?").run(
           resourceId
         );
         tx.prepare("DELETE FROM files WHERE id = ?").run(resourceId);
-        // Also remove from parent's file_uuids if we were maintaining it in memory (Rust)
-        // With SQLite, this implicit association through parent_folder_id in the files table is enough.
       } else {
-        // Recursive folder deletion for permanent mode
-        // Need to find all children (files and folders) and delete them as well.
-        console.warn("Recursive folder deletion is not implemented.");
-        // --- START RECURSIVE FOLDER DELETION IMPLEMENTATION ---
         const foldersToDelete: FolderID[] = [resourceId];
-        const deletedFiles: FileID[] = [];
-        const deletedFolders: FolderID[] = [];
-
         let folderIdx = 0;
         while (folderIdx < foldersToDelete.length) {
           const currentFolderId = foldersToDelete[folderIdx++];
-
-          // Get subfolders and files of the current folder
           const subfolders = tx
             .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
             .all(currentFolderId) as { id: FolderID }[];
-          const filesInFolder = tx
-            .prepare("SELECT id FROM files WHERE parent_folder_id = ?")
-            .all(currentFolderId) as { id: FileID }[];
-
-          // Add subfolders to the queue for processing
-          for (const sub of subfolders) {
-            foldersToDelete.push(sub.id);
-          }
-
-          // Delete files in the current folder
-          for (const file of filesInFolder) {
-            tx.prepare("DELETE FROM file_versions WHERE file_id = ?").run(
-              file.id
-            );
-            tx.prepare("DELETE FROM files WHERE id = ?").run(file.id);
-            if (deletedFiles.length < 2000) {
-              // Limit collected IDs as in Rust
-              deletedFiles.push(file.id);
-            }
-          }
-          if (deletedFolders.length < 2000) {
-            deletedFolders.push(currentFolderId);
-          }
+          foldersToDelete.push(...subfolders.map((s) => s.id));
         }
 
-        // Finally, delete the folders themselves, starting from deepest
-        // Process in reverse order to delete children before parents
         for (let i = foldersToDelete.length - 1; i >= 0; i--) {
           const folderIdToDelete = foldersToDelete[i];
+          tx.prepare(
+            "DELETE FROM file_versions WHERE file_id IN (SELECT id FROM files WHERE parent_folder_id = ?)"
+          ).run(folderIdToDelete);
+          tx.prepare("DELETE FROM files WHERE parent_folder_id = ?").run(
+            folderIdToDelete
+          );
           tx.prepare("DELETE FROM folders WHERE id = ?").run(folderIdToDelete);
         }
-        // --- END RECURSIVE FOLDER DELETION IMPLEMENTATION ---
       }
     } else {
-      // Move to trash (soft delete)
-      const disk_rec = (
-        await db.queryDrive(driveId, "SELECT * FROM disks WHERE id = ?", [
-          resource.disk_id,
-        ])
-      )[0];
-      if (!disk_rec) throw new Error("Disk not found for resource.");
+      // --- NON-PERMANENT (MOVE TO TRASH) LOGIC ---
+      if (!trashFolder) return;
 
-      const trashFolderId = disk_rec.trash_folder_id; // Get trash folder ID from disk record
+      const [finalName, finalPath] = internals.resolveNamingConflict(
+        driveId,
+        trashFolder.full_directory_path,
+        resource.name,
+        !isFile,
+        FileConflictResolutionEnum.KEEP_BOTH
+      );
 
-      // Update parent_folder_id to trash folder's ID
       tx.prepare(
-        `UPDATE ${tableName} SET deleted = 1, restore_trash_prior_folder_uuid = ?, parent_folder_id = ? WHERE id = ?`
-      ).run(resource.parent_folder_id, trashFolderId, resourceId);
+        `UPDATE ${tableName} 
+         SET deleted = 1, 
+             restore_trash_prior_folder_uuid = parent_folder_id,
+             parent_folder_id = ?,
+             name = ?,
+             full_directory_path = ?
+         WHERE id = ?`
+      ).run(trashFolder.id, finalName, finalPath, resourceId);
 
-      // If it's a folder, also update all its children to be in trash (by setting their restore_trash_prior_folder_uuid)
-      // This is the Rust logic for delete_folder non-permanent path.
       if (!isFile) {
-        const stack: FolderID[] = [resourceId];
-        while (stack.length > 0) {
-          const currentFolderId = stack.pop()!;
-          // Update current folder's restore_trash_prior_folder_uuid to its actual parent before being moved
-          tx.prepare(
-            `UPDATE folders SET restore_trash_prior_folder_uuid = parent_folder_id WHERE id = ?`
-          ).run(currentFolderId);
-
-          const subfolders = tx
-            .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
-            .all(currentFolderId) as { id: FolderID }[];
-          for (const sub of subfolders) {
-            stack.push(sub.id);
-          }
-
-          const files = tx
-            .prepare("SELECT id FROM files WHERE parent_folder_id = ?")
-            .all(currentFolderId) as { id: FileID }[];
-          for (const file_in_folder of files) {
-            tx.prepare(
-              `UPDATE files SET restore_trash_prior_folder_uuid = ? WHERE id = ?`
-            ).run(currentFolderId, file_in_folder.id);
-          }
-        }
-        // Finally, the move logic would update the full paths for all items in the moved folder.
-        // Rust's `move_folder` function is then called within `delete_folder`.
-        // We will call `moveFolder` here, adapting it for this use case.
-        // It needs to be the synchronous version or a simplified version for transactions.
-        // For now, given the prompt, we'll do the direct UPDATE, but a full solution would use moveFolder.
-        const movedFolder = await moveFolderTransaction(
+        internals.updateSubfolderPaths_SYNC(
           tx,
-          driveId,
-          userId,
           resourceId,
-          trashFolderId,
-          FileConflictResolutionEnum.KEEP_BOTH
+          resource.full_directory_path,
+          finalPath
         );
       }
     }
@@ -629,6 +579,7 @@ export async function copyFile(
   resolution: FileConflictResolutionEnum | undefined,
   newCopyId?: FileID
 ): Promise<FileRecord> {
+  // FIX: dbHelpers.transaction is async
   return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
     const sourceFile = tx
       .prepare("SELECT * FROM files WHERE id = ?")
@@ -838,6 +789,7 @@ export async function copyFolder(
   resolution: FileConflictResolutionEnum | undefined,
   newCopyId?: FolderID
 ): Promise<FolderRecord> {
+  // FIX: dbHelpers.transaction is async
   return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
     const sourceFolder = tx
       .prepare("SELECT * FROM folders WHERE id = ?")
@@ -1010,6 +962,7 @@ export async function moveFile(
   destinationFolderId: FolderID,
   resolution: FileConflictResolutionEnum
 ): Promise<FileRecord> {
+  // FIX: dbHelpers.transaction is async
   return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
     const file = tx
       .prepare("SELECT * FROM files WHERE id = ?")
@@ -1182,7 +1135,13 @@ async function moveFolderTransaction(
   );
 
   // Update subfolder and file paths recursively
-  await internals.updateSubfolderPaths(driveId, folderId, oldPath, finalPath);
+  await internals.updateSubfolderPaths(
+    driveId,
+    folderId,
+    oldPath,
+    finalPath,
+    userId
+  );
 
   // Update resource_path for directory permissions associated with the moved folder
   const permissionsToUpdate = tx
@@ -1212,6 +1171,7 @@ export async function moveFolder(
   destinationFolderId: FolderID,
   resolution: FileConflictResolutionEnum
 ): Promise<FolderRecord> {
+  // FIX: dbHelpers.transaction is async
   return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
     // Re-use the synchronous transaction helper
     return moveFolderTransaction(
@@ -1233,6 +1193,7 @@ export async function restoreFromTrash(
   payload: RestoreTrashPayload,
   userId: UserID // PERMIT: Add userId for permission check
 ): Promise<RestoreTrashResponse> {
+  // FIX: dbHelpers.transaction is async
   return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
     const isFile = payload.id.startsWith(IDPrefixEnum.File);
     const tableName = isFile ? "files" : "folders";

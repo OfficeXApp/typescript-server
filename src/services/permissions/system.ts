@@ -20,7 +20,7 @@ import { PUBLIC_GRANTEE_ID_STRING } from "./directory"; // Still using this comm
 import {
   getSystemPermissionsForRecord,
   GROUP_ID_PREFIX,
-  PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX,
+  PLACEHOLDER_GRANTEE_ID_PREFIX,
   USER_ID_PREFIX,
 } from "../../routes/v1/drive/permissions/handlers";
 
@@ -543,11 +543,7 @@ export async function castToSystemPermissionFE(
     granteeName = groupInfo?.name;
     granteeAvatar = groupInfo?.avatar;
     if (!granteeName) granteeName = `Group: ${permission.granted_to}`;
-  } else if (
-    permission.granted_to.startsWith(
-      PLACEHOLDER_DIRECTORY_PERMISSION_GRANTEE_ID_PREFIX
-    )
-  ) {
+  } else if (permission.granted_to.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX)) {
     granteeName = "Awaiting Anon";
   }
 

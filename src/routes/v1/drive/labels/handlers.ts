@@ -1029,6 +1029,7 @@ export async function updateLabelHandler(
     params.push(Date.now());
 
     // Execute update within a transaction
+    // FIX: dbHelpers.transaction is async
     await dbHelpers.transaction("drive", org_id, async (database) => {
       // If label value is changing, update all associated resources
       if (newLabelValue && newLabelValue !== oldLabelValue) {
@@ -1329,6 +1330,7 @@ export async function deleteLabelHandler(
     }
 
     // Perform delete operation within a transaction
+    // FIX: dbHelpers.transaction is async
     await dbHelpers.transaction("drive", org_id, async (database) => {
       // 1. Remove label associations from all junction tables
       // Need to find all resources associated with this label first
@@ -1669,6 +1671,7 @@ export async function labelResourceHandler(
     }
 
     // Start a transaction for atomicity
+    // FIX: dbHelpers.transaction is async
     await dbHelpers.transaction("drive", org_id, async (database) => {
       let junctionTableName = "";
       let junctionTableResourceIdColumn = "";
