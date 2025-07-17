@@ -139,7 +139,7 @@ async function castLabelToLabelFE(
   const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
 
   // Get user's system permissions for this label record
-  const labelSystemResourceId = `${IDPrefixEnum.LabelID}${label.id.substring(IDPrefixEnum.LabelID.length)}`;
+  const labelSystemResourceId = `${label.id}`;
 
   const recordPermissions = await checkSystemPermissions(
     labelSystemResourceId,
@@ -231,7 +231,7 @@ async function castLabelToLabelFE(
     const res = await db.queryDrive(
       orgId,
       `SELECT ${resourceIdColumn} FROM ${tableName} WHERE label_id = ?`,
-      [label.id.substring(IDPrefixEnum.LabelID.length)] // Use plain label ID for junction table query
+      [label.id] // Use plain label ID for junction table query
     );
     res.forEach((row: any) => {
       if (row[resourceIdColumn]) {
@@ -247,7 +247,7 @@ async function castLabelToLabelFE(
   const nestedLabelResults = await db.queryDrive(
     orgId,
     `SELECT T2.value FROM label_labels AS T1 JOIN labels AS T2 ON T1.child_label_id = T2.id WHERE T1.parent_label_id = ?`,
-    [label.id.substring(IDPrefixEnum.LabelID.length)] // Use plain parent label ID for junction table query
+    [label.id] // Use plain parent label ID for junction table query
   );
   for (const row of nestedLabelResults) {
     const redactedValue = await redactLabelValue(
@@ -371,7 +371,7 @@ export async function getLabelHandler(
         org_id
       );
 
-      const labelRecordId = `${IDPrefixEnum.LabelID}${label.id.substring(IDPrefixEnum.LabelID.length)}`;
+      const labelRecordId = `${IDPrefixEnum.LabelID}${label.id}`;
 
       const resourcePermissions = await checkSystemPermissions(
         // SystemResourceID for a record: RecordID_UUID
@@ -894,7 +894,7 @@ export async function updateLabelHandler(
         org_id
       );
 
-      const labelRecordId = `${IDPrefixEnum.LabelID}${labelId.substring(IDPrefixEnum.LabelID.length)}`;
+      const labelRecordId = `${labelId}`;
 
       const resourcePermissions = await checkSystemPermissions(
         labelRecordId,
@@ -1300,7 +1300,7 @@ export async function deleteLabelHandler(
         org_id
       );
 
-      const labelRecordId = `${IDPrefixEnum.LabelID}${labelId.substring(IDPrefixEnum.LabelID.length)}`;
+      const labelRecordId = `${labelId}`;
 
       const resourcePermissions = await checkSystemPermissions(
         labelRecordId,
@@ -1412,7 +1412,7 @@ export async function deleteLabelHandler(
         tableName: string;
         timestampCol: string;
       }[] = [];
-      const plainLabelId = labelId.substring(IDPrefixEnum.LabelID.length);
+      const plainLabelId = labelId;
 
       // Collect all resources whose `labels` array needs to be updated
       for (const {
@@ -1597,7 +1597,7 @@ export async function labelResourceHandler(
 
     const rawLabel = existingLabels[0];
     const labelValue = rawLabel.value as LabelValue;
-    const plainLabelId = labelId.substring(IDPrefixEnum.LabelID.length); // Plain ID for junction tables
+    const plainLabelId = labelId; // Plain ID for junction tables
 
     // Parse resource ID and determine its type
     const parsedResource = parseLabelResourceID(resourceIdString);
@@ -1617,9 +1617,7 @@ export async function labelResourceHandler(
     const actualResourceId = parsedResource.resourceId; // This is the full ID string, e.g., "FileID_xyz"
     const resourceTypePrefix = parsedResource.resourceTypePrefix; // e.g., "FileID"
     const resourceTableName = parsedResource.resourceTableName; // e.g., "files"
-    const actualPlainResourceId = actualResourceId.substring(
-      resourceTypePrefix.length + 1
-    );
+    const actualPlainResourceId = actualResourceId;
 
     // Check permissions if not owner
     if (!isOwner) {

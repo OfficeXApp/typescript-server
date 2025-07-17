@@ -79,7 +79,7 @@ async function redactContact(
   // and for the overall 'contacts' table.
   const plainContactId = contact.id;
   const recordResourceId: SystemResourceID =
-    `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+    `${plainContactId}` as SystemResourceID;
   const tableResourceId: SystemResourceID =
     `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
 
@@ -117,7 +117,7 @@ async function redactContact(
 
   const groupPreviews: ContactGroupPreview[] = [];
   for (const row of contactGroupRows) {
-    const groupId: GroupID = `${IDPrefixEnum.Group}${row.group_id}` as GroupID;
+    const groupId: GroupID = `${row.group_id}` as GroupID;
     const group = await getGroupById(groupId, orgId);
 
     if (group) {
@@ -138,8 +138,7 @@ async function redactContact(
       if (memberInviteRows.length > 0) {
         const inviteRow = memberInviteRows[0];
         is_admin = inviteRow.role === GroupRole.ADMIN;
-        invite_id =
-          `${IDPrefixEnum.GroupInvite}${inviteRow.id}` as GroupInviteID;
+        invite_id = `${inviteRow.id}` as GroupInviteID;
       } else {
         // If no direct invite found, check if the user is the owner of the group
         if (group.owner === contact.id) {
@@ -219,13 +218,13 @@ export async function getContactHandler(
     }
 
     const contact = contacts[0] as Contact;
-    contact.id = `${IDPrefixEnum.User}${contact.id}` as UserID;
+    contact.id = `${contact.id}` as UserID;
 
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
     const recordResourceId: SystemResourceID =
-      `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+      `${plainContactId}` as SystemResourceID;
     const contactRecordPermissions = await checkSystemPermissions(
       recordResourceId,
       requesterApiKey.user_id,
@@ -403,7 +402,7 @@ export async function listContactsHandler(
     const processedContacts: ContactFE[] = [];
     if (hasViewTablePermission || isOwner) {
       for (const contact of rawContacts) {
-        contact.id = `${IDPrefixEnum.User}${contact.id}` as UserID;
+        contact.id = `${contact.id}` as UserID;
         processedContacts.push(
           await redactContact(
             contact as Contact,
@@ -414,10 +413,10 @@ export async function listContactsHandler(
       }
     } else {
       for (const contact of rawContacts) {
-        contact.id = `${IDPrefixEnum.User}${contact.id}` as UserID;
+        contact.id = `${contact.id}` as UserID;
 
         const contactRecordResourceId: SystemResourceID =
-          `${IDPrefixEnum.User}${contact.id}` as SystemResourceID;
+          `${contact.id}` as SystemResourceID;
         const contactRecordPermissions = await checkSystemPermissions(
           contactRecordResourceId,
           requesterApiKey.user_id,
@@ -928,13 +927,13 @@ export async function updateContactHandler(
     }
 
     const existingContact = contacts[0] as Contact;
-    existingContact.id = `${IDPrefixEnum.User}${existingContact.id}` as UserID;
+    existingContact.id = `${existingContact.id}` as UserID;
 
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
     const recordResourceId: SystemResourceID =
-      `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+      `${plainContactId}` as SystemResourceID;
     const contactRecordPermissions = await checkSystemPermissions(
       recordResourceId,
       requesterApiKey.user_id,
@@ -1028,7 +1027,7 @@ export async function updateContactHandler(
     );
 
     const updatedContact = updatedContacts[0] as Contact;
-    updatedContact.id = `${IDPrefixEnum.User}${updatedContact.id}` as UserID;
+    updatedContact.id = `${updatedContact.id}` as UserID;
 
     const castFeContact = await redactContact(
       updatedContact,
@@ -1092,13 +1091,13 @@ export async function deleteContactHandler(
     }
 
     const existingContact = contacts[0] as Contact;
-    existingContact.id = `${IDPrefixEnum.User}${existingContact.id}` as UserID;
+    existingContact.id = `${existingContact.id}` as UserID;
 
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
     const recordResourceId: SystemResourceID =
-      `${IDPrefixEnum.User}${plainContactId}` as SystemResourceID;
+      `${plainContactId}` as SystemResourceID;
     const contactRecordPermissions = await checkSystemPermissions(
       recordResourceId,
       requesterApiKey.user_id,
@@ -1247,7 +1246,7 @@ export async function redeemContactHandler(
     }
 
     const currentContact = currentContacts[0] as Contact;
-    currentContact.id = `${IDPrefixEnum.User}${currentContact.id}` as UserID;
+    currentContact.id = `${currentContact.id}` as UserID;
 
     if (currentContact.redeem_code !== redeemReq.redeem_code) {
       return reply.status(400).send(
@@ -1268,7 +1267,7 @@ export async function redeemContactHandler(
     );
 
     const currentContactRecordResourceId: SystemResourceID =
-      `${IDPrefixEnum.User}${currentPlainUserId}` as SystemResourceID;
+      `${currentPlainUserId}` as SystemResourceID;
     const currentContactRecordPermissions = await checkSystemPermissions(
       currentContactRecordResourceId,
       requesterApiKey.user_id,
@@ -1408,7 +1407,7 @@ export async function redeemContactHandler(
     let updatedContact: Contact;
     if (updatedContactResult.length > 0) {
       updatedContact = updatedContactResult[0] as Contact;
-      updatedContact.id = `${IDPrefixEnum.User}${updatedContact.id}` as UserID;
+      updatedContact.id = `${updatedContact.id}` as UserID;
       if (redeemReq.note) {
         const newPublicNote = updatedContact.public_note
           ? `Note from User: ${redeemReq.note}, Prior Original Note: ${updatedContact.public_note}`

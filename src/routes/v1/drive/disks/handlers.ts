@@ -346,7 +346,7 @@ export async function getDiskHandler(
     const disk = disks[0] as Disk;
 
     const canAccessDisk = await canUserAccessSystemPermissionService(
-      `${IDPrefixEnum.Disk}${disk_id}` as SystemResourceID, // Construct SystemResourceID for record
+      `${disk_id}` as SystemResourceID, // Construct SystemResourceID for record
       requesterApiKey.user_id,
       org_id
     );
@@ -371,7 +371,7 @@ export async function getDiskHandler(
       : await Promise.resolve().then(async () => {
           // Use Promise.resolve().then for async operations
           const recordPermissions = await checkSystemPermissionsService(
-            `${IDPrefixEnum.Disk}${disk_id}` as SystemResourceID,
+            `${disk_id}` as SystemResourceID,
             requesterApiKey.user_id,
             org_id
           );
@@ -553,7 +553,7 @@ export async function listDisksHandler(
               ]
             : await Promise.resolve().then(async () => {
                 const recordPermissions = await checkSystemPermissionsService(
-                  `${IDPrefixEnum.Disk}${disk.id}` as SystemResourceID,
+                  `${disk.id}` as SystemResourceID,
                   requesterApiKey.user_id,
                   org_id
                 );
@@ -698,10 +698,10 @@ export async function createDiskHandler(
           "",
           null, // Root folder has no parent
           rootPath,
-          ownerId.substring(IDPrefixEnum.User.length),
+          ownerId,
           now,
           now,
-          ownerId.substring(IDPrefixEnum.User.length),
+          ownerId,
           diskId, // This now correctly references an *existing* diskId
           diskType,
           0,
@@ -729,11 +729,11 @@ export async function createDiskHandler(
           .run(
             rootPermissionId,
             "Folder",
-            generatedRootFolderId.substring(IDPrefixEnum.Folder.length),
+            generatedRootFolderId,
             rootPath,
             "User",
-            ownerId.substring(IDPrefixEnum.User.length),
-            ownerId.substring(IDPrefixEnum.User.length),
+            ownerId,
+            ownerId,
             0,
             -1,
             1,
@@ -759,10 +759,10 @@ export async function createDiskHandler(
           ".trash",
           null,
           trashPath,
-          ownerId.substring(IDPrefixEnum.User.length),
+          ownerId,
           now,
           now,
-          ownerId.substring(IDPrefixEnum.User.length),
+          ownerId,
           diskId, // This now correctly references an *existing* diskId
           diskType,
           0,
@@ -790,11 +790,11 @@ export async function createDiskHandler(
           .run(
             trashPermissionId,
             "Folder",
-            generatedTrashFolderId.substring(IDPrefixEnum.Folder.length),
+            generatedTrashFolderId,
             trashPath,
             "User",
-            ownerId.substring(IDPrefixEnum.User.length),
-            ownerId.substring(IDPrefixEnum.User.length),
+            ownerId,
+            ownerId,
             0,
             -1,
             0, // Not inheritable
@@ -867,7 +867,7 @@ export async function createDiskHandler(
         ]
       : await Promise.resolve().then(async () => {
           const recordPermissions = await checkSystemPermissionsService(
-            `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+            `${diskId}` as SystemResourceID,
             requesterApiKey.user_id,
             org_id
           );
@@ -971,7 +971,7 @@ export async function updateDiskHandler(
 
     const hasEditPermission = await Promise.resolve().then(async () => {
       const recordPermissions = await checkSystemPermissionsService(
-        `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+        `${diskId}` as SystemResourceID,
         requesterApiKey.user_id,
         org_id
       );
@@ -1079,7 +1079,7 @@ export async function updateDiskHandler(
           ]
         : await Promise.resolve().then(async () => {
             const recordPermissions = await checkSystemPermissionsService(
-              `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+              `${diskId}` as SystemResourceID,
               requesterApiKey.user_id,
               org_id
             );
@@ -1163,7 +1163,7 @@ export async function deleteDiskHandler(
 
     const hasDeletePermission = await Promise.resolve().then(async () => {
       const recordPermissions = await checkSystemPermissionsService(
-        `${IDPrefixEnum.Disk}${diskId}` as SystemResourceID,
+        `${diskId}` as SystemResourceID,
         requesterApiKey.user_id,
         org_id
       );

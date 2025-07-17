@@ -612,7 +612,7 @@ export async function pipeAction(
               .prepare(
                 "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?"
               )
-              .run(newFullPath, file.id.substring(IDPrefixEnum.File.length));
+              .run(newFullPath, file.id);
           });
         }
       }
@@ -1477,7 +1477,7 @@ async function updateSubfolderPathsRecursive(
         "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?",
         [
           newFilePath,
-          file.id.substring(IDPrefixEnum.File.length), // Store plain ID
+          file.id, // Store plain ID
         ]
       );
     }
@@ -1499,7 +1499,7 @@ async function updateSubfolderPathsRecursive(
       "UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?",
       [
         updatedPath,
-        currentFolderId.substring(IDPrefixEnum.Folder.length), // Store plain ID
+        currentFolderId, // Store plain ID
       ]
     );
   }
