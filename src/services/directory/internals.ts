@@ -476,12 +476,13 @@ export async function ensureRootFolder(
  */
 export async function ensureFolderStructure(
   driveId: DriveID,
-  fullPath: string, // e.g., disk_id::/path/to/folder/
+  fullPath: string,
   diskId: DiskID,
   userId: UserID,
   hasSovereignPermissions: boolean = false,
   externalId?: ExternalID,
   externalPayload?: ExternalPayload,
+  final_folder_id?: FolderID,
   shortcutTo?: FolderID,
   notes?: string
 ): Promise<FolderID> {
@@ -492,7 +493,7 @@ export async function ensureFolderStructure(
     throw new Error("Disk not found for ensureFolderStructure.");
   }
 
-  let parentFolderId = await ensureRootFolder(driveId, diskId, userId); // This already handles its own transaction
+  let parentFolderId = await ensureRootFolder(driveId, diskId, userId);
 
   const pathSegments =
     fullPath
@@ -513,13 +514,21 @@ export async function ensureFolderStructure(
       if (folder) {
         parentFolderId = folder.id;
       } else {
-        const newFolderId = GenerateID.Folder();
-        const now = Date.now();
         const isFinalFolder = i === pathSegments.length - 1;
+
+        // --- START: MODIFIED LOGIC ---
+        // Replicate Rust's logic for ID generation
+        const newFolderId =
+          isFinalFolder && final_folder_id
+            ? final_folder_id
+            : GenerateID.Folder();
+        // --- END: MODIFIED LOGIC ---
+
+        const now = Date.now();
 
         tx.prepare(
           `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           newFolderId,
           segment,
@@ -540,37 +549,6 @@ export async function ensureFolderStructure(
           isFinalFolder ? externalPayload : undefined
         );
         parentFolderId = newFolderId;
-
-        // PERMIT FIX: Add default permissions for the newly created folder
-        const permissionId = GenerateID.DirectoryPermission();
-        const nowMs = Date.now();
-        tx.prepare(
-          `INSERT INTO permissions_directory (
-            id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
-            begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          permissionId,
-          "Folder",
-          newFolderId,
-          currentPath,
-          "User",
-          userId,
-          userId,
-          0, // Immediate
-          -1, // Never expires
-          isFinalFolder && hasSovereignPermissions ? 0 : 1, // If sovereign, not inheritable from parents
-          "Default permissions for new folder creator",
-          nowMs,
-          nowMs
-        );
-
-        const insertPermissionTypes = tx.prepare(
-          `INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)`
-        );
-        Object.values(DirectoryPermissionType).forEach((type) => {
-          insertPermissionTypes.run(permissionId, type);
-        });
       }
     }
     return parentFolderId;
@@ -584,16 +562,18 @@ export async function updateSubfolderPaths(
   driveId: DriveID,
   folderId: FolderID,
   oldPath: string,
-  newPath: string
+  newPath: string,
+  userId: UserID // Added to update timestamps
 ): Promise<void> {
+  // This function is async only because dbHelpers.transaction returns a promise.
+  // The callback function passed to it is completely synchronous.
   return dbHelpers.transaction("drive", driveId, (tx: Database) => {
     const queue: FolderID[] = [folderId];
+    const now = Date.now();
 
     while (queue.length > 0) {
       const currentFolderId = queue.shift()!;
 
-      // Fetch the current folder's path from the DB.
-      // This is important because its path might have been updated by a parent in the queue.
       const currentFolder = tx
         .prepare("SELECT full_directory_path FROM folders WHERE id = ?")
         .get(currentFolderId) as { full_directory_path: string };
@@ -601,14 +581,20 @@ export async function updateSubfolderPaths(
       if (!currentFolder) continue;
 
       const currentOldPath = currentFolder.full_directory_path;
-      const updatedPath = currentOldPath.replace(oldPath, newPath);
+      // Replace only the beginning of the path to handle nested renames correctly
+      const updatedPath = newPath + currentOldPath.substring(oldPath.length);
 
-      tx.prepare("UPDATE folders SET full_directory_path = ? WHERE id = ?").run(
-        updatedPath,
-        currentFolderId
-      );
+      // Update the folder's path and timestamp
+      tx.prepare(
+        "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
+      ).run(updatedPath, now, userId, currentFolderId);
 
-      // Update child files
+      // Update permissions path for the folder
+      tx.prepare(
+        `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
+      ).run(updatedPath, currentFolderId);
+
+      // Update child files' paths and timestamps
       const childFiles = tx
         .prepare(
           "SELECT id, full_directory_path FROM files WHERE parent_folder_id = ?"
@@ -620,72 +606,84 @@ export async function updateSubfolderPaths(
           currentOldPath,
           updatedPath
         );
-        tx.prepare("UPDATE files SET full_directory_path = ? WHERE id = ?").run(
-          newFilePath,
-          file.id
-        );
-        // PERMIT FIX: Update resource_path for directory permissions associated with moved/renamed files
-        const filePermissionsToUpdate = tx
-          .prepare(
-            `SELECT id, resource_path FROM permissions_directory
-             WHERE resource_type = 'File' AND resource_id = ?`
-          )
-          .all(file.id) as {
-          id: string;
-          resource_path: string;
-        }[];
+        tx.prepare(
+          "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
+        ).run(newFilePath, now, userId, file.id);
 
-        for (const perm of filePermissionsToUpdate) {
-          if (perm.resource_path === file.full_directory_path) {
-            // Compare with old path of the file
-            tx.prepare(
-              `UPDATE permissions_directory SET resource_path = ? WHERE id = ?`
-            ).run(newFilePath, perm.id);
-          }
-        }
+        // Update permissions path for the file
+        tx.prepare(
+          `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
+        ).run(newFilePath, file.id);
       }
 
-      // Enqueue child folders and update their paths
+      // Enqueue child folders for processing
       const childFolders = tx
-        .prepare(
-          "SELECT id, full_directory_path FROM folders WHERE parent_folder_id = ?"
-        )
-        .all(currentFolderId) as {
-        id: FolderID;
-        full_directory_path: string;
-      }[];
+        .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
+        .all(currentFolderId) as { id: FolderID }[];
 
       for (const subfolder of childFolders) {
         queue.push(subfolder.id);
-        // The actual update for this subfolder's path will happen when it's dequeued
-        // This is important for correct recursive replacement.
-      }
-
-      // PERMIT FIX: Update resource_path for directory permissions associated with the current folder
-      const permissionsToUpdate = tx
-        .prepare(
-          `SELECT id, resource_path FROM permissions_directory
-           WHERE resource_type = 'Folder' AND resource_id = ?`
-        )
-        .all(currentFolderId) as {
-        id: string;
-        resource_path: string;
-      }[];
-
-      for (const perm of permissionsToUpdate) {
-        // If a permission's resource_path exactly matches the *old* path of this folder
-        // (before its own path was updated), then update it to the *new* path of this folder.
-        // This handles permissions directly on the folder being processed.
-        if (perm.resource_path === currentOldPath) {
-          tx.prepare(
-            `UPDATE permissions_directory SET resource_path = ? WHERE id = ?`
-          ).run(updatedPath, perm.id);
-        }
-        // No need for `else if (perm.resource_path.startsWith(currentOldPath))` because
-        // child folder permissions are handled when the child folder itself is dequeued.
       }
     }
   });
+}
+
+export function updateSubfolderPaths_SYNC(
+  tx: Database,
+  folderId: FolderID,
+  oldPath: string,
+  newPath: string
+): void {
+  const queue: FolderID[] = [folderId];
+
+  while (queue.length > 0) {
+    const currentFolderId = queue.shift()!;
+    const currentFolder = tx
+      .prepare("SELECT full_directory_path FROM folders WHERE id = ?")
+      .get(currentFolderId) as { full_directory_path: string };
+
+    if (!currentFolder) continue;
+
+    const currentOldPath = currentFolder.full_directory_path;
+    const updatedPath = currentOldPath.replace(oldPath, newPath);
+
+    tx.prepare("UPDATE folders SET full_directory_path = ? WHERE id = ?").run(
+      updatedPath,
+      currentFolderId
+    );
+
+    tx.prepare(
+      `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
+    ).run(updatedPath, currentFolderId);
+
+    const childFiles = tx
+      .prepare(
+        "SELECT id, full_directory_path FROM files WHERE parent_folder_id = ?"
+      )
+      .all(currentFolderId) as { id: FileID; full_directory_path: string }[];
+
+    for (const file of childFiles) {
+      const newFilePath = file.full_directory_path.replace(
+        currentOldPath,
+        updatedPath
+      );
+      tx.prepare("UPDATE files SET full_directory_path = ? WHERE id = ?").run(
+        newFilePath,
+        file.id
+      );
+      tx.prepare(
+        `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
+      ).run(newFilePath, file.id);
+    }
+
+    const childFolders = tx
+      .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
+      .all(currentFolderId) as { id: FolderID }[];
+
+    for (const subfolder of childFolders) {
+      queue.push(subfolder.id);
+    }
+  }
 }
 
 /**
