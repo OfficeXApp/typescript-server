@@ -715,46 +715,6 @@ export async function createGroupHandler(
         group.external_id,
         group.external_payload
       );
-
-      // 2. Grant system permissions to the GROUP itself (as a grantee) on its own record.
-      // This is how members of this group will implicitly inherit capabilities.
-      // This permission is for the group (as an entity) managing itself/being managed.
-      const groupSelfPermissionId = `${IDPrefixEnum.SystemPermission}${uuidv4()}`;
-      const groupSelfPermissionStmt = database.prepare(
-        `INSERT INTO permissions_system (
-          id, resource_type, resource_identifier, grantee_type, grantee_id,
-          granted_by, begin_date_ms, expiry_date_ms, note,
-          created_at, last_modified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      groupSelfPermissionStmt.run(
-        groupSelfPermissionId,
-        "Record", // Resource is a record
-        groupId, // The group itself is the resource
-        "Group", // Grantee type is Group
-        groupId, // The group itself is the grantee
-        requesterApiKey.user_id,
-        0, // Active immediately
-        -1, // Never expires
-        `Default manage permissions for group ${group.name}`,
-        now,
-        now
-      );
-
-      // 3. Insert the specific permission types for the group itself (e.g., manage, view, edit)
-      const groupPermissionTypes = [
-        SystemPermissionType.VIEW,
-        SystemPermissionType.EDIT,
-        SystemPermissionType.DELETE,
-        SystemPermissionType.INVITE,
-        SystemPermissionType.CREATE,
-      ];
-      const permissionTypeStmt = database.prepare(
-        `INSERT INTO permissions_system_types (permission_id, permission_type) VALUES (?, ?)`
-      );
-      groupPermissionTypes.forEach((type) => {
-        permissionTypeStmt.run(groupSelfPermissionId, type);
-      });
     });
 
     // 4. Add the creator as an admin member of the group
