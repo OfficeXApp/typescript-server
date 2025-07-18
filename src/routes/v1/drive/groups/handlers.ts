@@ -216,8 +216,18 @@ export async function getGroupHandler(
       ...new Set([...group.admin_invites, ...group.member_invites]),
     ]) {
       const invite = await getGroupInviteById(inviteId, orgId);
-      if (invite && invite.invitee_id.startsWith(IDPrefixEnum.User)) {
-        // Only for actual users
+
+      // Ensure invite exists and is not expired/inactive (already handled by getGroupById, but defensive check)
+      if (!invite) {
+        continue;
+      }
+
+      let inviteeName: string = ""; // Default to empty string as per Rust sample
+      let inviteeAvatar: string | null = null; // Default to null as per Rust sample
+      let lastOnlineMs: number = 0; // Default to 0 as per Rust sample
+
+      // Determine name, avatar, last_online_ms based on invitee_id type
+      if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
         const contactInfo = await db.queryDrive(
           orgId,
           "SELECT name, avatar, last_online_ms FROM contacts WHERE id = ?",
@@ -226,31 +236,36 @@ export async function getGroupHandler(
         const contact = contactInfo[0];
 
         if (contact) {
-          memberPreviews.push({
-            user_id: invite.invitee_id as UserID,
-            name: contact.name,
-            note: invite.note,
-            avatar: contact.avatar,
-            group_id: invite.group_id,
-            is_admin: invite.role === GroupRole.ADMIN,
-            invite_id: invite.id,
-            last_online_ms: contact.last_online_ms,
-          });
+          inviteeName = contact.name;
+          inviteeAvatar = contact.avatar;
+          lastOnlineMs = contact.last_online_ms;
         } else {
-          // Handle case where contact doesn't exist in contacts table
-          memberPreviews.push({
-            user_id: invite.invitee_id as UserID,
-            name: `Unknown User (${invite.invitee_id})`,
-            note: invite.note,
-            avatar: undefined,
-            group_id: invite.group_id,
-            is_admin: invite.role === GroupRole.ADMIN,
-            invite_id: invite.id,
-            last_online_ms: 0,
-          });
+          // If contact not found for a UserID (Rust output shows empty name/null avatar)
+          inviteeName = `Unknown User (${invite.invitee_id})`; // You can set this to "" if you prefer strict match to Rust for non-existent contacts
+          inviteeAvatar = null;
+          lastOnlineMs = 0;
         }
+      } else if (invite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
+        // For Public invites, name is "", avatar is null, last_online_ms is 0 as per Rust sample
+        // These values are already the defaults, so no explicit assignment is strictly needed.
+      } else if (
+        invite.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
+      ) {
+        // For Placeholder (magic link) invites, name is "", avatar is null, last_online_ms is 0 as per Rust sample
+        // These values are already the defaults, so no explicit assignment is strictly needed.
       }
-    }
+
+      memberPreviews.push({
+        user_id: invite.invitee_id as UserID, // Assign the invitee_id directly, which can be UserID, PUBLIC, or PlaceholderGroupInviteeID
+        name: inviteeName,
+        note: invite.note,
+        avatar: inviteeAvatar || undefined,
+        group_id: invite.group_id,
+        is_admin: invite.role === GroupRole.ADMIN,
+        invite_id: invite.id,
+        last_online_ms: lastOnlineMs,
+      });
+    } // End of for loop
 
     // PERMIT: Get permission previews for the current user on this group record
     const permissionPreviews = await checkSystemPermissions(
@@ -323,11 +338,11 @@ export async function listGroupsHandler(
       // but for list, we perform a broader filter.
       // For now, if no table permission, only return groups they are a member of.
       let memberGroupsQuery = `
-            SELECT DISTINCT g.*
-            FROM groups g
-            JOIN group_invites gi ON g.id = gi.group_id
-            WHERE gi.invitee_id = ? AND gi.invitee_type = ?
-            AND gi.active_from <= ? AND (gi.expires_at <= 0 OR gi.expires_at > ?)
+          SELECT DISTINCT g.*
+          FROM groups g
+          JOIN group_invites gi ON g.id = gi.group_id
+          WHERE gi.invitee_id = ? AND gi.invitee_type = ?
+          AND gi.active_from <= ? AND (gi.expires_at <= 0 OR gi.expires_at > ?)
         `;
       const memberGroupsParams: any[] = [
         currentUserId,
@@ -388,7 +403,16 @@ export async function listGroupsHandler(
               ]),
             ]) {
               const invite = await getGroupInviteById(inviteId, orgId);
-              if (invite && invite.invitee_id.startsWith(IDPrefixEnum.User)) {
+
+              if (!invite) {
+                continue;
+              }
+
+              let inviteeName: string = "";
+              let inviteeAvatar: string | null = null;
+              let lastOnlineMs: number = 0;
+
+              if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
                 const contactInfo = await db.queryDrive(
                   orgId,
                   "SELECT name, avatar, last_online_ms FROM contacts WHERE id = ?",
@@ -396,29 +420,34 @@ export async function listGroupsHandler(
                 );
                 const contact = contactInfo[0];
                 if (contact) {
-                  memberPreviews.push({
-                    user_id: invite.invitee_id as UserID,
-                    name: contact.name,
-                    note: invite.note,
-                    avatar: contact.avatar,
-                    group_id: invite.group_id,
-                    is_admin: invite.role === GroupRole.ADMIN,
-                    invite_id: invite.id,
-                    last_online_ms: contact.last_online_ms,
-                  });
+                  inviteeName = contact.name;
+                  inviteeAvatar = contact.avatar;
+                  lastOnlineMs = contact.last_online_ms;
                 } else {
-                  memberPreviews.push({
-                    user_id: invite.invitee_id as UserID,
-                    name: `Unknown User (${invite.invitee_id})`,
-                    note: invite.note,
-                    avatar: undefined,
-                    group_id: invite.group_id,
-                    is_admin: invite.role === GroupRole.ADMIN,
-                    invite_id: invite.id,
-                    last_online_ms: 0,
-                  });
+                  inviteeName = `Unknown User (${invite.invitee_id})`;
+                  inviteeAvatar = null;
+                  lastOnlineMs = 0;
                 }
+              } else if (invite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
+                // Handled by initial defaults
+              } else if (
+                invite.invitee_id.startsWith(
+                  IDPrefixEnum.PlaceholderGroupInviteeID
+                )
+              ) {
+                // Handled by initial defaults
               }
+
+              memberPreviews.push({
+                user_id: invite.invitee_id as UserID,
+                name: inviteeName,
+                note: invite.note,
+                avatar: inviteeAvatar || undefined,
+                group_id: invite.group_id,
+                is_admin: invite.role === GroupRole.ADMIN,
+                invite_id: invite.id,
+                last_online_ms: lastOnlineMs,
+              });
             }
           }
 
@@ -492,7 +521,16 @@ export async function listGroupsHandler(
             ...new Set([...groupObj.admin_invites, ...groupObj.member_invites]),
           ]) {
             const invite = await getGroupInviteById(inviteId, orgId);
-            if (invite && invite.invitee_id.startsWith(IDPrefixEnum.User)) {
+
+            if (!invite) {
+              continue;
+            }
+
+            let inviteeName: string = "";
+            let inviteeAvatar: string | null = null;
+            let lastOnlineMs: number = 0;
+
+            if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
               const contactInfo = await db.queryDrive(
                 orgId,
                 "SELECT name, avatar, last_online_ms FROM contacts WHERE id = ?",
@@ -500,29 +538,34 @@ export async function listGroupsHandler(
               );
               const contact = contactInfo[0];
               if (contact) {
-                memberPreviews.push({
-                  user_id: invite.invitee_id as UserID,
-                  name: contact.name,
-                  note: invite.note,
-                  avatar: contact.avatar,
-                  group_id: invite.group_id,
-                  is_admin: invite.role === GroupRole.ADMIN,
-                  invite_id: invite.id,
-                  last_online_ms: contact.last_online_ms,
-                });
+                inviteeName = contact.name;
+                inviteeAvatar = contact.avatar;
+                lastOnlineMs = contact.last_online_ms;
               } else {
-                memberPreviews.push({
-                  user_id: invite.invitee_id as UserID,
-                  name: `Unknown User (${invite.invitee_id})`,
-                  note: invite.note,
-                  avatar: undefined,
-                  group_id: invite.group_id,
-                  is_admin: invite.role === GroupRole.ADMIN,
-                  invite_id: invite.id,
-                  last_online_ms: 0,
-                });
+                inviteeName = `Unknown User (${invite.invitee_id})`;
+                inviteeAvatar = null;
+                lastOnlineMs = 0;
               }
+            } else if (invite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
+              // Handled by initial defaults
+            } else if (
+              invite.invitee_id.startsWith(
+                IDPrefixEnum.PlaceholderGroupInviteeID
+              )
+            ) {
+              // Handled by initial defaults
             }
+
+            memberPreviews.push({
+              user_id: invite.invitee_id as UserID,
+              name: inviteeName,
+              note: invite.note,
+              avatar: inviteeAvatar || undefined,
+              group_id: invite.group_id,
+              is_admin: invite.role === GroupRole.ADMIN,
+              invite_id: invite.id,
+              last_online_ms: lastOnlineMs,
+            });
           }
         }
 
