@@ -104,10 +104,10 @@ async function redactContact(
   redactedContact.labels = contact.labels;
 
   // Fetch real group data and filter based on permissions.
-  // We need to query the `contact_groups` join table to get group IDs associated with this contact.
+  // We need to query the `` join table to get group IDs associated with this contact.
   const plainContactIdForGroups = contact.id;
   const contactGroupsQuery = `
-    SELECT group_id FROM contact_groups WHERE user_id = ?;
+    SELECT group_id FROM group_invites WHERE invitee_id = ? AND invitee_type = 'USER';
   `;
   const contactGroupRows: { group_id: string }[] = await db.queryDrive(
     orgId,
@@ -764,15 +764,6 @@ export async function createContactHandler(
               Date.now(),
               Date.now()
             );
-
-          // Insert into contact_groups join table
-          database
-            .prepare(
-              `
-            INSERT INTO contact_groups (user_id, group_id) VALUES (?, ?);
-          `
-            )
-            .run(plainContactId, plainDefaultGroupId);
         }
       }
     });
@@ -1129,11 +1120,6 @@ export async function deleteContactHandler(
       // Delete from contacts table
       database.prepare("DELETE FROM contacts WHERE id = ?").run(plainContactId);
 
-      // Clean up related entries in `contact_groups`
-      database
-        .prepare("DELETE FROM contact_groups WHERE user_id = ?")
-        .run(plainContactId);
-
       // Clean up related entries in `group_invites` where this user is the invitee
       database
         .prepare(
@@ -1380,11 +1366,6 @@ export async function redeemContactHandler(
             "INSERT INTO contact_id_superswap_history (old_user_id, new_user_id, swapped_at) VALUES (?, ?, ?)"
           )
           .run(currentPlainUserId, newPlainUserId, Date.now());
-
-        // 12. Update `contact_groups` (membership in groups)
-        database
-          .prepare("UPDATE contact_groups SET user_id = ? WHERE user_id = ?")
-          .run(newPlainUserId, currentPlainUserId);
 
         updateCount = 1;
       });

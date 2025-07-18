@@ -816,17 +816,6 @@ export async function redeemGiftcardSpawnOrgHandler(
         null
       );
 
-      const insertContactGroupStmt = driveDatabase.prepare(
-        `INSERT INTO contact_groups (
-            user_id, group_id, role
-          ) VALUES (?, ?, ?)`
-      );
-      insertContactGroupStmt.run(
-        ownerId, // The owner is the user_id for this junction
-        groupID, // The ID of the group just created
-        GroupRole.ADMIN // The owner is an ADMIN of this group
-      );
-
       // create group invites
       const inviteID = GenerateID.GroupInvite();
       const insertGroupInviteStmt = driveDatabase.prepare(
@@ -845,7 +834,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         GroupRole.ADMIN,
         noteForSpawn,
         currentTime,
-        currentTime,
+        0, // expires_at: 0 means non-expiring
         currentTime,
         currentTime,
         redeemCode,

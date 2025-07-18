@@ -1,3 +1,5 @@
+// src/rest/group_invites/handler.ts
+
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -26,12 +28,14 @@ import { authenticateRequest } from "../../../../services/auth";
 import { createApiResponse, OrgIdParams } from "../../types";
 import {
   checkSystemPermissions,
-  hasSystemManagePermission,
+  // hasSystemManagePermission, // Not used directly for core logic
 } from "../../../../services/permissions/system";
 import {
   getGroupById,
   getGroupInviteById,
   isGroupAdmin,
+  addGroupMember,
+  removeMemberFromGroup, // Added for consistency
 } from "../../../../services/groups";
 
 interface GetGroupInviteParams extends OrgIdParams {
@@ -124,9 +128,18 @@ export async function getGroupInviteHandler(
     const isOrgOwner =
       (
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId; // Org owner check
+      )[0]?.owner_id === currentUserId;
+
     const isInviter = currentUserId === invite.inviter_id;
-    const isInvitee = currentUserId === invite.invitee_id;
+    const isInvitee = currentUserId === invite.invitee_id; // Check for direct invitee match
+
+    // Check if the current user is an admin of the group related to this invite
+    const isGroupAdminStatus = await isGroupAdmin(
+      currentUserId,
+      invite.group_id,
+      orgId
+    );
+
     const canViewInviteViaPermissions = (
       await checkSystemPermissions(
         invite.id as SystemResourceID, // GroupInviteID is a SystemRecordIDEnum
@@ -139,6 +152,7 @@ export async function getGroupInviteHandler(
       !isOrgOwner &&
       !isInviter &&
       !isInvitee &&
+      !isGroupAdminStatus && // Added: Group admins can view invites
       !canViewInviteViaPermissions
     ) {
       return reply.status(403).send(
@@ -168,8 +182,10 @@ export async function getGroupInviteHandler(
       if (inviteeInfo.length > 0) {
         inviteeName = inviteeInfo[0].name;
         inviteeAvatar = inviteeInfo[0].avatar;
+      } else {
+        inviteeName = `Unknown User (${invite.invitee_id})`;
       }
-    } else if (invite.invitee_id === "PUBLIC") {
+    } else if (invite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
       inviteeName = "Public";
     } else if (
       invite.invitee_id &&
@@ -189,6 +205,7 @@ export async function getGroupInviteHandler(
       ...invite,
       group_name: groupInfo[0]?.name || "",
       group_avatar: groupInfo[0]?.avatar,
+      invitee_id: invite.invitee_id, // Ensure it's the original string ID
       invitee_name: inviteeName,
       invitee_avatar: inviteeAvatar,
       permission_previews: permissionPreviews,
@@ -242,20 +259,27 @@ export async function listGroupInvitesHandler(
       );
     }
 
-    // PERMIT: Check if requester is the org owner, or has VIEW permission on the Group Invites table.
+    // PERMIT: Check if requester is the org owner, a group admin, or has VIEW permission on the Groups table.
     const isOrgOwner =
       (
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId; // Org owner check
-    const canViewInvitesTable = (
+      )[0]?.owner_id === currentUserId;
+
+    const isGroupAdminStatus = await isGroupAdmin(
+      currentUserId,
+      group.id,
+      orgId
+    );
+
+    const canViewGroupsTable = (
       await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.INBOX}` as SystemResourceID, // Invites are typically linked to Inbox/notifications in Rust
+        `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
         currentUserId,
         orgId
       )
     ).includes(SystemPermissionType.VIEW);
 
-    if (!isOrgOwner && !canViewInvitesTable) {
+    if (!isOrgOwner && !isGroupAdminStatus && !canViewGroupsTable) {
       return reply.status(403).send(
         createApiResponse(undefined, {
           code: 403,
@@ -265,16 +289,16 @@ export async function listGroupInvitesHandler(
     }
 
     // Build query with cursor-based pagination
+    // Modified JOIN to contacts to use `gi.invitee_id` as `c.id`
     let query = `
         SELECT gi.*, g.name as group_name, g.avatar as group_avatar,
-               c.name as invitee_name, c.avatar as invitee_avatar,
-               gi.invitee_type, gi.invitee_id
+              c.name as invitee_name, c.avatar as invitee_avatar
         FROM group_invites gi
         JOIN groups g ON gi.group_id = g.id
-        LEFT JOIN contacts c ON gi.invitee_id = c.id
+        LEFT JOIN contacts c ON gi.invitee_id = c.id AND gi.invitee_type = ? -- Only join if it's a USER type invitee
         WHERE gi.group_id = ?
       `;
-    const params: any[] = [body.group_id];
+    const params: any[] = [GroupInviteeTypeEnum.USER, body.group_id];
 
     if (body.cursor) {
       query += ` AND gi.created_at ${direction === "ASC" ? ">" : "<"} ?`;
@@ -304,21 +328,19 @@ export async function listGroupInvitesHandler(
         let inviteeName = "";
         let inviteeAvatar = undefined;
 
-        // Handle invitee_id and invitee_type from DB rows
-        if (invite.invitee_type === "USER" && invite.invitee_id) {
-          const inviteeInfo = await db.queryDrive(
-            orgId,
-            "SELECT name, avatar FROM contacts WHERE id = ?",
-            [invite.invitee_id]
-          );
-          if (inviteeInfo.length > 0) {
-            inviteeName = inviteeInfo[0].name;
-            inviteeAvatar = inviteeInfo[0].avatar;
-          }
-        } else if (invite.invitee_type === "PUBLIC") {
+        if (invite.invitee_name) {
+          // Already fetched from JOIN
+          inviteeName = invite.invitee_name;
+          inviteeAvatar = invite.invitee_avatar;
+        } else if (invite.invitee_type === GroupInviteeTypeEnum.PUBLIC) {
           inviteeName = "Public";
-        } else if (invite.invitee_type === "PLACEHOLDER") {
+        } else if (
+          invite.invitee_type === GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE
+        ) {
           inviteeName = "Awaiting Anon";
+        } else {
+          // Fallback for any other unexpected type or missing name
+          inviteeName = invite.invitee_id;
         }
 
         // PERMIT: Get permission previews for the current user on each group invite record
@@ -332,10 +354,7 @@ export async function listGroupInvitesHandler(
           id: invite.id,
           group_id: invite.group_id,
           inviter_id: invite.inviter_id,
-          invitee_id:
-            invite.invitee_type === "USER" && invite.invitee_id
-              ? invite.invitee_id
-              : invite.invitee_type, // Map back to GranteeID string
+          invitee_id: invite.invitee_id, // Use the full string ID from DB
           role: invite.role,
           note: invite.note,
           active_from: invite.active_from,
@@ -343,7 +362,7 @@ export async function listGroupInvitesHandler(
           created_at: invite.created_at,
           last_modified_at: invite.last_modified_at,
           from_placeholder_invitee: invite.from_placeholder_invitee,
-          labels: [],
+          labels: [], // Labels explicitly ignored
           redeem_code: invite.redeem_code,
           external_id: invite.external_id,
           external_payload: invite.external_payload,
@@ -358,7 +377,7 @@ export async function listGroupInvitesHandler(
 
     const nextCursor =
       hasMore && invites.length > 0
-        ? invites[invites.length - 1].created_at
+        ? invites[invites.length - 1].created_at.toString()
         : null;
 
     return reply.status(200).send(
@@ -429,11 +448,18 @@ export async function createGroupInviteHandler(
       );
     }
 
-    // PERMIT: Check if requester is the org owner, or has INVITE permission on the group record.
+    // PERMIT: Check if requester is the org owner, a group admin, or has INVITE permission on the group record.
     const isOrgOwner =
       (
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId; // Org owner check
+      )[0]?.owner_id === currentUserId;
+
+    const isGroupAdminStatus = await isGroupAdmin(
+      currentUserId,
+      group.id,
+      orgId
+    );
+
     const canInviteToGroupViaPermissions = (
       await checkSystemPermissions(
         group.id as SystemResourceID,
@@ -442,7 +468,7 @@ export async function createGroupInviteHandler(
       )
     ).includes(SystemPermissionType.INVITE);
 
-    if (!isOrgOwner && !canInviteToGroupViaPermissions) {
+    if (!isOrgOwner && !isGroupAdminStatus && !canInviteToGroupViaPermissions) {
       return reply.status(403).send(
         createApiResponse(undefined, {
           code: 403,
@@ -455,24 +481,38 @@ export async function createGroupInviteHandler(
     const inviteId = body.id || `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
 
     // Handle invitee_id - could be user, placeholder, or public
-    let inviteeId = body.invitee_id;
+    let inviteeIdString:
+      | GroupInviteeTypeEnum
+      | UserID
+      | `PlaceholderGroupInviteeID_${string}`;
+    let dbInviteeId: string | null; // Value to store in group_invites.invitee_id
+    let dbInviteeType: string; // Value to store in group_invites.invitee_type
     let redeemCode = undefined;
     let fromPlaceholder = undefined;
-    let inviteeType: "USER" | "PLACEHOLDER" | "PUBLIC";
 
-    if (!inviteeId) {
+    if (!body.invitee_id) {
       // Create placeholder invite if invitee_id is not provided
       const placeholderId = `${IDPrefixEnum.PlaceholderGroupInviteeID}${uuidv4()}`;
-      inviteeId = placeholderId;
+      inviteeIdString = placeholderId as `PlaceholderGroupInviteeID_${string}`;
+      dbInviteeId = placeholderId;
+      dbInviteeType = GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE;
       redeemCode = `REDEEM_${Date.now()}`; // Generate a redeem code for placeholder invites
-      inviteeType = "PLACEHOLDER";
-    } else if (inviteeId === "PUBLIC") {
-      redeemCode = "PUBLIC"; // Public invites have a static redeem code
-      inviteeType = "PUBLIC";
-    } else if (inviteeId.startsWith(IDPrefixEnum.User)) {
-      inviteeType = "USER";
-    } else if (inviteeId.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)) {
-      inviteeType = "PLACEHOLDER";
+    } else if (body.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
+      inviteeIdString = GroupInviteeTypeEnum.PUBLIC;
+      dbInviteeId = GroupInviteeTypeEnum.PUBLIC; // Store "PUBLIC" string in invitee_id column
+      dbInviteeType = GroupInviteeTypeEnum.PUBLIC;
+      redeemCode = GroupInviteeTypeEnum.PUBLIC; // Public invites have a static redeem code
+    } else if (body.invitee_id.startsWith(IDPrefixEnum.User)) {
+      inviteeIdString = body.invitee_id as UserID;
+      dbInviteeId = body.invitee_id;
+      dbInviteeType = GroupInviteeTypeEnum.USER;
+    } else if (
+      body.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
+    ) {
+      inviteeIdString =
+        body.invitee_id as `PlaceholderGroupInviteeID_${string}`;
+      dbInviteeId = body.invitee_id;
+      dbInviteeType = GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE;
     } else {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -486,7 +526,7 @@ export async function createGroupInviteHandler(
       id: inviteId as GroupInviteID,
       group_id: body.group_id as GroupID,
       inviter_id: requesterApiKey.user_id,
-      invitee_id: inviteeId,
+      invitee_id: inviteeIdString,
       role: body.role || GroupRole.MEMBER,
       note: body.note || "",
       active_from: body.active_from || 0,
@@ -495,7 +535,7 @@ export async function createGroupInviteHandler(
       last_modified_at: now,
       redeem_code: redeemCode,
       from_placeholder_invitee: fromPlaceholder,
-      labels: [],
+      labels: [], // Labels explicitly ignored
       external_id: body.external_id,
       external_payload: body.external_payload,
     };
@@ -514,8 +554,8 @@ export async function createGroupInviteHandler(
         invite.id,
         invite.group_id,
         invite.inviter_id,
-        inviteeType === "USER" ? invite.invitee_id : null, // Store actual invitee_id only for USER type, otherwise NULL
-        inviteeType,
+        dbInviteeId, // Store the determined invitee_id (full string or "PUBLIC")
+        dbInviteeType, // Store the determined invitee_type
         invite.role,
         invite.note,
         invite.active_from,
@@ -527,14 +567,6 @@ export async function createGroupInviteHandler(
         invite.external_id,
         invite.external_payload
       );
-
-      // If it's a direct user invite, add them to the contact_groups table immediately
-      if (inviteeType === "USER" && invite.invitee_id) {
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
-        );
-        memberStmt.run(invite.invitee_id, invite.group_id, invite.role);
-      }
     });
 
     // Get group info for FE response
@@ -547,19 +579,23 @@ export async function createGroupInviteHandler(
     let inviteeName = "";
     let inviteeAvatar = undefined;
 
-    if (inviteeId && inviteeId.startsWith(IDPrefixEnum.User)) {
+    if (inviteeIdString && inviteeIdString.startsWith(IDPrefixEnum.User)) {
       const inviteeInfo = await db.queryDrive(
         orgId,
         "SELECT name, avatar FROM contacts WHERE id = ?",
-        [inviteeId]
+        [inviteeIdString]
       );
       if (inviteeInfo.length > 0) {
         inviteeName = inviteeInfo[0].name;
         inviteeAvatar = inviteeInfo[0].avatar;
+      } else {
+        inviteeName = `Unknown User (${inviteeIdString})`;
       }
-    } else if (inviteeId === "PUBLIC") {
+    } else if (inviteeIdString === GroupInviteeTypeEnum.PUBLIC) {
       inviteeName = "Public";
-    } else if (inviteeId.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)) {
+    } else if (
+      inviteeIdString.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
+    ) {
       inviteeName = "Awaiting Anon";
     }
 
@@ -572,7 +608,7 @@ export async function createGroupInviteHandler(
 
     const inviteFE: GroupInviteFE = {
       ...invite,
-      invitee_id: inviteeId,
+      invitee_id: inviteeIdString as string, // Ensure it's the original string ID for FE
       group_name: groupInfo[0]?.name || "",
       group_avatar: groupInfo[0]?.avatar,
       invitee_name: inviteeName,
@@ -641,12 +677,20 @@ export async function updateGroupInviteHandler(
       );
     }
 
-    // PERMIT: Check if requester is the org owner, inviter, or has EDIT permission on the group invite record
+    // PERMIT: Check if requester is the org owner, inviter, a group admin, or has EDIT permission on the group invite record
     const isOrgOwner =
       (
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId; // Org owner check
+      )[0]?.owner_id === currentUserId;
+
     const isInviter = currentUserId === invite.inviter_id;
+
+    const isGroupAdminStatus = await isGroupAdmin(
+      currentUserId,
+      group.id,
+      orgId
+    );
+
     const canEditInviteViaPermissions = (
       await checkSystemPermissions(
         invite.id as SystemResourceID,
@@ -655,7 +699,12 @@ export async function updateGroupInviteHandler(
       )
     ).includes(SystemPermissionType.EDIT);
 
-    if (!isOrgOwner && !isInviter && !canEditInviteViaPermissions) {
+    if (
+      !isOrgOwner &&
+      !isInviter &&
+      !isGroupAdminStatus && // Added: Group admins can edit invites
+      !canEditInviteViaPermissions
+    ) {
       return reply.status(403).send(
         createApiResponse(undefined, {
           code: 403,
@@ -712,18 +761,6 @@ export async function updateGroupInviteHandler(
         `UPDATE group_invites SET ${updates.join(", ")} WHERE id = ?`
       );
       stmt.run(...values);
-
-      // If the role is being updated and it's a direct user invite, update contact_groups
-      if (
-        body.role !== undefined &&
-        invite.invitee_id &&
-        invite.invitee_id.startsWith(IDPrefixEnum.User)
-      ) {
-        const updateMemberRoleStmt = database.prepare(
-          `UPDATE contact_groups SET role = ? WHERE user_id = ? AND group_id = ?`
-        );
-        updateMemberRoleStmt.run(body.role, invite.invitee_id, invite.group_id);
-      }
     });
 
     // Get updated invite with additional info
@@ -745,23 +782,37 @@ export async function updateGroupInviteHandler(
       orgId
     );
 
+    let inviteeName = "";
+    let inviteeAvatar = undefined;
+    if (updatedInvite.invitee_id.startsWith(IDPrefixEnum.User)) {
+      const contactInfo = await db.queryDrive(
+        orgId,
+        "SELECT name, avatar FROM contacts WHERE id = ?",
+        [updatedInvite.invitee_id]
+      );
+      if (contactInfo.length > 0) {
+        inviteeName = contactInfo[0].name;
+        inviteeAvatar = contactInfo[0].avatar;
+      } else {
+        inviteeName = `Unknown User (${updatedInvite.invitee_id})`;
+      }
+    } else if (updatedInvite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
+      inviteeName = "Public";
+    } else if (
+      updatedInvite.invitee_id.startsWith(
+        IDPrefixEnum.PlaceholderGroupInviteeID
+      )
+    ) {
+      inviteeName = "Awaiting Anon";
+    }
+
     const inviteFE: GroupInviteFE = {
       ...updatedInvite,
       group_name: group.name,
-      invitee_id: updatedInvite.invitee_id || "PUBLIC",
-      invitee_name: updatedInvite.invitee_id.startsWith(
-        GroupInviteeTypeEnum.USER
-      )
-        ? "Public"
-        : updatedInvite.invitee_id.startsWith(
-              GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE
-            )
-          ? "Awaiting Anon"
-          : updatedInvite.invitee_id.startsWith(
-                GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE
-              )
-            ? "Placeholder"
-            : "",
+      group_avatar: group.avatar,
+      invitee_id: updatedInvite.invitee_id, // Ensure it's the original string ID
+      invitee_name: inviteeName,
+      invitee_avatar: inviteeAvatar,
       permission_previews: permissionPreviews,
     };
 
@@ -826,12 +877,20 @@ export async function deleteGroupInviteHandler(
       );
     }
 
-    // PERMIT: Check if requester is the org owner, inviter, or has DELETE permission on the group invite record
+    // PERMIT: Check if requester is the org owner, inviter, a group admin, or has DELETE permission on the group invite record
     const isOrgOwner =
       (
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId; // Org owner check
+      )[0]?.owner_id === currentUserId;
+
     const isInviter = currentUserId === invite.inviter_id;
+
+    const isGroupAdminStatus = await isGroupAdmin(
+      currentUserId,
+      group.id,
+      orgId
+    );
+
     const canDeleteInviteViaPermissions = (
       await checkSystemPermissions(
         invite.id as SystemResourceID,
@@ -840,7 +899,12 @@ export async function deleteGroupInviteHandler(
       )
     ).includes(SystemPermissionType.DELETE);
 
-    if (!isOrgOwner && !isInviter && !canDeleteInviteViaPermissions) {
+    if (
+      !isOrgOwner &&
+      !isInviter &&
+      !isGroupAdminStatus && // Added: Group admins can delete invites
+      !canDeleteInviteViaPermissions
+    ) {
       return reply.status(403).send(
         createApiResponse(undefined, {
           code: 403,
@@ -849,23 +913,25 @@ export async function deleteGroupInviteHandler(
       );
     }
 
-    // Delete invite and remove user from group if needed
+    // Delete invite and remove user from group if needed (if it was a direct user invite)
     await dbHelpers.transaction("drive", orgId, (database) => {
-      // Delete the invite
-      database.prepare("DELETE FROM group_invites WHERE id = ?").run(invite.id);
-
-      // Remove user from group if they were added via a direct user invite
-      if (
-        invite.invitee_id &&
-        invite.invitee_id.startsWith(IDPrefixEnum.User)
-      ) {
+      // If the invite was a direct user invite, remove the user from the group.
+      // This implicitly handles both member and admin roles, as group_invites is the source of truth.
+      if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
         database
           .prepare(
-            "DELETE FROM contact_groups WHERE user_id = ? AND group_id = ?"
+            `DELETE FROM group_invites WHERE group_id = ? AND invitee_id = ? AND invitee_type = ?`
           )
-          .run(invite.invitee_id, invite.group_id);
+          .run(invite.group_id, invite.invitee_id, GroupInviteeTypeEnum.USER);
+      } else {
+        // For placeholder or public invites, just delete the invite record itself.
+        database
+          .prepare("DELETE FROM group_invites WHERE id = ?")
+          .run(invite.id);
       }
-      // Also remove any system permissions associated with this invite ID as a resource
+
+      // Also remove any system permissions associated with this invite ID as a resource.
+      // This is for permissions explicitly granted to the invite record itself.
       database
         .prepare("DELETE FROM permissions_system WHERE resource_identifier = ?")
         .run(invite.id);
@@ -943,6 +1009,7 @@ export async function redeemGroupInviteHandler(
     }
 
     // PERMIT: User attempting to redeem must be the intended invitee if it's a specific user invite.
+    // For public and placeholder invites, anyone can attempt to redeem.
     if (
       invite.invitee_id.startsWith(IDPrefixEnum.User) &&
       invite.invitee_id !== currentUserId
@@ -955,33 +1022,19 @@ export async function redeemGroupInviteHandler(
       );
     }
 
-    // PERMIT: Check if user has INVITE permission on the group record (to join it)
-    const canJoinGroupViaPermissions = (
-      await checkSystemPermissions(
-        invite.group_id as SystemResourceID,
-        currentUserId,
-        orgId
-      )
-    ).includes(SystemPermissionType.INVITE);
-
-    if (!canJoinGroupViaPermissions) {
-      return reply.status(403).send(
-        createApiResponse(undefined, {
-          code: 403,
-          message: "Forbidden: Not allowed to join this group",
-        })
-      );
-    }
-
     const now = Date.now();
 
+    // The user to be added to the group is the currentUserId (from API key)
+    const newMemberId = currentUserId;
+
     // Handle different invite types
-    if (invite.invitee_id.startsWith(GroupInviteeTypeEnum.PUBLIC)) {
+    if (invite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
       // For public invites, create a new invite for the specific user
+      // and add them to the group with the original invite's role.
       const newInviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
 
       await dbHelpers.transaction("drive", orgId, (database) => {
-        // Create new invite
+        // Create new invite for the specific user
         const stmt = database.prepare(
           `INSERT INTO group_invites (
               id, group_id, inviter_id, invitee_id, invitee_type, role, note,
@@ -998,8 +1051,8 @@ export async function redeemGroupInviteHandler(
           newInviteId,
           invite.group_id,
           invite.inviter_id,
-          body.user_id,
-          "USER",
+          newMemberId,
+          GroupInviteeTypeEnum.USER,
           invite.role, // Maintain the original role from the public invite
           userNote,
           invite.active_from,
@@ -1012,11 +1065,28 @@ export async function redeemGroupInviteHandler(
           invite.external_payload
         );
 
-        // Add user to group
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
+        // Ensure a contact exists for the user, creating one with default values if not.
+        // This is crucial since UserIDs can exist outside the contacts table.
+        const contactExistsStmt = database.prepare(
+          `SELECT id FROM contacts WHERE id = ?`
         );
-        memberStmt.run(body.user_id, invite.group_id, invite.role);
+        const existingContact = contactExistsStmt.get(newMemberId);
+
+        if (!existingContact) {
+          const createContactStmt = database.prepare(
+            `INSERT INTO contacts (
+                id, name, evm_public_address, icp_principal, created_at, last_online_ms
+            ) VALUES (?, ?, ?, ?, ?, ?)`
+          );
+          createContactStmt.run(
+            newMemberId, // id
+            newMemberId, // name (default to user_id)
+            "", // evm_public_address (default empty)
+            newMemberId.replace("UserID_", ""), // icp_principal (default empty)
+            now, // created_at
+            now // last_online_ms
+          );
+        }
       });
 
       // Get the new invite with additional info
@@ -1041,14 +1111,34 @@ export async function redeemGroupInviteHandler(
         orgId
       );
 
+      const groupInfo = await db.queryDrive(
+        orgId,
+        "SELECT name, avatar FROM groups WHERE id = ?",
+        [newInvite.group_id]
+      );
+      let inviteeName = "";
+      let inviteeAvatar = undefined;
+      if (newInvite.invitee_id.startsWith(IDPrefixEnum.User)) {
+        const contactInfo = await db.queryDrive(
+          orgId,
+          "SELECT name, avatar FROM contacts WHERE id = ?",
+          [newInvite.invitee_id]
+        );
+        if (contactInfo.length > 0) {
+          inviteeName = contactInfo[0].name;
+          inviteeAvatar = contactInfo[0].avatar;
+        } else {
+          inviteeName = `Unknown User (${newInvite.invitee_id})`;
+        }
+      }
+
       const responseData: IResponseRedeemGroupInvite = {
         invite: {
           ...newInvite,
-          invitee_id: newInvite.invitee_id || "PUBLIC",
         },
       };
 
-      return reply.status(200).send(createApiResponse(responseData));
+      return reply.status(200).send(responseData);
     } else if (
       invite.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
     ) {
@@ -1070,13 +1160,13 @@ export async function redeemGroupInviteHandler(
 
         const stmt = database.prepare(
           `UPDATE group_invites
-             SET invitee_id = ?, invitee_type = ?, role = ?, note = ?,
-                 last_modified_at = ?, redeem_code = NULL, from_placeholder_invitee = ?
-             WHERE id = ?`
+               SET invitee_id = ?, invitee_type = ?, role = ?, note = ?,
+                   last_modified_at = ?, redeem_code = NULL, from_placeholder_invitee = ?
+               WHERE id = ?`
         );
         stmt.run(
-          body.user_id,
-          "USER",
+          newMemberId, // New UserID
+          GroupInviteeTypeEnum.USER,
           invite.role, // Maintain the original role from the placeholder invite
           userNote,
           now,
@@ -1084,11 +1174,27 @@ export async function redeemGroupInviteHandler(
           invite.id
         );
 
-        // Add user to group
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
+        // Ensure a contact exists for the user, creating one with default values if not.
+        const contactExistsStmt = database.prepare(
+          `SELECT id FROM contacts WHERE id = ?`
         );
-        memberStmt.run(body.user_id, invite.group_id, invite.role);
+        const existingContact = contactExistsStmt.get(newMemberId);
+
+        if (!existingContact) {
+          const createContactStmt = database.prepare(
+            `INSERT INTO contacts (
+                id, name, evm_public_address, icp_principal, created_at, last_online_ms
+            ) VALUES (?, ?, ?, ?, ?, ?)`
+          );
+          createContactStmt.run(
+            newMemberId, // id
+            newMemberId, // name (default to user_id)
+            "", // evm_public_address
+            newMemberId.replace("UserID_", ""), // icp_principal
+            now, // created_at
+            now // last_online_ms
+          );
+        }
       });
 
       // Get updated invite
@@ -1111,26 +1217,64 @@ export async function redeemGroupInviteHandler(
         orgId
       );
 
+      const groupInfo = await db.queryDrive(
+        orgId,
+        "SELECT name, avatar FROM groups WHERE id = ?",
+        [updatedInvite.group_id]
+      );
+      let inviteeName = "";
+      let inviteeAvatar = undefined;
+      if (updatedInvite.invitee_id.startsWith(IDPrefixEnum.User)) {
+        const contactInfo = await db.queryDrive(
+          orgId,
+          "SELECT name, avatar FROM contacts WHERE id = ?",
+          [updatedInvite.invitee_id]
+        );
+        if (contactInfo.length > 0) {
+          inviteeName = contactInfo[0].name;
+          inviteeAvatar = contactInfo[0].avatar;
+        } else {
+          inviteeName = `Unknown User (${updatedInvite.invitee_id})`;
+        }
+      }
+
       const responseData: IResponseRedeemGroupInvite = {
         invite: {
           ...updatedInvite,
-          invitee_id: updatedInvite.invitee_id || "PUBLIC",
         },
       };
 
-      return reply.status(200).send(createApiResponse(responseData));
+      return reply.status(200).send(responseData);
     } else if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
-      // If it's a direct user invite, and the user matches, just ensure they are in contact_groups
-      // (This should already be handled during invite creation, but good for idempotency or
-      // if invite was deleted from contact_groups without invite being deleted)
+      // If it's a direct user invite, and the user matches the API key,
+      // the "redemption" means confirming their membership.
+      // The `invitee_id` in the DB already holds the UserID.
+      // No change to the invite record itself, but ensure contact exists.
       await dbHelpers.transaction("drive", orgId, (database) => {
-        const memberStmt = database.prepare(
-          `INSERT OR IGNORE INTO contact_groups (user_id, group_id, role) VALUES (?, ?, ?)`
+        // Ensure a contact exists for the user, creating one with default values if not.
+        const contactExistsStmt = database.prepare(
+          `SELECT id FROM contacts WHERE id = ?`
         );
-        memberStmt.run(invite.invitee_id, invite.group_id, invite.role);
+        const existingContact = contactExistsStmt.get(newMemberId);
+
+        if (!existingContact) {
+          const createContactStmt = database.prepare(
+            `INSERT INTO contacts (
+                id, name, evm_public_address, icp_principal, created_at, last_online_ms
+            ) VALUES (?, ?, ?, ?, ?, ?)`
+          );
+          createContactStmt.run(
+            newMemberId, // id
+            newMemberId, // name (default to user_id)
+            "", // evm_public_address
+            newMemberId.replace("UserID_", ""), // icp_principal
+            now, // created_at
+            now // last_online_ms
+          );
+        }
       });
 
-      // Get updated invite (no change to invite record itself, just confirmation of membership)
+      // Get updated invite (no change to invite record itself, just re-fetch for response)
       const redeemedInvite = await getGroupInviteById(invite.id, orgId);
 
       if (!redeemedInvite) {
@@ -1142,19 +1286,40 @@ export async function redeemGroupInviteHandler(
         );
       }
 
+      // PERMIT: Get permission previews for the current user on the redeemed invite record
       const permissionPreviews = await checkSystemPermissions(
         redeemedInvite.id as SystemResourceID,
         currentUserId,
         orgId
       );
 
+      const groupInfo = await db.queryDrive(
+        orgId,
+        "SELECT name, avatar FROM groups WHERE id = ?",
+        [redeemedInvite.group_id]
+      );
+      let inviteeName = "";
+      let inviteeAvatar = undefined;
+      if (redeemedInvite.invitee_id.startsWith(IDPrefixEnum.User)) {
+        const contactInfo = await db.queryDrive(
+          orgId,
+          "SELECT name, avatar FROM contacts WHERE id = ?",
+          [redeemedInvite.invitee_id]
+        );
+        if (contactInfo.length > 0) {
+          inviteeName = contactInfo[0].name;
+          inviteeAvatar = contactInfo[0].avatar;
+        } else {
+          inviteeName = `Unknown User (${redeemedInvite.invitee_id})`;
+        }
+      }
+
       const responseData: IResponseRedeemGroupInvite = {
         invite: {
           ...redeemedInvite,
-          invitee_id: redeemedInvite.invitee_id,
         },
       };
-      return reply.status(200).send(createApiResponse(responseData));
+      return reply.status(200).send(responseData);
     } else {
       return reply.status(400).send(
         createApiResponse(undefined, {

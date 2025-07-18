@@ -45,3 +45,9 @@ Shut down docker containers, even volumes
 $ docker compose down
 $ docker compose down --volumes
 ```
+
+Convinence restart
+
+```sh
+$ docker compose down --volumes && docker compose up --build -d && docker compose logs -f
+```
