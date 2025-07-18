@@ -173,6 +173,7 @@ export async function checkSystemPermissions(
 
   if (granteeId.startsWith(IDPrefixEnum.User)) {
     const isOwner = (await getDriveOwnerId(orgId)) === granteeId;
+    console.log(`isOwner==`, isOwner);
     if (isOwner) {
       return [
         SystemPermissionType.CREATE,
