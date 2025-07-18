@@ -137,7 +137,7 @@ async function isUserInGroup(
 ): Promise<boolean> {
   const rows = await db.queryDrive(
     orgId,
-    "SELECT 1 FROM contact_groups WHERE user_id = ? AND group_id = ?",
+    "SELECT 1 FROM group_invites WHERE invitee_id = ? AND group_id = ?",
     [userId, groupId]
   );
   return rows.length > 0;

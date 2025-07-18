@@ -31,6 +31,7 @@ CREATE TABLE about_drive (
 -- Table: contacts
 -- Source: src/core/state/contacts/types.rs -> Contact
 -- Description: Stores contact information.
+-- contacts is an optional table, because user_id is actually cryptographic public keys as userids, so userid can exist completely outside of SQL known database
 CREATE TABLE contacts (
     id TEXT PRIMARY KEY NOT NULL, -- Corresponds to UserID
     name TEXT NOT NULL,
@@ -331,13 +332,6 @@ CREATE TABLE contact_id_superswap_history (
 -- Junction Tables for Many-to-Many Relationships
 -- =============================================
 
--- Junction Table for `Contact.groups`
-CREATE TABLE contact_groups (
-    user_id TEXT NOT NULL,
-    group_id TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'MEMBER', 
-    PRIMARY KEY (user_id, group_id)
-);
 
 -- Junction Table for `Contact.past_user_ids`
 CREATE TABLE contact_past_ids (

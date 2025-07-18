@@ -16,24 +16,24 @@ import {
 import { db, dbHelpers } from "../../services/database"; // Adjust this path to your database service
 import { getDriveOwnerId } from "../../routes/v1/types";
 import { v4 as uuidv4 } from "uuid";
+
 /**
  * Represents a Group record as stored in the SQLite database.
  * This should match the `groups` table schema.
  */
 interface GroupDbRow {
-  id: string; // GroupID without prefix (just UUID part)
+  id: string; // GroupID (full prefixed string)
   name: string;
-  owner: string; // UserID without prefix (just UUID part)
+  owner: string; // UserID (full prefixed string)
   avatar?: string;
   private_note?: string;
   public_note?: string;
   created_at: number;
   last_modified_at: number;
-  drive_id: string; // DriveID
+  drive_id: string; // DriveID (full prefixed string)
   endpoint_url: string; // URLEndpoint
   external_id?: string;
   external_payload?: string;
-  // Note: admin_invites and member_invites are typically stored in a separate join table or derived
 }
 
 /**
@@ -41,11 +41,11 @@ interface GroupDbRow {
  * This should match the `group_invites` table schema.
  */
 interface GroupInviteDbRow {
-  id: string; // GroupInviteID without prefix
-  group_id: string; // GroupID without prefix
-  inviter_id: string; // UserID without prefix
+  id: string; // GroupInviteID (full prefixed string)
+  group_id: string; // GroupID (full prefixed string)
+  inviter_id: string; // UserID (full prefixed string)
   invitee_type: string; // 'USER', 'PLACEHOLDER', 'PUBLIC'
-  invitee_id?: string; // UserID (without prefix) or PlaceholderID (without prefix), NULL if public
+  invitee_id?: string; // UserID (full prefixed string) or PlaceholderID (full prefixed string), 'PUBLIC' string
   role: string; // 'ADMIN', 'MEMBER'
   note: string;
   active_from: number;
@@ -68,16 +68,16 @@ export async function getGroupById(
   groupId: GroupID,
   orgId: string
 ): Promise<Group | undefined> {
-  const plainGroupId = groupId; // Use helper to get plain ID
+  // Use the full prefixed ID directly for the query
   const query = `
-      SELECT
-        id, name, owner, avatar, private_note, public_note,
-        created_at, last_modified_at, drive_id, endpoint_url,
-        external_id, external_payload
-      FROM groups
-      WHERE id = ?;
+        SELECT
+          id, name, owner, avatar, private_note, public_note,
+          created_at, last_modified_at, drive_id, endpoint_url,
+          external_id, external_payload
+        FROM groups
+        WHERE id = ?;
     `;
-  const rows = await db.queryDrive(orgId, query, [plainGroupId]);
+  const rows = await db.queryDrive(orgId, query, [groupId]);
 
   if (rows.length === 0) {
     return undefined;
@@ -85,20 +85,52 @@ export async function getGroupById(
 
   const row = rows[0] as GroupDbRow;
 
+  // Fetch admin and member invite IDs separately from group_invites table
+  const adminInvitesQuery = `
+        SELECT id FROM group_invites
+        WHERE group_id = ? AND role = ?
+          AND active_from <= ? AND (expires_at <= 0 OR expires_at > ?);
+    `;
+  const memberInvitesQuery = `
+        SELECT id FROM group_invites
+        WHERE group_id = ?
+          AND active_from <= ? AND (expires_at <= 0 OR expires_at > ?);
+    `;
+  const currentTime = Date.now();
+
+  const adminInviteRows = await db.queryDrive(orgId, adminInvitesQuery, [
+    groupId,
+    GroupRole.ADMIN,
+    currentTime,
+    currentTime,
+  ]);
+  const memberInviteRows = await db.queryDrive(orgId, memberInvitesQuery, [
+    groupId,
+    currentTime,
+    currentTime,
+  ]);
+
+  const admin_invites = adminInviteRows.map(
+    (r: { id: string }) => r.id as GroupInviteID
+  );
+  const member_invites = memberInviteRows.map(
+    (r: { id: string }) => r.id as GroupInviteID
+  );
+
   return {
-    id: `${row.id}` as GroupID, // Reconstruct prefixed ID
+    id: row.id as GroupID, // Already prefixed from DB per your clarification
     name: row.name,
-    owner: `${row.owner}` as UserID, // Reconstruct prefixed UserID
+    owner: row.owner as UserID, // Already prefixed from DB per your clarification
     avatar: row.avatar || "",
     private_note: row.private_note,
     public_note: row.public_note,
-    admin_invites: [], // As per your comment, these are placeholders or need separate fetching
-    member_invites: [], // As per your comment, these are placeholders or need separate fetching
+    admin_invites: admin_invites, // Populated from group_invites
+    member_invites: member_invites, // Populated from group_invites
     created_at: row.created_at,
     last_modified_at: row.last_modified_at,
     drive_id: row.drive_id,
     endpoint_url: row.endpoint_url as URLEndpoint,
-    labels: [], // Labels are handled via a join table, fetch separately if needed
+    labels: [], // As requested, labels are ignored and blank array
     external_id: row.external_id,
     external_payload: row.external_payload,
   };
@@ -126,39 +158,29 @@ export async function isGroupAdmin(
     return true;
   }
 
-  // 2. Check admin invites
+  // 2. Check active admin invites for the user
   const currentTime = Date.now();
-  const plainUserId = userId;
-  const plainGroupId = groupId;
 
   const adminInviteQuery = `
-      SELECT
-        gi.id, gi.group_id, gi.inviter_id, gi.invitee_type, gi.invitee_id,
-        gi.role, gi.note, gi.active_from, gi.expires_at,
-        gi.created_at, gi.last_modified_at, gi.redeem_code,
-        gi.from_placeholder_invitee, gi.external_id, gi.external_payload
-      FROM group_invites gi
-      WHERE gi.group_id = ?
-        AND gi.role = 'ADMIN'
-        AND gi.invitee_type = 'USER'
-        AND gi.invitee_id = ?;
+        SELECT gi.id
+        FROM group_invites gi
+        WHERE gi.group_id = ?
+          AND gi.role = ?
+          AND gi.invitee_id = ?
+          AND gi.invitee_type = ?
+          AND gi.active_from <= ?
+          AND (gi.expires_at <= 0 OR gi.expires_at > ?);
     `;
   const adminInviteRows = await db.queryDrive(orgId, adminInviteQuery, [
-    plainGroupId,
-    plainUserId,
+    groupId,
+    GroupRole.ADMIN,
+    userId,
+    GroupInviteeTypeEnum.USER,
+    currentTime,
+    currentTime,
   ]);
 
-  for (const row of adminInviteRows) {
-    const invite = row as GroupInviteDbRow;
-    if (
-      invite.active_from <= currentTime &&
-      (invite.expires_at <= 0 || invite.expires_at > currentTime)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+  return adminInviteRows.length > 0;
 }
 
 /**
@@ -171,16 +193,15 @@ export async function getGroupInviteById(
   inviteId: GroupInviteID,
   orgId: string
 ): Promise<GroupInvite | undefined> {
-  const plainInviteId = inviteId;
   const query = `
-      SELECT
-        id, group_id, inviter_id, invitee_type, invitee_id, role, note,
-        active_from, expires_at, created_at, last_modified_at,
-        redeem_code, from_placeholder_invitee, external_id, external_payload
-      FROM group_invites
-      WHERE id = ?;
+        SELECT
+          id, group_id, inviter_id, invitee_type, invitee_id, role, note,
+          active_from, expires_at, created_at, last_modified_at,
+          redeem_code, from_placeholder_invitee, external_id, external_payload
+        FROM group_invites
+        WHERE id = ?;
     `;
-  const rows = await db.queryDrive(orgId, query, [plainInviteId]);
+  const rows = await db.queryDrive(orgId, query, [inviteId]);
 
   if (rows.length === 0) {
     return undefined;
@@ -190,24 +211,27 @@ export async function getGroupInviteById(
 
   // Map invitee_id based on invitee_type
   let inviteeFullId: GroupInviteeID;
-  if (row.invitee_type === "USER" && row.invitee_id) {
-    inviteeFullId = `${row.invitee_id}` as UserID;
-  } else if (row.invitee_type === "PLACEHOLDER" && row.invitee_id) {
-    inviteeFullId = `${row.invitee_id}`;
-  } else if (row.invitee_type === "PUBLIC") {
-    inviteeFullId = "PUBLIC";
-  } else {
-    // Fallback or error, depending on expected strictness
-    console.warn(
-      `Unexpected invitee_type or missing invitee_id: ${row.invitee_type}, ID: ${row.invitee_id}`
-    );
-    inviteeFullId = "PUBLIC"; // Default to public for safety
+  switch (row.invitee_type) {
+    case GroupInviteeTypeEnum.USER:
+      inviteeFullId = row.invitee_id as UserID;
+      break;
+    case GroupInviteeTypeEnum.PLACEHOLDER_GROUP_INVITEE:
+      inviteeFullId = row.invitee_id as `PlaceholderGroupInviteeID_${string}`;
+      break;
+    case GroupInviteeTypeEnum.PUBLIC:
+      inviteeFullId = GroupInviteeTypeEnum.PUBLIC;
+      break;
+    default:
+      console.warn(
+        `Unexpected invitee_type: ${row.invitee_type}. Defaulting to PUBLIC.`
+      );
+      inviteeFullId = GroupInviteeTypeEnum.PUBLIC; // Fallback for unexpected types
   }
 
   return {
-    id: `${row.id}` as GroupInviteID,
-    group_id: `${row.group_id}` as GroupID,
-    inviter_id: `${row.inviter_id}` as UserID,
+    id: row.id as GroupInviteID,
+    group_id: row.group_id as GroupID,
+    inviter_id: row.inviter_id as UserID,
     invitee_id: inviteeFullId,
     role: row.role as GroupRole,
     note: row.note,
@@ -217,7 +241,7 @@ export async function getGroupInviteById(
     last_modified_at: row.last_modified_at,
     redeem_code: row.redeem_code,
     from_placeholder_invitee: row.from_placeholder_invitee,
-    labels: [],
+    labels: [], // As requested, labels are ignored and blank array
     external_id: row.external_id,
     external_payload: row.external_payload,
   };
@@ -243,39 +267,28 @@ export async function isUserOnLocalGroup(
     return true;
   }
 
-  // 2. Check all member invites
+  // 2. Check active member invites (includes admins)
   const currentTime = Date.now();
-  const plainUserId = userId;
-  const plainGroupId = group.id;
 
   const userInvitesQuery = `
-      SELECT
-        gi.id, gi.group_id, gi.inviter_id, gi.invitee_type, gi.invitee_id,
-        gi.role, gi.note, gi.active_from, gi.expires_at,
-        gi.created_at, gi.last_modified_at, gi.redeem_code,
-        gi.from_placeholder_invitee, gi.external_id, gi.external_payload
-      FROM group_invites gi
-      WHERE gi.group_id = ?
-        AND gi.invitee_type = 'USER'
-        AND gi.invitee_id = ?;
+        SELECT gi.id
+        FROM group_invites gi
+        WHERE gi.group_id = ?
+          AND gi.invitee_id = ?
+          AND gi.invitee_type = ?
+          AND gi.active_from <= ?
+          AND (gi.expires_at <= 0 OR gi.expires_at > ?);
     `;
 
   const inviteRows = await db.queryDrive(orgId, userInvitesQuery, [
-    plainGroupId,
-    plainUserId,
+    group.id,
+    userId,
+    GroupInviteeTypeEnum.USER,
+    currentTime,
+    currentTime,
   ]);
 
-  for (const row of inviteRows) {
-    const invite = row as GroupInviteDbRow;
-    if (
-      invite.active_from <= currentTime &&
-      (invite.expires_at <= 0 || invite.expires_at > currentTime)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+  return inviteRows.length > 0;
 }
 
 /**
@@ -319,8 +332,8 @@ export async function isUserInGroup(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          group_id: groupId, // Send plain ID for external API
-          user_id: userId, // Send plain ID for external API
+          group_id: groupId, // Send prefixed ID for external API as assumed
+          user_id: userId, // Send prefixed ID for external API as assumed
         }),
       });
 
@@ -347,19 +360,18 @@ export async function isUserInGroup(
  * If the user is an admin, their role remains admin.
  * @param groupId The ID of the group (prefixed).
  * @param userId The ID of the user (prefixed) to add.
+ * @param role The role to assign to the user (MEMBER or ADMIN).
  * @param inviterId The ID of the user who is performing the addition (for invite record).
  * @param orgId The organization ID (drive ID).
  * @returns True if the member was added or already exists as a member/admin, false otherwise (e.g., group not found).
  */
-export async function addMemberToGroup(
+export async function addGroupMember(
   groupId: GroupID,
   userId: UserID,
+  role: GroupRole, // Added role parameter
   inviterId: UserID, // User performing the action
   orgId: string
 ): Promise<boolean> {
-  const plainGroupId = groupId;
-  const plainUserId = userId;
-  const plainInviterId = inviterId;
   const now = Date.now();
 
   try {
@@ -371,40 +383,18 @@ export async function addMemberToGroup(
     }
 
     await dbHelpers.transaction("drive", orgId, (database) => {
-      // 1. Add/Update contact_groups entry: If user is not in contact_groups, add them as MEMBER.
-      //    If they are already ADMIN, do not demote them.
-      //    If they are already MEMBER, do nothing.
-      database
-        .prepare(
-          `INSERT INTO contact_groups (user_id, group_id, role)
-           VALUES (?, ?, ?)
-           ON CONFLICT(user_id, group_id) DO UPDATE SET
-             role = COALESCE(
-               (SELECT role FROM contact_groups WHERE user_id = ? AND group_id = ?),
-               'MEMBER'
-             )
-           WHERE role IS NOT 'ADMIN';` // Don't change role if already ADMIN
-        )
-        .run(
-          plainUserId,
-          plainGroupId,
-          GroupRole.MEMBER,
-          plainUserId,
-          plainGroupId
-        );
-
-      // 2. Create or update a group_invites record for this user with MEMBER role.
-      //    This is important for tracking how members joined and for system permissions.
-      //    We only create an invite if one for this user/group doesn't exist,
-      //    or if an existing one is for a different role (e.g., a pending admin invite).
+      // Create or update a group_invites record for this user with the specified role.
       const existingInvite = database
         .prepare(
           `SELECT id, role FROM group_invites
-           WHERE group_id = ? AND invitee_id = ? AND invitee_type = 'USER'`
+           WHERE group_id = ? AND invitee_id = ? AND invitee_type = ?`
         )
-        .get(plainGroupId, plainUserId) as GroupInviteDbRow | undefined;
+        .get(groupId, userId, GroupInviteeTypeEnum.USER) as
+        | GroupInviteDbRow
+        | undefined;
 
       if (!existingInvite) {
+        // No existing invite for this user in this group, create a new one
         const inviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
         database
           .prepare(
@@ -415,32 +405,26 @@ export async function addMemberToGroup(
           )
           .run(
             inviteId,
-            plainGroupId,
-            plainInviterId,
-            plainUserId,
+            groupId,
+            inviterId,
+            userId,
             GroupInviteeTypeEnum.USER,
-            GroupRole.MEMBER,
-            `Added as member by ${plainInviterId}`,
+            role, // Use the provided role
+            `Added as ${role} by ${inviterId}`,
             now, // Active immediately
             -1, // Never expires
             now,
             now
           );
-      } else if (existingInvite.role === GroupRole.ADMIN) {
-        // If an ADMIN invite exists, ensure the contact_groups role matches
+      } else if (existingInvite.role !== role) {
+        // If an invite exists but with a different role, update it
         database
           .prepare(
-            `UPDATE contact_groups SET role = ? WHERE user_id = ? AND group_id = ?`
+            `UPDATE group_invites SET role = ?, last_modified_at = ? WHERE id = ?`
           )
-          .run(GroupRole.ADMIN, plainUserId, plainGroupId);
-      } else if (existingInvite.role === GroupRole.MEMBER) {
-        // If a MEMBER invite exists, ensure the contact_groups role matches
-        database
-          .prepare(
-            `UPDATE contact_groups SET role = ? WHERE user_id = ? AND group_id = ?`
-          )
-          .run(GroupRole.MEMBER, plainUserId, plainGroupId);
+          .run(role, now, existingInvite.id);
       }
+      // If role is the same, do nothing (already a member with that role)
     });
 
     return true;
@@ -452,7 +436,7 @@ export async function addMemberToGroup(
 
 /**
  * Removes a user from a specific group.
- * This will remove their entry from `contact_groups` and associated `group_invites`.
+ * This will remove their entry from `group_invites`.
  * @param groupId The ID of the group (prefixed).
  * @param userId The ID of the user (prefixed) to remove.
  * @param orgId The organization ID (drive ID).
@@ -463,9 +447,6 @@ export async function removeMemberFromGroup(
   userId: UserID,
   orgId: string
 ): Promise<boolean> {
-  const plainGroupId = groupId;
-  const plainUserId = userId;
-
   try {
     // Check if the group exists
     const groupExists = await getGroupById(groupId, orgId);
@@ -475,19 +456,11 @@ export async function removeMemberFromGroup(
     }
 
     await dbHelpers.transaction("drive", orgId, (database) => {
-      // 1. Delete from contact_groups
-      database
-        .prepare(
-          `DELETE FROM contact_groups WHERE group_id = ? AND user_id = ?`
-        )
-        .run(plainGroupId, plainUserId);
-
-      // 2. Delete associated group_invites for this user and group
-      database
-        .prepare(
-          `DELETE FROM group_invites WHERE group_id = ? AND invitee_id = ? AND invitee_type = 'USER'`
-        )
-        .run(plainGroupId, plainUserId);
+      // Delete associated group_invites for this user and group
+      const stmt = database.prepare(
+        `DELETE FROM group_invites WHERE group_id = ? AND invitee_id = ? AND invitee_type = ?`
+      );
+      stmt.run(groupId, userId, GroupInviteeTypeEnum.USER);
     });
 
     return true;
@@ -515,78 +488,7 @@ export async function addAdminToGroup(
   inviterId: UserID, // User performing the action
   orgId: string
 ): Promise<boolean> {
-  const plainGroupId = groupId;
-  const plainUserId = userId;
-  const plainInviterId = inviterId;
-  const now = Date.now();
-
-  try {
-    // Check if the group exists
-    const groupExists = await getGroupById(groupId, orgId);
-    if (!groupExists) {
-      console.warn(`Group not found: ${groupId}`);
-      return false;
-    }
-
-    await dbHelpers.transaction("drive", orgId, (database) => {
-      // 1. Add/Update contact_groups entry to ADMIN role.
-      //    If the user is not in contact_groups, they are inserted as ADMIN.
-      //    If they are already MEMBER, their role is updated to ADMIN.
-      //    If they are already ADMIN, their role remains ADMIN.
-      database
-        .prepare(
-          `INSERT INTO contact_groups (user_id, group_id, role)
-           VALUES (?, ?, ?)
-           ON CONFLICT(user_id, group_id) DO UPDATE SET role = ?;`
-        )
-        .run(plainUserId, plainGroupId, GroupRole.ADMIN, GroupRole.ADMIN);
-
-      // 2. Create or update a group_invites record for this user with ADMIN role.
-      const existingInvite = database
-        .prepare(
-          `SELECT id FROM group_invites
-           WHERE group_id = ? AND invitee_id = ? AND invitee_type = 'USER'`
-        )
-        .get(plainGroupId, plainUserId) as GroupInviteDbRow | undefined;
-
-      if (existingInvite) {
-        // Update existing invite to ADMIN role
-        database
-          .prepare(
-            `UPDATE group_invites SET role = ?, last_modified_at = ? WHERE id = ?`
-          )
-          .run(GroupRole.ADMIN, now, existingInvite.id);
-      } else {
-        // Create new invite as ADMIN
-        const inviteId = `${IDPrefixEnum.GroupInvite}${uuidv4()}`;
-        database
-          .prepare(
-            `INSERT INTO group_invites (
-              id, group_id, inviter_id, invitee_id, invitee_type, role, note,
-              active_from, expires_at, created_at, last_modified_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            inviteId,
-            plainGroupId,
-            plainInviterId,
-            plainUserId,
-            GroupInviteeTypeEnum.USER,
-            GroupRole.ADMIN,
-            `Promoted to admin by ${plainInviterId}`,
-            now, // Active immediately
-            -1, // Never expires
-            now,
-            now
-          );
-      }
-    });
-
-    return true;
-  } catch (error) {
-    console.error(`Error adding admin ${userId} to group ${groupId}:`, error);
-    return false;
-  }
+  return addGroupMember(groupId, userId, GroupRole.ADMIN, inviterId, orgId);
 }
 
 /**
@@ -602,56 +504,20 @@ export async function addAdminToGroup(
 export async function removeAdminFromGroup(
   groupId: GroupID,
   userId: UserID,
-  inviterId: UserID, // User performing the action
+  inviterId: UserID, // User performing the action (not directly used in query but for context)
   orgId: string
 ): Promise<boolean> {
-  const plainGroupId = groupId;
-  const plainUserId = userId;
-  const plainInviterId = inviterId;
-  const now = Date.now();
-
-  try {
-    // Check if the group exists
-    const groupExists = await getGroupById(groupId, orgId);
-    if (!groupExists) {
-      console.warn(`Group not found: ${groupId}`);
-      return false;
-    }
-
-    // Prevent demoting the group owner
-    if (groupExists.owner === userId) {
-      console.warn(
-        `Cannot demote group owner ${userId} from group ${groupId}.`
-      );
-      return false;
-    }
-
-    await dbHelpers.transaction("drive", orgId, (database) => {
-      // 1. Update contact_groups entry to MEMBER role.
-      //    Only update if the current role is ADMIN.
-      database
-        .prepare(
-          `UPDATE contact_groups SET role = ? WHERE user_id = ? AND group_id = ? AND role = ?`
-        )
-        .run(GroupRole.MEMBER, plainUserId, plainGroupId, GroupRole.ADMIN);
-
-      // 2. Update existing group_invites record for this user to MEMBER role.
-      //    If no invite exists, nothing needs to be done here for the invite,
-      //    as the goal is to remove admin status, not remove from group entirely.
-      database
-        .prepare(
-          `UPDATE group_invites SET role = ?, last_modified_at = ?
-           WHERE group_id = ? AND invitee_id = ? AND invitee_type = 'USER' AND role = ?`
-        )
-        .run(GroupRole.MEMBER, now, plainGroupId, plainUserId, GroupRole.ADMIN);
-    });
-
-    return true;
-  } catch (error) {
-    console.error(
-      `Error removing admin ${userId} from group ${groupId}:`,
-      error
-    );
+  const group = await getGroupById(groupId, orgId);
+  if (!group) {
+    console.warn(`Group not found: ${groupId}`);
     return false;
   }
+
+  // Prevent demoting the group owner
+  if (group.owner === userId) {
+    console.warn(`Cannot demote group owner ${userId} from group ${groupId}.`);
+    return false;
+  }
+
+  return addGroupMember(groupId, userId, GroupRole.MEMBER, inviterId, orgId);
 }
