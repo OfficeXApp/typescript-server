@@ -268,11 +268,23 @@ export async function getGroupHandler(
     } // End of for loop
 
     // PERMIT: Get permission previews for the current user on this group record
-    const permissionPreviews = await checkSystemPermissions(
+    let permissionPreviews = await checkSystemPermissions(
       groupId as SystemResourceID, // GroupID is a SystemRecordIDEnum
       currentUserId,
       orgId
     );
+
+    const isAdmin = await isGroupAdmin(currentUserId, groupId, orgId);
+
+    if (isAdmin) {
+      permissionPreviews = [
+        SystemPermissionType.CREATE,
+        SystemPermissionType.EDIT,
+        SystemPermissionType.DELETE,
+        SystemPermissionType.INVITE,
+        SystemPermissionType.VIEW,
+      ];
+    }
 
     const groupFE: GroupFE = {
       ...group,
@@ -419,6 +431,7 @@ export async function listGroupsHandler(
                   [invite.invitee_id]
                 );
                 const contact = contactInfo[0];
+
                 if (contact) {
                   inviteeName = contact.name;
                   inviteeAvatar = contact.avatar;
