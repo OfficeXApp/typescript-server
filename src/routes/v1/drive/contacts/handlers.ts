@@ -758,7 +758,7 @@ export async function createContactHandler(
               "USER",
               plainContactId,
               GroupRole.MEMBER, // Default role for "Everyone" group
-              `Auto-invited to default 'Default Everyone' upon contact creation.`,
+              `Auto-invited to default 'Group for All' upon contact creation.`,
               Date.now(),
               -1, // Never expires
               Date.now(),

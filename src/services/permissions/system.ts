@@ -15,6 +15,7 @@ import {
   DriveID,
   LabelValue,
   GroupInviteeTypeEnum,
+  SystemPermissionFE,
 } from "@officexapp/types";
 import { db } from "../../services/database";
 import { getDriveOwnerId } from "../../routes/v1/types";
@@ -27,7 +28,7 @@ function parseSystemResourceIDString(idStr: string): {
   value: string; // The actual ID or table enum value (e.g., "DRIVES" or a full prefixed ID)
 } {
   if (idStr.startsWith("TABLE_")) {
-    return { type: "Table", value: idStr.substring("TABLE_".length) };
+    return { type: "Table", value: idStr };
   } else {
     // If it's a Record, the `resource_identifier` in DB is the full prefixed ID.
     // So, we just use the `idStr` directly as the value for the query.
@@ -168,52 +169,67 @@ export async function checkSystemPermissions(
   orgId: DriveID // Ensure orgId is DriveID
 ): Promise<SystemPermissionType[]> {
   const allPermissions = new Set<SystemPermissionType>();
-
-  const isOwner = (await getDriveOwnerId(orgId)) === granteeId; // GranteeId can be UserID or other types
-
-  if (isOwner) {
-    return [
-      SystemPermissionType.CREATE,
-      SystemPermissionType.VIEW,
-      SystemPermissionType.EDIT,
-      SystemPermissionType.DELETE,
-      SystemPermissionType.INVITE,
-    ];
-  }
-
-  const directPermissions = await checkSystemResourcePermissions(
-    resourceId,
-    granteeId,
-    orgId
-  );
-  directPermissions.forEach((p) => allPermissions.add(p));
-
-  const publicPermissions = await checkSystemResourcePermissions(
-    resourceId,
-    PUBLIC_GRANTEE_ID_STRING,
-    orgId
-  );
-  publicPermissions.forEach((p) => allPermissions.add(p));
+  const currentTime = Date.now();
 
   if (granteeId.startsWith(IDPrefixEnum.User)) {
-    const userId = granteeId as UserID;
+    const isOwner = (await getDriveOwnerId(orgId)) === granteeId;
+    if (isOwner) {
+      return [
+        SystemPermissionType.CREATE,
+        SystemPermissionType.VIEW,
+        SystemPermissionType.EDIT,
+        SystemPermissionType.DELETE,
+        SystemPermissionType.INVITE,
+      ];
+    }
+  }
 
-    // Get all groups the user is directly a member of via group_invites table
+  const granteeIdsToCheck: GranteeID[] = [granteeId, PUBLIC_GRANTEE_ID_STRING];
+
+  if (granteeId.startsWith(IDPrefixEnum.User)) {
     const userGroupsRows = await db.queryDrive(
       orgId,
       `SELECT group_id FROM group_invites WHERE invitee_id = ? AND invitee_type = ?`,
-      [userId, GroupInviteeTypeEnum.USER] // Use prefixed ID and type
+      [granteeId, GroupInviteeTypeEnum.USER]
     );
+    const groupIds = userGroupsRows.map((row: any) => row.group_id as GroupID);
+    granteeIdsToCheck.push(...groupIds);
+  }
 
-    for (const row of userGroupsRows) {
-      const groupId = row.group_id as GroupID; // Assuming group_id is already prefixed
-      const groupPermissions = await checkSystemResourcePermissions(
-        resourceId,
-        groupId, // Pass the group as the grantee
-        orgId
-      );
-      groupPermissions.forEach((p) => allPermissions.add(p));
+  const parsedResourceId = parseSystemResourceIDString(resourceId);
+  const placeholders = granteeIdsToCheck.map(() => "?").join(",");
+
+  // For table resources, the identifier in the DB is the full 'TABLE_...' string.
+  // For record resources, it's the prefixed ID.
+  const resourceIdentifierForQuery =
+    parsedResourceId.type === "Table" ? resourceId : parsedResourceId.value;
+
+  const rows = await db.queryDrive(
+    orgId,
+    `SELECT
+      ps.id, ps.resource_type, ps.resource_identifier, ps.grantee_type, ps.grantee_id, ps.granted_by,
+      GROUP_CONCAT(pst.permission_type) AS permission_types_list,
+      ps.begin_date_ms, ps.expiry_date_ms, ps.note, ps.created_at, ps.last_modified_at,
+      ps.redeem_code, ps.from_placeholder_grantee, ps.metadata_type, ps.metadata_content
+    FROM permissions_system ps
+    JOIN permissions_system_types pst ON ps.id = pst.permission_id
+    WHERE ps.resource_type = ? AND ps.resource_identifier = ? AND ps.grantee_id IN (${placeholders})
+    GROUP BY ps.id`,
+    [parsedResourceId.type, resourceIdentifierForQuery, ...granteeIdsToCheck]
+  );
+
+  for (const row of rows) {
+    const permission: SystemPermission = mapDbRowToSystemPermission(row);
+
+    if (
+      (permission.expiry_date_ms > 0 &&
+        permission.expiry_date_ms <= currentTime) ||
+      (permission.begin_date_ms > 0 && permission.begin_date_ms > currentTime)
+    ) {
+      continue;
     }
+
+    permission.permission_types.forEach((type) => allPermissions.add(type));
   }
 
   return Array.from(allPermissions);
@@ -283,6 +299,16 @@ async function checkSystemResourcePermissions(
       permissionGrantedTo.startsWith(IDPrefixEnum.User)
     ) {
       applies = granteeId === permissionGrantedTo;
+    } else if (
+      granteeId.startsWith(IDPrefixEnum.User) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.Group)
+    ) {
+      // Check if the user is in the group
+      applies = await isUserInGroup(
+        granteeId as UserID,
+        permissionGrantedTo as GroupID,
+        orgId
+      );
     } else if (
       granteeId.startsWith(IDPrefixEnum.Group) &&
       permissionGrantedTo.startsWith(IDPrefixEnum.Group)
@@ -443,6 +469,16 @@ async function checkSystemResourcePermissionsLabelsInternal(
     ) {
       applies = granteeId === permissionGrantedTo;
     } else if (
+      granteeId.startsWith(IDPrefixEnum.User) &&
+      permissionGrantedTo.startsWith(IDPrefixEnum.Group)
+    ) {
+      // Check if the user is in the group
+      applies = await isUserInGroup(
+        granteeId as UserID,
+        permissionGrantedTo as GroupID,
+        orgId
+      );
+    } else if (
       granteeId.startsWith(IDPrefixEnum.Group) &&
       permissionGrantedTo.startsWith(IDPrefixEnum.Group)
     ) {
@@ -489,7 +525,7 @@ export async function castToSystemPermissionFE(
   permission: SystemPermission,
   currentUserId: UserID,
   orgId: string
-): Promise<any> {
+): Promise<SystemPermissionFE> {
   const isOwner = (await getDriveOwnerId(orgId)) === currentUserId;
 
   let granteeName: string | undefined;

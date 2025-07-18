@@ -803,7 +803,7 @@ export async function redeemGiftcardSpawnOrgHandler(
       );
       insertGroupStmt.run(
         groupID,
-        "Default Everyone",
+        "Group for All",
         ownerId,
         null,
         null,

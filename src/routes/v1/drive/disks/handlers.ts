@@ -639,14 +639,20 @@ export async function createDiskHandler(
         })
       );
     }
-
-    const hasCreatePermission = await checkSystemPermissionsService(
+    const userPermissions = await checkSystemPermissionsService(
       `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
       requesterApiKey.user_id,
       org_id
-    ).then((perms) => perms.includes(SystemPermissionType.CREATE));
+    );
 
-    if (!isOwner && !hasCreatePermission) {
+    console.log(`userPermissions==`, userPermissions);
+
+    const hasCreatePermission =
+      isOwner || userPermissions.includes(SystemPermissionType.CREATE);
+
+    console.log(`hasCreatePermission==`, hasCreatePermission);
+
+    if (!hasCreatePermission) {
       return reply
         .status(403)
         .send(

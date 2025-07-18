@@ -51,6 +51,7 @@ import {
   SystemPermission,
   SystemPermissionID,
   GenerateID,
+  SystemPermissionFE,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { v4 as uuidv4 } from "uuid";
@@ -1019,7 +1020,7 @@ export async function createSystemPermission(
     redeem_code?: string;
   },
   requesterId: UserID
-): Promise<any> {
+): Promise<SystemPermissionFE> {
   // Note: Returns SystemPermissionFE
   const newPermissionId = data.id || IDPrefixEnum.SystemPermission + uuidv4();
   const currentTime = Date.now();
@@ -1101,8 +1102,14 @@ export async function createSystemPermission(
     throw new Error("Failed to retrieve newly created system permission.");
   }
 
+  const permission = await castToSystemPermissionFE(
+    createdPermission,
+    requesterId,
+    orgId
+  );
+
   // 3. Cast and return the result.
-  return castToSystemPermissionFE(createdPermission, requesterId, orgId);
+  return permission;
 }
 
 /**
@@ -1859,7 +1866,7 @@ export async function createSystemPermissionsHandler(
     );
     reply.status(201).send({
       ok: {
-        data: createdPermissionFE,
+        data: { permission: createdPermissionFE },
       } as IResponseCreateSystemPermission["ok"],
     });
   } catch (error: any) {
