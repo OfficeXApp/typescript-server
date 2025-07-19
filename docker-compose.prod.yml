@@ -1,0 +1,99 @@
+# docker-compose.prod.yml
+# For Production Deployment (Self-Managed SSL with Traefik)
+#
+# IMPORTANT:
+# 1. Build and push your app image to a registry FIRST.
+# 2. Configure your EC2 Security Group to open ports 80 and 443.
+# 3. Configure your domain's DNS A/CNAME record to point to your EC2 public IP.
+
+version: "3.8" # Can remove this line in modern Docker Compose, as it's becoming obsolete
+
+services:
+  # Your main application service
+  app:
+    # Use 'image' in production, assuming pre-built and pushed to a registry
+    image: your-dockerhub-username/your-app-image:latest # <--- IMPORTANT: Replace with your actual image from a registry
+    restart: unless-stopped
+
+    expose:
+      - "${PORT:-8888}" # Use the PORT from .env, or default to 8888
+
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+      - PORT=${PORT:-8888} # Pass the port to your application's environment
+      # Potentially add other prod-specific env vars (e.g., database connection strings, API keys)
+
+    volumes:
+      - app_data:/data # Persistent data for your application
+
+    # Traefik Labels for your application service
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.my-app.rule=Host(`${SERVER_DOMAIN}`)"
+      - "traefik.http.routers.my-app.entrypoints=websecure"
+      - "traefik.http.routers.my-app.tls.certresolver=myresolver"
+      # CORRECTED MIDDLEWARE NAME HERE:
+      - "traefik.http.routers.my-app.middlewares=redirect-web-websecure@docker"
+      - "traefik.http.services.my-app.loadbalancer.server.port=${PORT:-8888}"
+
+      # HTTP router for redirection
+      - "traefik.http.routers.my-app-http.rule=Host(`${SERVER_DOMAIN}`)"
+      - "traefik.http.routers.my-app-http.entrypoints=web"
+      # CORRECTED MIDDLEWARE NAME HERE:
+      - "traefik.http.routers.my-app-http.middlewares=redirect-web-websecure@docker"
+
+    healthcheck: # Add a healthcheck to your app for robust production
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8888}/health"] # Assuming /health endpoint
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s # Give your app enough time to start up and listen
+
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.myresolver.acme.tlschallenge=true
+      - --certificatesresolvers.myresolver.acme.email=${LE_EMAIL}
+      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+      # Define the global HTTP to HTTPS redirection middleware (this creates 'redirect-web-websecure')
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      # --- IMPORTANT PRODUCTION SECURITY CHANGES ---
+      # REMOVE - --api.dashboard=true
+      # REMOVE - --api.insecure=true
+      # Consider adding logs level for production:
+      # - --log.level=INFO
+      # - --accesslog=true # Log incoming requests
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt_certs:/letsencrypt # Persistent storage for certificates
+
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+    depends_on:
+      app:
+        condition: service_healthy # Wait for 'app' to be healthy before Traefik starts routing
+
+volumes:
+  app_data:
+    driver: local
+  letsencrypt_certs:
+    driver: local

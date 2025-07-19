@@ -1,3 +1,5 @@
+# docker-compose.http.yml - For Cloudflare/RepoCloud.io delegated SSL or local development
+# (This is your original default docker-compose.yml)
 version: "3.8"
 
 services:
@@ -5,10 +7,16 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8888:8888"
+      # This mapping is for the 3rd party delegated SSL scenario (e.g., Cloudflare forwarding to host port 80)
+      - "80:${PORT:-8888}"
+      # This mapping is for direct local development access from your frontend
+      - "${PORT:-8888}:${PORT:-8888}" # Maps host port 8888 to container port 8888
+
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development # Often useful to set to development for this file
       - DATA_DIR=/data
+      - PORT=${PORT:-8888} # Pass the port to your application's environment
+
     volumes:
       - app_data:/data
 
