@@ -108,3 +108,10 @@ $ docker compose -f docker-compose.prod.yml down && docker compose -f docker-com
 # Clear and restart, wipe volumes (DANGER: DELETES ALL DATA AND CERTS!)
 $ docker compose -f docker-compose.prod.yml down --volumes
 ```
+
+Push update to production:
+
+```sh
+$ docker buildx build --platform linux/amd64 -t officex/typescript-server:latest .
+$ docker push officex/typescript-server:latest
+```
