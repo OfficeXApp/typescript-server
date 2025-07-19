@@ -9,10 +9,15 @@ import {
   IRequestDeleteApiKey,
   IResponseDeleteApiKey,
   IDPrefixEnum,
+  UserID,
+  SystemPermissionType,
+  ApiKeyValue,
+  FactoryApiKey,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
+import { checkPermissionsTableAccess } from "../../../../services/permissions/system";
 
 // Type definitions for route params
 interface GetApiKeyParams extends OrgIdParams {
@@ -88,13 +93,37 @@ function validateDeleteRequest(body: IRequestDeleteApiKey): {
   return { valid: true };
 }
 
+// Helper function to redact API key
+async function redactApiKey(
+  apiKey: ApiKey,
+  requesterApiKey: ApiKey | FactoryApiKey,
+  orgId: string
+): Promise<ApiKey> {
+  const redactedApiKey = { ...apiKey };
+
+  const ownerId = await getDriveOwnerId(orgId);
+  const isOwner = requesterApiKey.user_id === ownerId;
+  const isOwnKey = requesterApiKey.id === apiKey.id;
+
+  // Only the owner of the key or the drive owner can see the full key value
+  if (!isOwner && !isOwnKey) {
+    redactedApiKey.value = `sk_...${apiKey.value.slice(-4)}` as ApiKeyValue;
+  }
+
+  return redactedApiKey;
+}
+
 export async function getApiKeyHandler(
   request: FastifyRequest<{ Params: GetApiKeyParams }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "drive");
+    const requesterApiKey = await authenticateRequest(
+      request,
+      "drive",
+      request.params.org_id
+    );
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -121,7 +150,13 @@ export async function getApiKeyHandler(
       );
     }
 
-    const apiKey = apiKeys[0] as ApiKey;
+    // Augment the DB result to conform to the ApiKey type
+    const apiKey: ApiKey = {
+      ...(apiKeys[0] as any),
+      labels: [],
+      private_note: undefined,
+    };
+
     const ownerId = await getDriveOwnerId(request.params.org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
     const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
@@ -135,7 +170,13 @@ export async function getApiKeyHandler(
         );
     }
 
-    return reply.status(200).send(createApiResponse(apiKey));
+    const redactedApiKey = await redactApiKey(
+      apiKey,
+      requesterApiKey,
+      request.params.org_id
+    );
+
+    return reply.status(200).send(createApiResponse(redactedApiKey));
   } catch (error) {
     request.log.error("Error in getApiKeyHandler:", error);
     return reply.status(500).send(
@@ -152,27 +193,18 @@ export async function listApiKeysHandler(
   reply: FastifyReply
 ): Promise<void> {
   try {
-    // const requesterApiKey = await authenticateRequest(request);
-    // if (!requesterApiKey) {
-    //   return reply
-    //     .status(401)
-    //     .send(
-    //       createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-    //     );
-    // }
-
-    // const requestedUserId = request.params.user_id;
-    // const ownerId = await getOwnerId();
-    // const isOwner = requesterApiKey.user_id === ownerId;
-    // const isOwnKeys = requesterApiKey.user_id === requestedUserId;
-
-    // if (!isOwner && !isOwnKeys) {
-    //   return reply
-    //     .status(403)
-    //     .send(
-    //       createApiResponse(undefined, { code: 403, message: "Forbidden" })
-    //     );
-    // }
+    const requesterApiKey = await authenticateRequest(
+      request,
+      "drive",
+      request.params.org_id
+    );
+    if (!requesterApiKey) {
+      return reply
+        .status(401)
+        .send(
+          createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+        );
+    }
 
     // Get all API keys (matching Rust implementation)
     const apiKeys = await db.queryDrive(
@@ -189,7 +221,19 @@ export async function listApiKeysHandler(
       );
     }
 
-    return reply.status(200).send(createApiResponse(apiKeys as ApiKey[]));
+    const redactedApiKeys = await Promise.all(
+      (apiKeys as any[]).map((key) => {
+        // Augment each key to conform to the ApiKey type
+        const fullKey: ApiKey = {
+          ...(key as any),
+          labels: [],
+          private_note: undefined,
+        };
+        return redactApiKey(fullKey, requesterApiKey, request.params.org_id);
+      })
+    );
+
+    return reply.status(200).send(createApiResponse(redactedApiKeys));
   } catch (error) {
     request.log.error("Error in listApiKeysHandler:", error);
     return reply.status(500).send(
@@ -201,200 +245,13 @@ export async function listApiKeysHandler(
   }
 }
 
-// export async function upsertApiKeyHandler(
-//   request: FastifyRequest<{
-//     Body: IRequestCreateApiKey | IRequestUpdateApiKey;
-//   }>,
-//   reply: FastifyReply
-// ): Promise<void> {
-//   try {
-//     // // Authenticate request
-//     // const requesterApiKey = await authenticateRequest(request);
-//     // if (!requesterApiKey) {
-//     //   return reply
-//     //     .status(401)
-//     //     .send(
-//     //       createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-//     //     );
-//     // }
-
-//     const body = request.body as UpsertApiKeyRequestBody;
-
-//     if (body.action === "CREATE") {
-//       const createBody = body as IRequestCreateApiKey;
-
-//       // Validate request
-//       const validation = validateCreateRequest(createBody);
-//       if (!validation.valid) {
-//         return reply.status(400).send(
-//           createApiResponse(undefined, {
-//             code: 400,
-//             message: validation.error!,
-//           })
-//         );
-//       }
-
-//       //   const ownerId = await getOwnerId();
-//       //   const isOwner = requesterApiKey.user_id === ownerId;
-
-//       //   // Check permissions
-//       //   if (!isOwner) {
-//       //     return reply
-//       //       .status(403)
-//       //       .send(
-//       //         createApiResponse(undefined, { code: 403, message: "Forbidden" })
-//       //       );
-//       //   }
-
-//       //   // Determine user_id for new key
-//       //   const keyUserId =
-//       //     isOwner && createBody.user_id
-//       //       ? createBody.user_id
-//       //       : requesterApiKey.user_id;
-//       const keyUserId = "UserID_default_owner";
-
-//       // Create new API key
-//       const newApiKey: ApiKey = {
-//         id: generateUuidv4("ApiKeyID") as any,
-//         value: generateApiKey() as any,
-//         user_id: keyUserId as any,
-//         name: createBody.name,
-//         created_at: Date.now(),
-//         expires_at: createBody.expires_at || -1,
-//         is_revoked: false,
-//       };
-
-//       // Insert into database using transaction
-//       await dbHelpers.transaction(null, (database) => {
-//         const stmt = database.prepare(
-//           `INSERT INTO api_keys (id, value, user_id, name, created_at, expires_at, is_revoked)
-//            VALUES (?, ?, ?, ?, ?, ?, ?)`
-//         );
-//         stmt.run(
-//           newApiKey.id,
-//           newApiKey.value,
-//           newApiKey.user_id,
-//           newApiKey.name,
-//           newApiKey.created_at,
-//           newApiKey.expires_at,
-//           newApiKey.is_revoked ? 1 : 0
-//         );
-//       });
-
-//       return reply.status(200).send(createApiResponse(newApiKey));
-//     } else if (body.action === "UPDATE") {
-//       const updateBody = body as UpdateApiKeyRequestBody;
-
-//       // Validate request
-//       const validation = validateUpdateRequest(updateBody);
-//       if (!validation.valid) {
-//         return reply.status(400).send(
-//           createApiResponse(undefined, {
-//             code: 400,
-//             message: validation.error!,
-//           })
-//         );
-//       }
-
-//       // Get the existing API key
-//       const apiKeys = await db.query(
-//         "SELECT * FROM api_keys WHERE id = ?",
-//         [updateBody.id]
-//       );
-
-//       if (!apiKeys || apiKeys.length === 0) {
-//         return reply.status(404).send(
-//           createApiResponse(undefined, {
-//             code: 404,
-//             message: "API key not found",
-//           })
-//         );
-//       }
-
-//       const apiKey = apiKeys[0] as ApiKey;
-//       const ownerId = await getOwnerId();
-//       //   const isOwner = requesterApiKey.user_id === ownerId;
-//       //   const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
-
-//       //   // Check permissions
-//       //   if (!isOwner && !isOwnKey) {
-//       //     return reply
-//       //       .status(403)
-//       //       .send(
-//       //         createApiResponse(undefined, { code: 403, message: "Forbidden" })
-//       //       );
-//       //   }
-
-//       // Build update query dynamically
-//       const updates: string[] = [];
-//       const values: any[] = [];
-
-//       if (updateBody.name !== undefined) {
-//         updates.push("name = ?");
-//         values.push(updateBody.name);
-//       }
-//       if (updateBody.expires_at !== undefined) {
-//         updates.push("expires_at = ?");
-//         values.push(updateBody.expires_at);
-//       }
-//       if (updateBody.is_revoked !== undefined) {
-//         updates.push("is_revoked = ?");
-//         values.push(updateBody.is_revoked ? 1 : 0);
-//       }
-
-//       if (updates.length === 0) {
-//         return reply.status(400).send(
-//           createApiResponse(undefined, {
-//             code: 400,
-//             message: "No fields to update",
-//           })
-//         );
-//       }
-
-//       values.push(updateBody.id);
-
-//       // Update in transaction
-//       await dbHelpers.transaction(null, (database) => {
-//         const stmt = database.prepare(
-//           `UPDATE api_keys SET ${updates.join(", ")} WHERE id = ?`
-//         );
-//         stmt.run(...values);
-//       });
-
-//       // Get updated API key
-//       const updatedKeys = await db.query(
-//         "SELECT * FROM api_keys WHERE id = ?",
-//         [updateBody.id]
-//       );
-
-//       return reply
-//         .status(200)
-//         .send(createApiResponse(updatedKeys[0] as ApiKey));
-//     } else {
-//       return reply
-//         .status(400)
-//         .send(
-//           createApiResponse(undefined, { code: 400, message: "Invalid action" })
-//         );
-//     }
-//   } catch (error) {
-//     request.log.error("Error in upsertApiKeyHandler:", error);
-//     return reply.status(500).send(
-//       createApiResponse(undefined, {
-//         code: 500,
-//         message: `Internal server error - ${error}`,
-//       })
-//     );
-//   }
-// }
-
 export async function createApiKeyHandler(
   request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestCreateApiKey }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
-    // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "drive");
+    const { org_id } = request.params;
+    const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -403,10 +260,9 @@ export async function createApiKeyHandler(
         );
     }
 
-    const body = request.body as IRequestCreateApiKey;
-    const createBody = body as IRequestCreateApiKey;
+    const createBody = request.body;
 
-    // Validate request
+    // ... (input validation: name, user_id format, expires_at) ...
     const validation = validateCreateRequest(createBody);
     if (!validation.valid) {
       return reply.status(400).send(
@@ -417,39 +273,101 @@ export async function createApiKeyHandler(
       );
     }
 
-    // Build API key
+    const ownerId = await getDriveOwnerId(org_id);
+    const isOwner = requesterApiKey.user_id === ownerId;
+
+    let keyUserId: UserID;
+
+    if (isOwner && createBody.user_id) {
+      // Owner can specify a user_id to create a key for someone else
+      keyUserId = createBody.user_id as UserID;
+    } else {
+      // Non-owners can only create API keys for themselves
+      if (
+        createBody.user_id &&
+        createBody.user_id !== requesterApiKey.user_id
+      ) {
+        // If a non-owner tries to create a key for someone else, check for CREATE permission
+        const hasCreatePermission = await checkPermissionsTableAccess(
+          requesterApiKey.user_id,
+          SystemPermissionType.CREATE,
+          org_id
+        );
+        if (!hasCreatePermission) {
+          return reply.status(403).send(
+            createApiResponse(undefined, {
+              code: 403,
+              message:
+                "Forbidden: Not authorized to create API keys for other users.",
+            })
+          );
+        }
+        keyUserId = createBody.user_id as UserID; // Allow if they have explicit permission
+      } else {
+        // Default: create API key for the requester themselves (no extra permission needed)
+        keyUserId = requesterApiKey.user_id;
+      }
+    }
+
+    // Ensure the target keyUserId actually exists as a contact
+    const targetContact = await db.queryDrive(
+      org_id,
+      "SELECT id FROM contacts WHERE id = ?",
+      [keyUserId]
+    );
+    if (targetContact.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: `Target user_id '${keyUserId}' does not exist as a contact.`,
+        })
+      );
+    }
+
     const apiKey: ApiKey = {
       id: `${IDPrefixEnum.ApiKey}${uuidv4()}` as any,
       value: await generateApiKey(),
-      user_id: requesterApiKey.user_id,
+      user_id: keyUserId, // Use the determined user ID
       name: createBody.name,
       created_at: Date.now(),
       is_revoked: false,
       begins_at: createBody.begins_at || Date.now(),
       expires_at: createBody.expires_at || -1,
-      labels: [],
+      labels: [], // Labels are handled separately or default empty
+      private_note: undefined, // Ensure all fields are present
+      external_id: createBody.external_id, // Pass along external_id
+      external_payload: createBody.external_payload, // Pass along external_payload
     };
 
-    // Insert into database using transaction
-    await dbHelpers.transaction("drive", request.params.org_id, (database) => {
+    await dbHelpers.transaction("drive", org_id, (database) => {
       const stmt = database.prepare(
-        `INSERT INTO api_keys (id, value, user_id, name, created_at, expires_at, is_revoked, begins_at, labels)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO api_keys (id, value, user_id, name, private_note, created_at, expires_at, is_revoked, begins_at, external_id, external_payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       stmt.run(
         apiKey.id,
         apiKey.value,
         apiKey.user_id,
         apiKey.name,
+        apiKey.private_note || null, // Ensure null for optional fields
         apiKey.created_at,
         apiKey.expires_at,
         apiKey.is_revoked ? 1 : 0,
         apiKey.begins_at,
-        apiKey.labels
+        apiKey.external_id || null, // Ensure null for optional fields
+        apiKey.external_payload || null // Ensure null for optional fields
       );
     });
 
-    return reply.status(200).send(createApiResponse(apiKey));
+    // A newly created key should be returned to the creator, but redacted for others.
+    // Our redactApiKey function handles this logic correctly.
+    const redactedResponse = await redactApiKey(
+      apiKey,
+      requesterApiKey, // The key of the user making the request
+      org_id
+    );
+
+    return reply.status(200).send(createApiResponse(redactedResponse));
   } catch (error) {
     request.log.error("Error in createApiKeyHandler:", error);
     return reply.status(500).send(
@@ -467,7 +385,11 @@ export async function updateApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "drive");
+    const requesterApiKey = await authenticateRequest(
+      request,
+      "drive",
+      request.params.org_id
+    );
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -580,7 +502,11 @@ export async function deleteApiKeyHandler(
 ): Promise<void> {
   try {
     // Authenticate request
-    const requesterApiKey = await authenticateRequest(request, "drive");
+    const requesterApiKey = await authenticateRequest(
+      request,
+      "drive",
+      request.params.org_id
+    );
     if (!requesterApiKey) {
       return reply
         .status(401)
