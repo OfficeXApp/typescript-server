@@ -6,12 +6,12 @@
 # 2. Configure your EC2 Security Group to open ports 80 and 443.
 # 3. Configure your domain's DNS A/CNAME record to point to your EC2 public IP.
 
-version: "3.8" # Can remove this line in modern Docker Compose, as it's becoming obsolete
-
 services:
   # Your main application service
   app:
     # Use 'image' in production, assuming pre-built and pushed to a registry
+    # IMPORTANT: Replace 'officex/typescript-server:latest' with your actual image from a registry
+    # (e.g., your-dockerhub-username/your-app-image:latest if 'officex' is not your username)
     image: officex/typescript-server:latest
     restart: unless-stopped
 
@@ -23,6 +23,8 @@ services:
       - DATA_DIR=/data
       - PORT=${PORT:-8888} # Pass the port to your application's environment
       # Potentially add other prod-specific env vars (e.g., database connection strings, API keys)
+      # - DB_HOST=your_db_host
+      # - SOME_API_KEY=${PROD_API_KEY}
 
     volumes:
       - app_data:/data # Persistent data for your application
@@ -33,15 +35,15 @@ services:
       - "traefik.http.routers.my-app.rule=Host(`${SERVER_DOMAIN}`)"
       - "traefik.http.routers.my-app.entrypoints=websecure"
       - "traefik.http.routers.my-app.tls.certresolver=myresolver"
-      # CORRECTED MIDDLEWARE NAME HERE:
-      - "traefik.http.routers.my-app.middlewares=redirect-web-websecure@docker"
+      # CORRECTED MIDDLEWARE NAME (removed '@docker' suffix)
+      - "traefik.http.routers.my-app.middlewares=redirect-web-websecure"
       - "traefik.http.services.my-app.loadbalancer.server.port=${PORT:-8888}"
 
       # HTTP router for redirection
       - "traefik.http.routers.my-app-http.rule=Host(`${SERVER_DOMAIN}`)"
       - "traefik.http.routers.my-app-http.entrypoints=web"
-      # CORRECTED MIDDLEWARE NAME HERE:
-      - "traefik.http.routers.my-app-http.middlewares=redirect-web-websecure@docker"
+      # CORRECTED MIDDLEWARE NAME (removed '@docker' suffix)
+      - "traefik.http.routers.my-app-http.middlewares=redirect-web-websecure"
 
     healthcheck: # Add a healthcheck to your app for robust production
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8888}/health"] # Assuming /health endpoint
@@ -71,11 +73,11 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       # --- IMPORTANT PRODUCTION SECURITY CHANGES ---
-      # REMOVE - --api.dashboard=true
-      # REMOVE - --api.insecure=true
-      # Consider adding logs level for production:
-      # - --log.level=INFO
-      # - --accesslog=true # Log incoming requests
+      # REMOVED: - --api.dashboard=true
+      # REMOVED: - --api.insecure=true
+      # ADDED: Production logging
+      - --log.level=INFO
+      - --accesslog=true # Log incoming requests
 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro

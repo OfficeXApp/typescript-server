@@ -97,16 +97,16 @@ Run in production:
 ```sh
 # Deploy (pull image from registry, run containers)
 # Ensure .env.prod is configured and EC2 Security Group/DNS are set.
-$ docker compose -f docker-compose.prod.yml up --pull always -d
+$ docker-compose -f docker-compose.prod.yml up --pull always -d
 
 # View logs
-$ docker compose -f docker-compose.prod.yml logs -f
+$ docker-compose -f docker-compose.prod.yml logs -f
 
 # Stop and restart (preserves data/volumes)
-$ docker compose -f docker-compose.prod.yml down && docker compose -f docker-compose.prod.yml up --pull always -d
+$ docker-compose -f docker-compose.prod.yml down && docker-compose -f docker-compose.prod.yml up --pull always -d
 
 # Clear and restart, wipe volumes (DANGER: DELETES ALL DATA AND CERTS!)
-$ docker compose -f docker-compose.prod.yml down --volumes
+$ docker-compose -f docker-compose.prod.yml down --volumes
 ```
 
 Push update to production:
