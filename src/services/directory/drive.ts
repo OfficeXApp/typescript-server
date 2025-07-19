@@ -493,11 +493,11 @@ export async function deleteResource(
         resource.disk_id,
       ])
     )[0];
-    if (!disk || !disk.trash_folder_id)
+    if (!disk || !disk.trash_folder)
       throw new Error("Trash folder configuration missing.");
     trashFolder = (
       await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
-        disk.trash_folder_id,
+        disk.trash_folder,
       ])
     )[0];
     if (!trashFolder) throw new Error("Trash folder not found.");

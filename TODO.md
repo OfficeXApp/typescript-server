@@ -11,6 +11,9 @@
 - [x] Audit group invite flows
 - [x] Audit permit sharing flows (for example, right now anyone in a group can edit group)
 
+- [ ] Fix recents & trashbin
+- [ ] Fix file/folder copy move
+- [ ] Fix superswap, old users not removed from frontend
 - [ ] Fix multi-tab organizations, removing localstorage dependencies
 - [ ] Add rate-limiting to web2 server
 - [ ] Disable creating new database on rest call at unknown org route (should throw 404. db should only be created via giftcard spawnorg)
