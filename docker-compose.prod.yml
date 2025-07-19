@@ -48,7 +48,7 @@ services:
 
     healthcheck: # Add a healthcheck to your app for robust production
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8888}/health"] # Assuming /health endpoint
-      interval: 300s
+      interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s # Give your app enough time to start up and listen
