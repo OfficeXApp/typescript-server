@@ -95,6 +95,9 @@ $ sudo chmod +x /usr/local/bin/docker-compose
 Run in production:
 
 ```sh
+# create the .env file
+$ vi .env
+
 # Deploy (pull image from registry, run containers)
 # Ensure .env.prod is configured and EC2 Security Group/DNS are set.
 $ docker-compose -f docker-compose.prod.yml up --pull always -d

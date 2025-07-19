@@ -32,22 +32,23 @@ services:
     # Traefik Labels for your application service
     labels:
       - "traefik.enable=true"
+      # Secure router for HTTPS traffic
       - "traefik.http.routers.my-app.rule=Host(`${SERVER_DOMAIN}`)"
       - "traefik.http.routers.my-app.entrypoints=websecure"
       - "traefik.http.routers.my-app.tls.certresolver=myresolver"
-      # CORRECTED MIDDLEWARE NAME (removed '@docker' suffix)
-      - "traefik.http.routers.my-app.middlewares=redirect-web-websecure"
+      # No middleware needed here, as the global redirect handles HTTP -> HTTPS
+
       - "traefik.http.services.my-app.loadbalancer.server.port=${PORT:-8888}"
 
-      # HTTP router for redirection
+      # HTTP router for redirection (will be caught by Traefik's global redirect)
       - "traefik.http.routers.my-app-http.rule=Host(`${SERVER_DOMAIN}`)"
       - "traefik.http.routers.my-app-http.entrypoints=web"
-      # CORRECTED MIDDLEWARE NAME (removed '@docker' suffix)
-      - "traefik.http.routers.my-app-http.middlewares=redirect-web-websecure"
+      # REMOVED: "traefik.http.routers.my-app-http.middlewares=redirect-web-websecure"
+      # The global entrypoint redirect on 'web' entrypoint handles this.
 
     healthcheck: # Add a healthcheck to your app for robust production
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8888}/health"] # Assuming /health endpoint
-      interval: 30s
+      interval: 300s
       timeout: 10s
       retries: 3
       start_period: 40s # Give your app enough time to start up and listen
@@ -69,7 +70,7 @@ services:
       - --certificatesresolvers.myresolver.acme.tlschallenge=true
       - --certificatesresolvers.myresolver.acme.email=${LE_EMAIL}
       - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
-      # Define the global HTTP to HTTPS redirection middleware (this creates 'redirect-web-websecure')
+      # Define the global HTTP to HTTPS redirection at the entrypoint level
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       # --- IMPORTANT PRODUCTION SECURITY CHANGES ---
