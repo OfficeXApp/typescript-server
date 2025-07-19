@@ -66,7 +66,7 @@ CREATE TABLE api_keys (
     is_revoked INTEGER NOT NULL DEFAULT 0,
     external_id TEXT,
     external_payload TEXT,
-    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE
+    FOREIGN KEY(user_id) REFERENCES contacts(id) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- Table: drives

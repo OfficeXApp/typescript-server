@@ -159,6 +159,10 @@ async function redactContact(
   }
   redactedContact.group_previews = groupPreviews;
 
+  if (!isOwner) {
+    redactedContact.seed_phrase = undefined; // Redact if not owner
+  }
+
   // 2nd most sensitive: redeem_code, private_note
   // Access to these is granted if the requester is the owner OR has EDIT permission on the record.
   const hasEditPermissionOnContact = permissionPreviews.includes(
@@ -673,7 +677,9 @@ export async function createContactHandler(
       from_placeholder_user_id: createReq.is_placeholder
         ? contactId
         : undefined,
-      redeem_code: createReq.is_placeholder ? uuidv4() : undefined,
+      redeem_code: createReq.is_placeholder
+        ? `${IDPrefixEnum.RedeemTokenID}${uuidv4()}`
+        : undefined,
       created_at: Date.now(),
       last_online_ms: 0,
       external_id: createReq.external_id || undefined,
@@ -1185,8 +1191,11 @@ export async function redeemContactHandler(
           createApiResponse(undefined, { code: 401, message: "Unauthorized" })
         );
     }
-
     const redeemReq = request.body;
+
+    console.log(`the requester is ----`, requesterApiKey);
+    console.log(`the org_id is ----`, org_id);
+    console.log(`the redeemReq is ----`, redeemReq);
 
     if (!validateUserId(redeemReq.current_user_id)) {
       return reply.status(400).send(
@@ -1212,6 +1221,17 @@ export async function redeemContactHandler(
         })
       );
     }
+
+    if (!redeemReq.redeem_code.startsWith(IDPrefixEnum.RedeemTokenID)) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: `Validation error: redeem_code - Redeem code must start with ${IDPrefixEnum.RedeemTokenID}`,
+        })
+      );
+    }
+
+    const plainRedeemCode = redeemReq.redeem_code;
 
     const currentPlainUserId = redeemReq.current_user_id;
     const newPlainUserId = redeemReq.new_user_id;
@@ -1239,35 +1259,6 @@ export async function redeemContactHandler(
         createApiResponse(undefined, {
           code: 400,
           message: "Redeem token does not match",
-        })
-      );
-    }
-
-    const ownerId = await getDriveOwnerId(org_id);
-    const isOwner = requesterApiKey.user_id === ownerId;
-
-    const hasInviteTablePermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.INVITE,
-      org_id
-    );
-
-    const currentContactRecordResourceId: SystemResourceID =
-      `${currentPlainUserId}` as SystemResourceID;
-    const currentContactRecordPermissions = await checkSystemPermissions(
-      currentContactRecordResourceId,
-      requesterApiKey.user_id,
-      org_id
-    );
-    const canEditCurrentContact = currentContactRecordPermissions.includes(
-      SystemPermissionType.EDIT
-    );
-
-    if (!isOwner && !hasInviteTablePermission && !canEditCurrentContact) {
-      return reply.status(403).send(
-        createApiResponse(undefined, {
-          code: 403,
-          message: "Forbidden: Insufficient permissions to redeem contact.",
         })
       );
     }
@@ -1393,7 +1384,8 @@ export async function redeemContactHandler(
         const newPublicNote = updatedContact.public_note
           ? `Note from User: ${redeemReq.note}, Prior Original Note: ${updatedContact.public_note}`
           : `Note from User: ${redeemReq.note}`;
-        await db.queryDrive(
+        // Assuming db.runDrive exists for non-query operations
+        await db.runDrive(
           org_id,
           "UPDATE contacts SET public_note = ? WHERE id = ?",
           [newPublicNote, updatedContact.id]
