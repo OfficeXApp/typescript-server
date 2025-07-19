@@ -156,8 +156,12 @@ export function getAppropriateUrlEndpoint(request: FastifyRequest): string {
     return `${domain.endsWith("/") ? domain.slice(0, -1) : domain}`;
   } else {
     // Fallback to dynamic detection for local/dev environments
-    // LOCAL_DEV_MODE
-    const protocol = request.protocol;
+    const forwardedProto = request.headers["x-forwarded-proto"];
+    const protocol =
+      typeof forwardedProto === "string" &&
+      forwardedProto.toLowerCase() === "https"
+        ? "https"
+        : request.protocol;
     const hostname = request.hostname;
     // For local dev, rely on process.env.PORT which Fastify often binds to,
     // or a sensible default.
