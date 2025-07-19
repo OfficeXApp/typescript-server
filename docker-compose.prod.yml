@@ -12,7 +12,7 @@ services:
   # Your main application service
   app:
     # Use 'image' in production, assuming pre-built and pushed to a registry
-    image: your-dockerhub-username/your-app-image:latest # <--- IMPORTANT: Replace with your actual image from a registry
+    image: officex/typescript-server:latest
     restart: unless-stopped
 
     expose:
