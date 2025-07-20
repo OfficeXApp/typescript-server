@@ -19,6 +19,7 @@ import {
   DriveClippedFilePath, // Import DriveClippedFilePath
   LabelValue,
   Disk,
+  UploadStatus,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../database"; // Ensure dbHelpers is imported
 import { FolderRecord, FileRecord } from "@officexapp/types";
@@ -114,6 +115,8 @@ export function clipDirectoryPath(
 
 /**
  * Translates a full directory path to a file or folder record.
+ * This function remains async as it performs db.queryDrive directly.
+ * It will be called *outside* the main transaction logic where possible.
  */
 export async function translatePathToId(
   driveId: DriveID,
@@ -133,7 +136,7 @@ export async function translatePathToId(
     const folderData = results[0];
     const folderId = folderData.id;
 
-    // Hydrate subfolder_uuids
+    // These should also use db.queryDrive, so they remain async.
     const subfolderUuids = (
       await db.queryDrive(
         driveId,
@@ -142,7 +145,6 @@ export async function translatePathToId(
       )
     ).map((row: any) => row.id as FolderID);
 
-    // Hydrate file_uuids
     const fileUuids = (
       await db.queryDrive(
         driveId,
@@ -151,7 +153,6 @@ export async function translatePathToId(
       )
     ).map((row: any) => row.id as FileID);
 
-    // Hydrate labels
     const labels = (
       await db.queryDrive(
         driveId,
@@ -167,7 +168,7 @@ export async function translatePathToId(
       subfolder_uuids: subfolderUuids,
       file_uuids: fileUuids,
       full_directory_path: folderData.full_directory_path,
-      labels: [],
+      labels: [], // Labels are hydrated above, but this line assigns empty array. FIX ME if labels need to be included.
       created_by: folderData.created_by,
       created_at: folderData.created_at,
       last_updated_date_ms: folderData.last_updated_date_ms,
@@ -203,7 +204,6 @@ export async function translatePathToId(
     const fileData = results[0];
     const fileId = fileData.id;
 
-    // Hydrate labels from file_labels junction table
     const labels = (
       await db.queryDrive(
         driveId,
@@ -221,7 +221,7 @@ export async function translatePathToId(
       version_id: fileData.version_id,
       extension: fileData.extension,
       full_directory_path: fileData.full_directory_path,
-      labels: [],
+      labels: [], // Labels are hydrated above, but this line assigns empty array. FIX ME if labels need to be included.
       created_by: fileData.created_by,
       created_at: fileData.created_at,
       disk_id: fileData.disk_id,
@@ -246,12 +246,75 @@ export async function translatePathToId(
 }
 
 /**
- * Synchronous version of resolveNamingConflict for use within transactions.
- * It takes a `Database` object instead of relying on `db.queryDrive`.
+ * ASYNCHRONOUS version of resolveNamingConflict for use when *not* inside a transaction.
+ * This is used for initial checks or when the operation doesn't need to be transactional.
+ * It will call db.queryDrive which is async.
  */
-export function resolveNamingConflict(
+export async function resolveNamingConflict(
   driveId: DriveID,
   basePath: string, // e.g., "disk_id::/parent/folder/"
+  name: string,
+  isFolder: boolean,
+  resolution: FileConflictResolutionEnum = FileConflictResolutionEnum.KEEP_BOTH
+): Promise<[string, string]> {
+  let finalName = name;
+  let finalPath =
+    `${basePath.replace(/\/$/, "")}/${finalName}` + (isFolder ? "/" : "");
+  const tableName = isFolder ? "folders" : "files";
+
+  const checkConflictAsync = async (path: string) => {
+    const results = await db.queryDrive(
+      driveId,
+      `SELECT id FROM ${tableName} WHERE full_directory_path = ?`,
+      [path]
+    );
+    return results.length > 0;
+  };
+
+  if (
+    resolution === FileConflictResolutionEnum.REPLACE ||
+    resolution === FileConflictResolutionEnum.KEEP_NEWER
+  ) {
+    return [finalName, finalPath];
+  }
+
+  if (resolution === FileConflictResolutionEnum.KEEP_ORIGINAL) {
+    if (await checkConflictAsync(finalPath)) {
+      return ["", ""]; // Signal to abort
+    }
+    return [finalName, finalPath];
+  }
+
+  // Default: KEEP_BOTH
+  let counter = 1;
+  while (true) {
+    const conflict = await checkConflictAsync(finalPath);
+    if (!conflict) {
+      break; // Found a unique name
+    }
+
+    counter++;
+    const nameParts = name.split(".");
+    const hasExtension = !isFolder && nameParts.length > 1;
+    const baseName = hasExtension ? nameParts.slice(0, -1).join(".") : name;
+    const extension = hasExtension ? nameParts[nameParts.length - 1] : "";
+
+    finalName = `${baseName} (${counter})${hasExtension ? `.${extension}` : ""}`;
+    finalPath =
+      `${basePath.replace(/\/$/, "")}/${finalName}` + (isFolder ? "/" : "");
+  }
+
+  return [finalName, finalPath];
+}
+
+/**
+ * SYNCHRONOUS version of resolveNamingConflict for use *within* transactions.
+ * It accepts a `tx: Database` object to perform synchronous queries.
+ */
+export function resolveNamingConflict_SYNC(
+  tx: Database,
+  driveId: DriveID, // driveId might still be useful for context/logging
+  basePath: string,
   name: string,
   isFolder: boolean,
   resolution: FileConflictResolutionEnum = FileConflictResolutionEnum.KEEP_BOTH
@@ -262,21 +325,10 @@ export function resolveNamingConflict(
   const tableName = isFolder ? "folders" : "files";
 
   const checkConflictSync = (path: string) => {
-    // IMPORTANT: This is a synchronous function. `db.queryDrive` is async.
-    // To make this truly synchronous without `tx` passed in, it would need
-    // to open and close its own connection, which is inefficient in a loop.
-    // For a real-world scenario with better-sqlite3 and transactions,
-    // `tx` should be passed.
-    // For now, simulating synchronous by using an immediately invoked async function.
-    // This is a hack for the "don't pass tx" constraint for a synchronous context.
-    let conflict = false;
-    dbHelpers.withDrive(driveId, (tempDb: Database) => {
-      const result = tempDb
-        .prepare(`SELECT id FROM ${tableName} WHERE full_directory_path = ?`)
-        .get(path);
-      conflict = !!result;
-    });
-    return conflict;
+    const result = tx
+      .prepare(`SELECT id FROM ${tableName} WHERE full_directory_path = ?`)
+      .get(path);
+    return !!result;
   };
 
   if (
@@ -295,12 +347,12 @@ export function resolveNamingConflict(
 
   // Default: KEEP_BOTH
   let counter = 1;
-  const pathConflict = checkConflictSync(finalPath);
-  if (!pathConflict) {
-    return [finalName, finalPath];
-  }
-
   while (true) {
+    const conflict = checkConflictSync(finalPath);
+    if (!conflict) {
+      break; // Found a unique name
+    }
+
     counter++;
     const nameParts = name.split(".");
     const hasExtension = !isFolder && nameParts.length > 1;
@@ -310,10 +362,6 @@ export function resolveNamingConflict(
     finalName = `${baseName} (${counter})${hasExtension ? `.${extension}` : ""}`;
     finalPath =
       `${basePath.replace(/\/$/, "")}/${finalName}` + (isFolder ? "/" : "");
-
-    if (!checkConflictSync(finalPath)) {
-      break; // Found a unique name
-    }
   }
 
   return [finalName, finalPath];
@@ -321,23 +369,19 @@ export function resolveNamingConflict(
 
 /**
  * Ensures the root and .trash folders exist for a given disk.
+ * This function uses its own transaction and is designed to be called externally.
  */
 export async function ensureRootFolder(
   driveId: DriveID,
   diskId: DiskID,
   userId: UserID
 ): Promise<FolderID> {
-  // Use a temporary transaction for ensureRootFolder to ensure atomicity
-  // without interfering with an outer transaction if called from one.
-  // The outer function (e.g., createFolder) needs to be aware of this and
-  // not double-wrap if it wants ensureRootFolder to be part of its transaction.
-  // For now, let's keep it self-contained as per the original Rust logic.
   return dbHelpers.transaction("drive", driveId, (tx: Database) => {
     const disk = tx
       .prepare("SELECT * FROM disks WHERE id = ?")
       .get(diskId) as Disk;
     if (!disk) {
-      throw new Error("Disk not found."); // Should ideally not happen if diskId is valid
+      throw new Error("Disk not found.");
     }
 
     const rootPath = `${diskId}::/`;
@@ -352,7 +396,7 @@ export async function ensureRootFolder(
       const now = Date.now();
       tx.prepare(
         `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, drive_id, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         rootFolderId,
         "",
@@ -371,8 +415,7 @@ export async function ensureRootFolder(
         .prepare("SELECT * FROM folders WHERE id = ?")
         .get(rootFolderId) as FolderRecord;
 
-      // PERMIT FIX: Add default permissions for the newly created root folder
-      const permissionId = GenerateID.DirectoryPermission(); // Generate a new permission ID
+      const permissionId = GenerateID.DirectoryPermission();
       const nowMs = Date.now();
       const insertPermission = tx.prepare(`
         INSERT INTO permissions_directory (
@@ -383,14 +426,14 @@ export async function ensureRootFolder(
       insertPermission.run(
         permissionId,
         "Folder",
-        rootFolder.id, // Store plain ID
+        rootFolder.id,
         rootPath,
         "User",
-        userId, // Store plain ID
-        userId, // Store plain ID
-        0, // Immediate
-        -1, // Never expires
-        1, // Inheritable
+        userId,
+        userId,
+        0,
+        -1,
+        1,
         "Default permissions for root folder creator",
         nowMs,
         nowMs
@@ -399,7 +442,6 @@ export async function ensureRootFolder(
       const insertPermissionTypes = tx.prepare(`
         INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
       `);
-      // Grant all directory permission types to the creator
       Object.values(DirectoryPermissionType).forEach((type) => {
         insertPermissionTypes.run(permissionId, type);
       });
@@ -413,7 +455,7 @@ export async function ensureRootFolder(
       const now = Date.now();
       tx.prepare(
         `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         trashFolderId,
         ".trash",
@@ -430,8 +472,7 @@ export async function ensureRootFolder(
         1
       );
 
-      // PERMIT FIX: Add default permissions for the newly created trash folder
-      const permissionId = GenerateID.DirectoryPermission(); // Generate a new permission ID
+      const permissionId = GenerateID.DirectoryPermission();
       const nowMs = Date.now();
       const insertPermission = tx.prepare(`
         INSERT INTO permissions_directory (
@@ -442,14 +483,14 @@ export async function ensureRootFolder(
       insertPermission.run(
         permissionId,
         "Folder",
-        trashFolderId, // Store plain ID
+        trashFolderId,
         trashPath,
         "User",
-        userId, // Store plain ID
-        userId, // Store plain ID
-        0, // Immediate
-        -1, // Never expires
-        0, // Not inheritable (sovereign permissions - Rust had `has_sovereign_permissions` for this logic)
+        userId,
+        userId,
+        0,
+        -1,
+        0,
         "Default permissions for trash folder creator",
         nowMs,
         nowMs
@@ -458,14 +499,9 @@ export async function ensureRootFolder(
       const insertPermissionTypes = tx.prepare(`
         INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
       `);
-      // Grant all directory permission types to the creator for the trash folder
       Object.values(DirectoryPermissionType).forEach((type) => {
         insertPermissionTypes.run(permissionId, type);
       });
-
-      // Add trash folder to root's subfolders (if tracking this way)
-      // This is implicit in the SQL by setting parent_folder_id, but if there's an in-memory representation, it would need updating.
-      // Since `FolderRecord` includes `subfolder_uuids` but is hydrated from DB, we don't need to manually update it here.
     }
     return rootFolder.id;
   });
@@ -473,6 +509,7 @@ export async function ensureRootFolder(
 
 /**
  * Creates a nested folder structure if it doesn't already exist.
+ * This function also operates within a transaction.
  */
 export async function ensureFolderStructure(
   driveId: DriveID,
@@ -486,6 +523,7 @@ export async function ensureFolderStructure(
   shortcutTo?: FolderID,
   notes?: string
 ): Promise<FolderID> {
+  // Fetch disk info outside the transaction as it's an async query.
   const disk = (await dbHelpers.withDrive(driveId, (tx) => {
     return tx.prepare("SELECT * FROM disks WHERE id = ?").get(diskId);
   })) as Disk;
@@ -493,6 +531,7 @@ export async function ensureFolderStructure(
     throw new Error("Disk not found for ensureFolderStructure.");
   }
 
+  // ensureRootFolder performs its own transaction. Call it before the main transaction.
   let parentFolderId = await ensureRootFolder(driveId, diskId, userId);
 
   const pathSegments =
@@ -503,6 +542,10 @@ export async function ensureFolderStructure(
   let currentPath = `${diskId}::/`;
 
   return dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    // Re-fetch root folder within this transaction to ensure `parentFolderId` is valid in this tx context.
+    // Or, ensure `ensureRootFolder` can return data usable directly.
+    // Given the structure, `parentFolderId` from outside the transaction should be safe to use as ID.
+
     for (let i = 0; i < pathSegments.length; i++) {
       const segment = pathSegments[i];
       currentPath += `${segment}/`;
@@ -516,19 +559,16 @@ export async function ensureFolderStructure(
       } else {
         const isFinalFolder = i === pathSegments.length - 1;
 
-        // --- START: MODIFIED LOGIC ---
-        // Replicate Rust's logic for ID generation
         const newFolderId =
           isFinalFolder && final_folder_id
             ? final_folder_id
             : GenerateID.Folder();
-        // --- END: MODIFIED LOGIC ---
 
         const now = Date.now();
 
         tx.prepare(
           `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, drive_id, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           newFolderId,
           segment,
@@ -557,84 +597,17 @@ export async function ensureFolderStructure(
 
 /**
  * Recursively updates the full_directory_path for all children of a moved/renamed folder.
+ * This function is designed to be called *within* a synchronous transaction.
  */
-export async function updateSubfolderPaths(
-  driveId: DriveID,
-  folderId: FolderID,
-  oldPath: string,
-  newPath: string,
-  userId: UserID // Added to update timestamps
-): Promise<void> {
-  // This function is async only because dbHelpers.transaction returns a promise.
-  // The callback function passed to it is completely synchronous.
-  return dbHelpers.transaction("drive", driveId, (tx: Database) => {
-    const queue: FolderID[] = [folderId];
-    const now = Date.now();
-
-    while (queue.length > 0) {
-      const currentFolderId = queue.shift()!;
-
-      const currentFolder = tx
-        .prepare("SELECT full_directory_path FROM folders WHERE id = ?")
-        .get(currentFolderId) as { full_directory_path: string };
-
-      if (!currentFolder) continue;
-
-      const currentOldPath = currentFolder.full_directory_path;
-      // Replace only the beginning of the path to handle nested renames correctly
-      const updatedPath = newPath + currentOldPath.substring(oldPath.length);
-
-      // Update the folder's path and timestamp
-      tx.prepare(
-        "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
-      ).run(updatedPath, now, userId, currentFolderId);
-
-      // Update permissions path for the folder
-      tx.prepare(
-        `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
-      ).run(updatedPath, currentFolderId);
-
-      // Update child files' paths and timestamps
-      const childFiles = tx
-        .prepare(
-          "SELECT id, full_directory_path FROM files WHERE parent_folder_id = ?"
-        )
-        .all(currentFolderId) as { id: FileID; full_directory_path: string }[];
-
-      for (const file of childFiles) {
-        const newFilePath = file.full_directory_path.replace(
-          currentOldPath,
-          updatedPath
-        );
-        tx.prepare(
-          "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
-        ).run(newFilePath, now, userId, file.id);
-
-        // Update permissions path for the file
-        tx.prepare(
-          `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
-        ).run(newFilePath, file.id);
-      }
-
-      // Enqueue child folders for processing
-      const childFolders = tx
-        .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
-        .all(currentFolderId) as { id: FolderID }[];
-
-      for (const subfolder of childFolders) {
-        queue.push(subfolder.id);
-      }
-    }
-  });
-}
-
 export function updateSubfolderPaths_SYNC(
   tx: Database,
   folderId: FolderID,
   oldPath: string,
-  newPath: string
+  newPath: string,
+  userId: UserID
 ): void {
   const queue: FolderID[] = [folderId];
+  const now = Date.now(); // Timestamp for updates
 
   while (queue.length > 0) {
     const currentFolderId = queue.shift()!;
@@ -647,10 +620,9 @@ export function updateSubfolderPaths_SYNC(
     const currentOldPath = currentFolder.full_directory_path;
     const updatedPath = currentOldPath.replace(oldPath, newPath);
 
-    tx.prepare("UPDATE folders SET full_directory_path = ? WHERE id = ?").run(
-      updatedPath,
-      currentFolderId
-    );
+    tx.prepare(
+      "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
+    ).run(updatedPath, now, userId, currentFolderId);
 
     tx.prepare(
       `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
@@ -667,10 +639,9 @@ export function updateSubfolderPaths_SYNC(
         currentOldPath,
         updatedPath
       );
-      tx.prepare("UPDATE files SET full_directory_path = ? WHERE id = ?").run(
-        newFilePath,
-        file.id
-      );
+      tx.prepare(
+        "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
+      ).run(newFilePath, now, userId, file.id);
       tx.prepare(
         `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
       ).run(newFilePath, file.id);
@@ -683,6 +654,328 @@ export function updateSubfolderPaths_SYNC(
     for (const subfolder of childFolders) {
       queue.push(subfolder.id);
     }
+  }
+}
+
+export function updateSubfolderPaths(
+  driveId: DriveID,
+  folderId: FolderID,
+  oldPath: string,
+  newPath: string,
+  userId: UserID
+): void {
+  const tx = dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    const queue: FolderID[] = [folderId];
+    const now = Date.now(); // Timestamp for updates
+
+    while (queue.length > 0) {
+      const currentFolderId = queue.shift()!;
+      const currentFolder = tx
+        .prepare("SELECT full_directory_path FROM folders WHERE id = ?")
+        .get(currentFolderId) as { full_directory_path: string };
+
+      if (!currentFolder) continue;
+
+      const currentOldPath = currentFolder.full_directory_path;
+      const updatedPath = currentOldPath.replace(oldPath, newPath);
+
+      tx.prepare(
+        "UPDATE folders SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
+      ).run(updatedPath, now, userId, currentFolderId);
+
+      tx.prepare(
+        `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
+      ).run(updatedPath, currentFolderId);
+
+      const childFiles = tx
+        .prepare(
+          "SELECT id, full_directory_path FROM files WHERE parent_folder_id = ?"
+        )
+        .all(currentFolderId) as { id: FileID; full_directory_path: string }[];
+
+      for (const file of childFiles) {
+        const newFilePath = file.full_directory_path.replace(
+          currentOldPath,
+          updatedPath
+        );
+        tx.prepare(
+          "UPDATE files SET full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
+        ).run(newFilePath, now, userId, file.id);
+        tx.prepare(
+          `UPDATE permissions_directory SET resource_path = ? WHERE resource_id = ?`
+        ).run(newFilePath, file.id);
+      }
+
+      const childFolders = tx
+        .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
+        .all(currentFolderId) as { id: FolderID }[];
+
+      for (const subfolder of childFolders) {
+        queue.push(subfolder.id);
+      }
+    }
+  });
+  return;
+}
+
+/**
+ * Synchronous helper to copy contents of a folder (files and subfolders).
+ * This function is designed to be called *within* an existing synchronous transaction.
+ * It will recursively call itself and copyFile_SYNC.
+ */
+export function copyFolderContents_SYNC(
+  tx: Database,
+  driveId: DriveID,
+  userId: UserID,
+  sourceFolderId: FolderID,
+  destinationFolderId: FolderID,
+  resolution: FileConflictResolutionEnum | undefined
+): void {
+  const sourceFolder = tx
+    .prepare("SELECT * FROM folders WHERE id = ?")
+    .get(sourceFolderId) as FolderRecord;
+  const destFolder = tx
+    .prepare("SELECT * FROM folders WHERE id = ?")
+    .get(destinationFolderId) as FolderRecord;
+
+  if (!sourceFolder || !destFolder) {
+    console.error("Source or destination folder not found for recursive copy.");
+    return; // Or throw error, depending on desired behavior
+  }
+
+  // Copy files in the current folder
+  const filesInFolder = tx
+    .prepare("SELECT * FROM files WHERE parent_folder_id = ?")
+    .all(sourceFolder.id) as FileRecord[];
+
+  for (const file of filesInFolder) {
+    const newFileUuid = GenerateID.File();
+    const now = Date.now();
+
+    const [finalName, finalPath] = resolveNamingConflict_SYNC(
+      tx,
+      driveId,
+      destFolder.full_directory_path,
+      file.name,
+      false, // is_folder = false
+      resolution
+    );
+
+    if (!finalName) {
+      // If conflict resolution is KEEP_ORIGINAL and file exists, skip.
+      continue;
+    }
+
+    const newVersionId = GenerateID.FileVersionID();
+
+    const newFileRecord: FileRecord = {
+      id: newFileUuid,
+      name: finalName,
+      parent_folder_uuid: destinationFolderId,
+      version_id: newVersionId,
+      file_version: 1,
+      prior_version: undefined,
+      extension: file.extension,
+      full_directory_path: finalPath,
+      labels: file.labels,
+      created_by: userId,
+      created_at: now,
+      disk_id: file.disk_id,
+      disk_type: file.disk_type,
+      file_size: file.file_size,
+      raw_url: formatFileAssetPath(driveId, newFileUuid, file.extension),
+      last_updated_date_ms: now,
+      last_updated_by: userId,
+      deleted: false,
+      drive_id: driveId,
+      expires_at: file.expires_at,
+      restore_trash_prior_folder_uuid: undefined,
+      has_sovereign_permissions: file.has_sovereign_permissions,
+      shortcut_to: file.shortcut_to,
+      upload_status: file.upload_status,
+      external_id: file.external_id,
+      external_payload: file.external_payload,
+      notes: file.notes,
+    };
+
+    tx.prepare(
+      `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      newFileRecord.id,
+      newFileRecord.name,
+      newFileRecord.parent_folder_uuid,
+      newFileRecord.version_id,
+      newFileRecord.extension,
+      newFileRecord.full_directory_path,
+      newFileRecord.created_by,
+      newFileRecord.created_at,
+      newFileRecord.disk_id,
+      newFileRecord.disk_type,
+      newFileRecord.file_size,
+      newFileRecord.raw_url,
+      newFileRecord.last_updated_date_ms,
+      newFileRecord.last_updated_by,
+      newFileRecord.drive_id,
+      newFileRecord.upload_status,
+      newFileRecord.expires_at,
+      newFileRecord.has_sovereign_permissions ? 1 : 0,
+      newFileRecord.shortcut_to,
+      newFileRecord.notes,
+      newFileRecord.external_id,
+      newFileRecord.external_payload
+    );
+
+    tx.prepare(
+      `INSERT INTO file_versions(version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      newVersionId,
+      newFileUuid,
+      finalName,
+      1,
+      undefined,
+      file.extension,
+      userId,
+      now,
+      file.disk_id,
+      file.disk_type,
+      file.file_size,
+      newFileRecord.raw_url,
+      file.notes
+    );
+
+    // Update destFolder's file_uuids if in-memory sync is needed (for immediate retrieval within tx)
+    tx.prepare(
+      `UPDATE folders SET file_uuids = json_insert(coalesce(file_uuids, '[]'), '$[#]', ?) WHERE id = ?`
+    ).run(newFileRecord.id, destinationFolderId);
+
+    // Asynchronous cloud copy for files (fire and forget)
+    if (
+      newFileRecord.upload_status === UploadStatus.QUEUED &&
+      (file.disk_type === DiskTypeEnum.AwsBucket ||
+        file.disk_type === DiskTypeEnum.StorjWeb3)
+    ) {
+      // Need to fetch disk info here if not passed, but doing this inside sync tx is bad.
+      // Ideally, the disk info would be passed down or cached. For now, a non-blocking approach.
+      // This part *cannot* use the `tx` object for queries.
+      // It's a "fire and forget" operation.
+      (async () => {
+        const disk = (
+          await db.queryDrive(driveId, "SELECT * FROM disks WHERE id = ?", [
+            file.disk_id,
+          ])
+        )[0];
+        if (!disk || !disk.auth_json) {
+          console.error("Missing disk or auth for async copy operation.");
+          return;
+        }
+        const auth = JSON.parse(disk.auth_json);
+        const sourceKey = file.raw_url;
+        const destinationKey = newFileRecord.raw_url;
+        let copyResult;
+        if (file.disk_type === DiskTypeEnum.AwsBucket) {
+          copyResult = await copyS3Object(sourceKey, destinationKey, auth);
+        } else {
+          copyResult = await copyStorjObject(sourceKey, destinationKey, auth);
+        }
+        if (copyResult.err) {
+          console.error(
+            `Cloud copy failed for ${newFileRecord.id}: ${copyResult.err}`
+          );
+        } else {
+          console.log(`Cloud copy completed for ${newFileRecord.id}.`);
+        }
+      })();
+    }
+  }
+
+  // Recursively copy subfolders
+  const subfolders = tx
+    .prepare("SELECT * FROM folders WHERE parent_folder_id = ?")
+    .all(sourceFolder.id) as FolderRecord[];
+
+  for (const sub of subfolders) {
+    const newSubfolderUuid = GenerateID.Folder();
+    const now = Date.now();
+
+    const [finalName, finalPath] = resolveNamingConflict_SYNC(
+      tx,
+      driveId,
+      destFolder.full_directory_path,
+      sub.name,
+      true, // isFolder = true
+      resolution
+    );
+
+    if (!finalName) {
+      continue; // If conflict resolution is KEEP_ORIGINAL and folder exists, skip.
+    }
+
+    const newSubfolderRecord: FolderRecord = {
+      id: newSubfolderUuid,
+      name: finalName,
+      parent_folder_uuid: destinationFolderId,
+      subfolder_uuids: [], // Will be populated recursively
+      file_uuids: [], // Will be populated recursively
+      full_directory_path: finalPath,
+      labels: sub.labels,
+      created_by: userId,
+      created_at: now,
+      last_updated_date_ms: now,
+      last_updated_by: userId,
+      disk_id: sub.disk_id,
+      disk_type: sub.disk_type,
+      deleted: false,
+      expires_at: sub.expires_at,
+      drive_id: driveId,
+      restore_trash_prior_folder_uuid: undefined,
+      has_sovereign_permissions: sub.has_sovereign_permissions,
+      shortcut_to: sub.shortcut_to,
+      external_id: sub.external_id,
+      external_payload: sub.external_payload,
+      notes: sub.notes,
+    };
+
+    tx.prepare(
+      `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      newSubfolderRecord.id,
+      newSubfolderRecord.name,
+      newSubfolderRecord.parent_folder_uuid,
+      newSubfolderRecord.full_directory_path,
+      newSubfolderRecord.created_by,
+      newSubfolderRecord.created_at,
+      newSubfolderRecord.last_updated_date_ms,
+      newSubfolderRecord.last_updated_by,
+      newSubfolderRecord.disk_id,
+      newSubfolderRecord.disk_type,
+      newSubfolderRecord.deleted ? 1 : 0,
+      newSubfolderRecord.expires_at,
+      newSubfolderRecord.drive_id,
+      newSubfolderRecord.restore_trash_prior_folder_uuid,
+      newSubfolderRecord.has_sovereign_permissions ? 1 : 0,
+      newSubfolderRecord.shortcut_to,
+      newSubfolderRecord.notes,
+      newSubfolderRecord.external_id,
+      newSubfolderRecord.external_payload
+    );
+
+    // Update destFolder's subfolder_uuids if in-memory sync is needed
+    tx.prepare(
+      `UPDATE folders SET subfolder_uuids = json_insert(coalesce(subfolder_uuids, '[]'), '$[#]', ?) WHERE id = ?`
+    ).run(newSubfolderRecord.id, destinationFolderId);
+
+    // Recursively copy contents of the subfolder
+    copyFolderContents_SYNC(
+      tx,
+      driveId,
+      userId,
+      sub.id,
+      newSubfolderRecord.id,
+      resolution
+    );
   }
 }
 
