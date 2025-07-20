@@ -20,6 +20,8 @@ import {
   GenerateID,
   GroupInviteeTypeEnum,
   GroupRole,
+  SystemPermissionType,
+  SystemTableValueEnum,
 } from "@officexapp/types";
 import {
   configureDatabase,
@@ -891,8 +893,45 @@ export async function redeemGiftcardSpawnOrgHandler(
         null,
         null
       );
+
+      // --- Start: Grant "Group for All" VIEW permission on the 'disks' table ---
+      const systemPermissionId = GenerateID.SystemPermission();
+      const insertSystemPermissionStmt = driveDatabase.prepare(
+        `INSERT INTO permissions_system (
+            id, resource_type, resource_identifier, grantee_type, grantee_id, granted_by,
+            begin_date_ms, expiry_date_ms, note, created_at, last_modified_at,
+            redeem_code, from_placeholder_grantee, metadata_type, metadata_content,
+            external_id, external_payload
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertSystemPermissionStmt.run(
+        systemPermissionId,
+        "Table", // resource_type: "Table" for entire tables
+        `TABLE_${SystemTableValueEnum.DISKS}`, // resource_identifier: The specific table enum
+        "Group", // grantee_type: "Group"
+        groupID, // grantee_id: The ID of the "Group for All"
+        ownerId, // granted_by: The owner of the drive
+        currentTime, // begin_date_ms
+        0, // expiry_date_ms: 0 means non-expiring
+        "Allow 'Group for All' to view all disks by default.", // note
+        currentTime, // created_at
+        currentTime, // last_modified_at
+        redeemCode, // redeem_code
+        null, // from_placeholder_grantee
+        null, // metadata_type
+        null, // metadata_content
+        null, // external_id
+        null // external_payload
+      );
+
+      const insertSystemPermissionTypeStmt = driveDatabase.prepare(
+        `INSERT INTO permissions_system_types (permission_id, permission_type) VALUES (?, ?)`
+      );
+      insertSystemPermissionTypeStmt.run(
+        systemPermissionId,
+        SystemPermissionType.VIEW // Grant VIEW permission
+      );
     });
-    // --- End: New Drive DB Creation and Initialization ---
 
     // Update giftcard as redeemed in the factory DB
     giftcard.redeemed = true;
