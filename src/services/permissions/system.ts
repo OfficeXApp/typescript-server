@@ -93,8 +93,7 @@ export function mapDbRowToSystemPermission(row: any): SystemPermission {
   // Reconstruct resource_id based on resource_type and resource_identifier from DB
   let resourceIdWithPrefix: SystemResourceID;
   if (row.resource_type === "Table") {
-    resourceIdWithPrefix =
-      `TABLE_${row.resource_identifier}` as SystemResourceID; // resource_identifier is just the enum value
+    resourceIdWithPrefix = `${row.resource_identifier}` as SystemResourceID; // resource_identifier is just the enum value
   } else if (row.resource_type === "Record") {
     resourceIdWithPrefix = row.resource_identifier as SystemResourceID; // resource_identifier is already the full prefixed ID from DB
   } else {

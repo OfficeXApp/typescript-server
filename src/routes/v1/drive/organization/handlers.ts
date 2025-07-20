@@ -250,8 +250,8 @@ export async function searchDriveHandler(
     // For now, return mock search results.
     const mockSearchResults: IResponseSearchDrive["ok"]["data"]["items"] = [
       {
-        title: `Mock File - ${searchRequest.query}`,
-        preview: "This is a mock file preview.",
+        title: `Coming Soon - ${searchRequest.query}`,
+        preview: "Search will be available in next 10 days",
         score: 0.9,
         resource_id: "FileID_mock_file_1",
         category: SearchCategoryEnum.FILES,
@@ -259,8 +259,8 @@ export async function searchDriveHandler(
         updated_at: Date.now() - 10000,
       },
       {
-        title: `Mock Folder - ${searchRequest.query}`,
-        preview: "This is a mock folder preview.",
+        title: `Coming Soon - ${searchRequest.query}`,
+        preview: "Search will be available in next 10 days",
         score: 0.8,
         resource_id: "FolderID_mock_folder_1",
         category: SearchCategoryEnum.FOLDERS,

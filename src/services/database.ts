@@ -296,49 +296,46 @@ export async function initDriveDB(driveId: DriveID): Promise<void> {
 
   // Ensure the necessary directory structure for the drive DB exists
   const dbDir = path.dirname(driveDbPath);
-  ensureDirectorySync(dbDir);
+  ensureDirectorySync(dbDir); // Still ensure directory exists as it's a prerequisite for any DB operation
 
   if (!dbExists) {
-    console.log(
-      `Drive database for ${driveId} does not exist. Creating and initializing schema...`
+    // CRITICAL CHANGE: If the database does not exist, throw an error instead of creating it.
+    throw new Error(
+      `Drive database for ${driveId} not found at ${driveDbPath}. It must be created by the redeemGiftcardSpawnOrgHandler.`
     );
-    const database = new Database(driveDbPath);
-    try {
-      configureDatabase(database);
-      if (DRIVE_SCHEMA.trim().length > 0) {
-        database.exec(DRIVE_SCHEMA);
-        console.log(`Drive database schema applied for ${driveId}.`);
-      } else {
-        console.warn(
-          `No drive schema to apply for ${driveId}. DRIVE_SCHEMA is empty.`
-        );
-      }
-    } catch (error) {
-      console.error(
-        `Error applying drive database schema for ${driveId}:`,
-        error
-      );
-      throw error;
-    } finally {
-      database.close(); // Close the connection as it's not cached
-    }
   } else {
     console.log(`Drive database for ${driveId} already exists.`);
-    // Optionally, you could add a check here to ensure the schema is present,
-    // similar to initFactoryDB's existing DB schema check, for robustness
-    // or migration purposes, but the request was to simply check if it exists and create if not.
+    // Optionally, you could still open and close to ensure it's a valid SQLite DB
+    // and potentially run PRAGMAs, but for simply "initializing" (meaning, ensuring existence
+    // for subsequent operations), just checking `dbExists` is sufficient.
+    // For robustness, you might consider opening and immediately closing to validate.
+    let database: Database.Database | null = null;
+    try {
+      database = new Database(driveDbPath);
+      configureDatabase(database); // Apply pragmas even if it exists
+    } catch (error) {
+      console.error(
+        `Error opening existing drive database for ${driveId}:`,
+        error
+      );
+      throw new Error(`Failed to open existing drive database for ${driveId}.`);
+    } finally {
+      if (database) {
+        database.close();
+      }
+    }
   }
 }
 
 // Helper to ensure directory exists
-function ensureDirectorySync(dir: string): void {
+export function ensureDirectorySync(dir: string): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 }
 
 // Helper to configure database with optimal settings
-function configureDatabase(db: Database.Database): void {
+export function configureDatabase(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
   db.pragma("cache_size = -2000"); // 2GB cache
@@ -348,12 +345,12 @@ function configureDatabase(db: Database.Database): void {
 }
 
 // Get factory database path
-function getFactoryDbPath(): string {
+export function getFactoryDbPath(): string {
   return path.join(DATA_DIR, "factory", "factory.db");
 }
 
 // Get drive database path with sharding
-function getDriveDbPath(driveId: DriveID): string {
+export function getDriveDbPath(driveId: DriveID): string {
   if (!driveId.startsWith("DriveID_")) {
     throw new Error(`Invalid drive ID format: ${driveId}`);
   }
@@ -370,10 +367,10 @@ function getDriveDbPath(driveId: DriveID): string {
 }
 
 // --- Read SQL schema files ---
-const MIGRATIONS_DIR = path.join(__dirname, "..", "migrations"); // Adjust path as needed based on your compiled JS output location
+export const MIGRATIONS_DIR = path.join(__dirname, "..", "migrations"); // Adjust path as needed based on your compiled JS output location
 
-let FACTORY_SCHEMA: string;
-let DRIVE_SCHEMA: string;
+export let FACTORY_SCHEMA: string;
+export let DRIVE_SCHEMA: string;
 
 // TODO: Check if this is safe, does it auto-skip unapplied migrations? also theres N many databases to update
 try {

@@ -20,8 +20,18 @@ import {
   GenerateID,
   GroupInviteeTypeEnum,
   GroupRole,
+  SystemPermissionType,
+  SystemTableValueEnum,
 } from "@officexapp/types";
-import { db, dbHelpers, initDriveDB } from "../../../../services/database";
+import {
+  configureDatabase,
+  db,
+  dbHelpers,
+  DRIVE_SCHEMA,
+  ensureDirectorySync,
+  getDriveDbPath,
+  initDriveDB,
+} from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
 import { isValidID } from "../../../../api/helpers";
 import { generateMnemonic, mnemonicToSeed } from "bip39";
@@ -29,6 +39,9 @@ import { getPublicKeyAsync } from "@noble/ed25519";
 import { Principal } from "@dfinity/principal";
 import { validateIcpPrincipal } from "../../../../services/validation";
 import { FREE_MODE } from "../../../../constants";
+import path from "path";
+import Database from "better-sqlite3";
+import fs from "fs";
 
 // Type definitions for route params
 interface GetGiftcardSpawnOrgParams {
@@ -710,8 +723,42 @@ export async function redeemGiftcardSpawnOrgHandler(
     const driveId = `DriveID_${deployedCanisterId}`;
 
     // --- Start: New Drive DB Creation and Initialization ---
-    // 1. Initialize the new drive's SQLite database
-    await initDriveDB(driveId);
+    const driveDbPath = getDriveDbPath(driveId);
+    const dbDir = path.dirname(driveDbPath);
+    ensureDirectorySync(dbDir); // Ensure the directory exists
+
+    // CRITICAL CHANGE: Explicitly create the database file and apply schema here
+    let driveDatabaseInstance: Database.Database | null = null;
+    try {
+      driveDatabaseInstance = new Database(driveDbPath); // This creates the file if it doesn't exist
+      configureDatabase(driveDatabaseInstance); // Apply pragmas
+
+      if (DRIVE_SCHEMA.trim().length > 0) {
+        driveDatabaseInstance.exec(DRIVE_SCHEMA);
+        console.log(
+          `Drive database schema applied for ${driveId} during redemption.`
+        );
+      } else {
+        console.warn(
+          `No drive schema to apply for ${driveId}. DRIVE_SCHEMA is empty.`
+        );
+      }
+    } catch (error) {
+      console.error(
+        `Error creating or applying schema for new drive DB ${driveId}:`,
+        error
+      );
+      // Clean up potentially partially created DB file on error
+      if (fs.existsSync(driveDbPath)) {
+        fs.unlinkSync(driveDbPath);
+      }
+      throw new Error(`Failed to create new drive database for ${driveId}.`);
+    } finally {
+      if (driveDatabaseInstance) {
+        driveDatabaseInstance.close(); // Close the connection after creation and schema application
+      }
+    }
+    // --- End: New Drive DB Creation and Initialization ---
 
     // 2. Insert into the new drive's 'about_drive' table
     // Using dbHelpers.transaction for atomicity on the new drive's DB
@@ -846,8 +893,45 @@ export async function redeemGiftcardSpawnOrgHandler(
         null,
         null
       );
+
+      // --- Start: Grant "Group for All" VIEW permission on the 'disks' table ---
+      const systemPermissionId = GenerateID.SystemPermission();
+      const insertSystemPermissionStmt = driveDatabase.prepare(
+        `INSERT INTO permissions_system (
+            id, resource_type, resource_identifier, grantee_type, grantee_id, granted_by,
+            begin_date_ms, expiry_date_ms, note, created_at, last_modified_at,
+            redeem_code, from_placeholder_grantee, metadata_type, metadata_content,
+            external_id, external_payload
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      insertSystemPermissionStmt.run(
+        systemPermissionId,
+        "Table", // resource_type: "Table" for entire tables
+        `TABLE_${SystemTableValueEnum.DISKS}`, // resource_identifier: The specific table enum
+        "Group", // grantee_type: "Group"
+        groupID, // grantee_id: The ID of the "Group for All"
+        ownerId, // granted_by: The owner of the drive
+        currentTime, // begin_date_ms
+        0, // expiry_date_ms: 0 means non-expiring
+        "Allow 'Group for All' to view all disks by default.", // note
+        currentTime, // created_at
+        currentTime, // last_modified_at
+        redeemCode, // redeem_code
+        null, // from_placeholder_grantee
+        null, // metadata_type
+        null, // metadata_content
+        null, // external_id
+        null // external_payload
+      );
+
+      const insertSystemPermissionTypeStmt = driveDatabase.prepare(
+        `INSERT INTO permissions_system_types (permission_id, permission_type) VALUES (?, ?)`
+      );
+      insertSystemPermissionTypeStmt.run(
+        systemPermissionId,
+        SystemPermissionType.VIEW // Grant VIEW permission
+      );
     });
-    // --- End: New Drive DB Creation and Initialization ---
 
     // Update giftcard as redeemed in the factory DB
     giftcard.redeemed = true;
