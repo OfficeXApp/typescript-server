@@ -16,13 +16,12 @@
 - [x] Add rate-limiting to web2 server
 - [x] Disable creating new database on rest call at unknown org route (should throw 404. db should only be created via giftcard spawnorg). sometimes a drive has been deleted, so the db no longer exists. potentailly need to incorporate into error message.
 - [x] Default allow "Group for All" access to View all disks
+- [x] Fix superswap, old users not removed from frontend
 
-- [ ] Fix multi-tab organizations, removing localstorage dependencies
-
-- [ ] Search Drive
-- [ ] Fix superswap, old users not removed from frontend
+- [ ] Fix multi-tab organizations, removing localstorage dependencies (on drive frontend)
 - [ ] Fix bug where password access to a folder doesnt work (but file does)
 - [ ] Fix bug where cannot update a spreadsheet without access to parent folder create permit
+- [ ] Search Drive
 
 - [ ] Audit storj upload flows
 - [ ] Implement UUID tracking and usage

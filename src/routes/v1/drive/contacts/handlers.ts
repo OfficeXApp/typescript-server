@@ -1266,12 +1266,25 @@ export async function redeemContactHandler(
     let updateCount = 0;
     try {
       await dbHelpers.transaction("drive", org_id, (database) => {
-        // 1. Update `contacts` table for the placeholder
+        // --- Core Contact Table Update ---
+        // The original placeholder contact (currentContact) now essentially becomes the "new_user_id"
+        // It retains most of its properties but updates its ID, from_placeholder_user_id, and redeem_code.
+        // The ICP principal should be updated to that of the *redeeming* user.
         database
           .prepare(
-            "UPDATE contacts SET id = ?, from_placeholder_user_id = NULL, redeem_code = NULL WHERE id = ?"
+            `UPDATE contacts SET
+               id = ?,
+               icp_principal = ?,
+               from_placeholder_user_id = ?,
+               redeem_code = NULL
+             WHERE id = ?`
           )
-          .run(newPlainUserId, currentPlainUserId);
+          .run(
+            newPlainUserId, // New ID
+            newPlainUserId.replace(IDPrefixEnum.User, ""), // ICP Principal of the NEW user
+            currentPlainUserId, // The original placeholder ID
+            currentPlainUserId // WHERE clause on the old ID
+          );
 
         // 2. Add old ID to `contact_past_ids` for the new contact
         database
@@ -1281,6 +1294,7 @@ export async function redeemContactHandler(
           .run(newPlainUserId, currentPlainUserId);
 
         // 3. Update `api_keys`
+        // Update any API keys associated with the old placeholder ID to the new ID
         database
           .prepare("UPDATE api_keys SET user_id = ? WHERE user_id = ?")
           .run(newPlainUserId, currentPlainUserId);
