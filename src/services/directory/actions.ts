@@ -881,13 +881,13 @@ export async function pipeAction(
         // If not permanent, it was moved to trash. Get the trash path.
         const [diskResult] = await db.queryDrive(
           driveId,
-          "SELECT trash_folder_id FROM disks WHERE id = ?",
+          "SELECT trash_folder FROM disks WHERE id = ?",
           [file.disk_id]
         );
         if (diskResult) {
           const trashFolder = await driveGetFolderMetadata(
             driveId,
-            diskResult.trash_folder_id
+            diskResult.trash_folder
           );
           if (trashFolder) {
             // Path in trash will be the trash folder's path + original file name
@@ -986,13 +986,13 @@ export async function pipeAction(
         // If not permanent, it was moved to trash.
         const [diskResult] = await db.queryDrive(
           driveId,
-          "SELECT trash_folder_id FROM disks WHERE id = ?",
+          "SELECT trash_folder FROM disks WHERE id = ?",
           [folder.disk_id]
         );
         if (diskResult) {
           const trashFolder = await driveGetFolderMetadata(
             driveId,
-            diskResult.trash_folder_id
+            diskResult.trash_folder
           );
           if (trashFolder) {
             // Path in trash will be the trash folder's path + original folder name + trailing slash

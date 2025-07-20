@@ -318,11 +318,15 @@ export async function createFile(
       fileRecord.notes
     );
 
-    // Update parent folder's file_uuids list if this is a new file for the folder
-    // Note: This is simpler than Rust's update_folder_file_uuids as we're not tracking old values.
-    // It's assumed the `files` table's parent_folder_id handles the relationship.
-    // If the Rust logic means `FolderRecord.file_uuids` in memory, we need to manually update it too.
-    // Given we are using SQLite, we query the list dynamically rather than maintaining it in a cached struct.
+    // Update parent folder's file_uuids list
+    const parentFolder = tx.prepare("SELECT file_uuids FROM folders WHERE id = ?").get(parent_folder_uuid) as { file_uuids: string | null };
+    if (parentFolder) {
+      const fileUuids = parentFolder.file_uuids ? JSON.parse(parentFolder.file_uuids) : [];
+      if (!fileUuids.includes(fileRecord.id)) {
+        fileUuids.push(fileRecord.id);
+        tx.prepare("UPDATE folders SET file_uuids = ? WHERE id = ?").run(JSON.stringify(fileUuids), parent_folder_uuid);
+      }
+    }
   });
 
   let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
@@ -441,6 +445,19 @@ export async function createFolder(
     "SELECT * FROM folders WHERE id = ?",
     [folderId]
   );
+
+  // Update parent folder's subfolder_uuids list
+  dbHelpers.transaction('drive', driveId, (tx: Database) => {
+    const parent = tx.prepare("SELECT subfolder_uuids FROM folders WHERE id = ?").get(parent_folder_uuid) as { subfolder_uuids: string | null };
+    if (parent) {
+      const subfolderUuids = parent.subfolder_uuids ? JSON.parse(parent.subfolder_uuids) : [];
+      if (!subfolderUuids.includes(folder.id)) {
+        subfolderUuids.push(folder.id);
+        tx.prepare("UPDATE folders SET subfolder_uuids = ? WHERE id = ?").run(JSON.stringify(subfolderUuids), parent_folder_uuid);
+      }
+    }
+  });
+
   return folder as FolderRecord;
 }
 
@@ -493,11 +510,11 @@ export async function deleteResource(
         resource.disk_id,
       ])
     )[0];
-    if (!disk || !disk.trash_folder_id)
+    if (!disk || !disk.trash_folder)
       throw new Error("Trash folder configuration missing.");
     trashFolder = (
       await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
-        disk.trash_folder_id,
+        disk.trash_folder,
       ])
     )[0];
     if (!trashFolder) throw new Error("Trash folder not found.");
@@ -538,7 +555,8 @@ export async function deleteResource(
       // --- NON-PERMANENT (MOVE TO TRASH) LOGIC ---
       if (!trashFolder) return;
 
-      const [finalName, finalPath] = internals.resolveNamingConflict(
+      const [finalName, finalPath] = internals.resolveNamingConflict_SYNC(
+        tx,
         driveId,
         trashFolder.full_directory_path,
         resource.name,
@@ -561,7 +579,8 @@ export async function deleteResource(
           tx,
           resourceId,
           resource.full_directory_path,
-          finalPath
+          finalPath,
+          userId
         );
       }
     }
@@ -573,112 +592,112 @@ export async function deleteResource(
  */
 export async function copyFile(
   driveId: DriveID,
-  userId: UserID, // PERMIT: Add userId for permission check
+  userId: UserID,
   fileId: FileID,
   destinationFolderId: FolderID,
   resolution: FileConflictResolutionEnum | undefined,
   newCopyId?: FileID
 ): Promise<FileRecord> {
-  // FIX: dbHelpers.transaction is async
-  return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
-    const sourceFile = tx
-      .prepare("SELECT * FROM files WHERE id = ?")
-      .get(fileId) as FileRecord;
-    const destFolder = tx
-      .prepare("SELECT * FROM folders WHERE id = ?")
-      .get(destinationFolderId) as FolderRecord;
+  // ASYNC PRE-CHECKS AND DATA FETCHING
+  const sourceFile = (
+    await db.queryDrive(driveId, "SELECT * FROM files WHERE id = ?", [fileId])
+  )[0] as FileRecord;
+  const destFolder = (
+    await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+      destinationFolderId,
+    ])
+  )[0] as FolderRecord;
 
-    if (!sourceFile || !destFolder)
-      throw new Error("Source file or destination folder not found.");
-    if (sourceFile.disk_id !== destFolder.disk_id)
-      throw new Error("Cannot copy between different disks.");
+  if (!sourceFile || !destFolder)
+    throw new Error("Source file or destination folder not found.");
+  if (sourceFile.disk_id !== destFolder.disk_id)
+    throw new Error("Cannot copy between different disks.");
 
-    // PERMIT: Check for VIEW permission on source file and UPLOAD/EDIT/MANAGE on destination folder
-    const sourceFileResourceId: DirectoryResourceID =
-      `${fileId}` as DirectoryResourceID;
-    const destFolderResourceId: DirectoryResourceID =
-      `${destinationFolderId}` as DirectoryResourceID;
+  const sourceFileResourceId: DirectoryResourceID =
+    `${fileId}` as DirectoryResourceID;
+  const destFolderResourceId: DirectoryResourceID =
+    `${destinationFolderId}` as DirectoryResourceID;
 
-    const hasViewSourcePermission = (
-      await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
-    ).includes(DirectoryPermissionType.VIEW);
+  const hasViewSourcePermission = (
+    await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.VIEW);
 
-    const hasCreateDestPermission = (
-      await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
-    ).includes(DirectoryPermissionType.UPLOAD);
+  const hasCreateDestPermission = (
+    await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.UPLOAD);
 
-    const isOwner = (await getDriveOwnerId(driveId)) === userId;
+  const isOwner = (await getDriveOwnerId(driveId)) === userId;
 
-    if (!isOwner && (!hasViewSourcePermission || !hasCreateDestPermission)) {
-      throw new Error(
-        `Permission denied: User ${userId} cannot copy file ${fileId} to folder ${destinationFolderId}.`
-      );
-    }
-
-    // Resolve naming conflict for the new file
-    const [finalName, finalPath] = await internals.resolveNamingConflict(
-      driveId,
-      destFolder.full_directory_path,
-      sourceFile.name,
-      false, // is_folder = false
-      resolution
+  if (!isOwner && (!hasViewSourcePermission || !hasCreateDestPermission)) {
+    throw new Error(
+      `Permission denied: User ${userId} cannot copy file ${fileId} to folder ${destinationFolderId}.`
     );
+  }
 
-    if (!finalName) {
-      // If finalName is empty, it means KEEP_ORIGINAL was chosen and a conflict exists.
-      // In copy_file, Rust returns the existing file.
-      const existingFile = (
-        await db.queryDrive(
-          driveId,
-          "SELECT * FROM files WHERE full_directory_path = ?",
-          [finalPath]
-        )
-      )[0] as FileRecord;
-      if (existingFile) return existingFile;
-      throw new Error(
-        "File already exists and resolution strategy prevents creation."
-      );
-    }
+  // Resolve naming conflict for the new file (ASYNC before transaction)
+  const [finalName, finalPath] = await internals.resolveNamingConflict(
+    driveId,
+    destFolder.full_directory_path,
+    sourceFile.name,
+    false, // is_folder = false
+    resolution
+  );
 
-    const newFileUuid = newCopyId || GenerateID.File();
-    const now = Date.now();
-    const newVersionId = GenerateID.FileVersionID();
-
-    // Create new file record
-    const newFileRecord: FileRecord = {
-      id: newFileUuid,
-      name: finalName,
-      parent_folder_uuid: destinationFolderId,
-      version_id: newVersionId,
-      file_version: 1, // New copy always starts at version 1
-      prior_version: undefined,
-      extension: sourceFile.extension,
-      full_directory_path: finalPath,
-      labels: sourceFile.labels, // Keep original labels
-      created_by: userId, // New creator
-      created_at: now, // New creation time
-      disk_id: sourceFile.disk_id,
-      disk_type: sourceFile.disk_type,
-      file_size: sourceFile.file_size,
-      raw_url: internals.formatFileAssetPath(
+  if (!finalName) {
+    const existingFile = (
+      await db.queryDrive(
         driveId,
-        newFileUuid,
-        sourceFile.extension
-      ), // New asset path
-      last_updated_date_ms: now,
-      last_updated_by: userId,
-      deleted: false,
-      drive_id: driveId,
-      expires_at: sourceFile.expires_at,
-      restore_trash_prior_folder_uuid: undefined,
-      has_sovereign_permissions: sourceFile.has_sovereign_permissions,
-      shortcut_to: sourceFile.shortcut_to,
-      upload_status: sourceFile.upload_status, // Keep original upload status
-      external_id: sourceFile.external_id,
-      external_payload: sourceFile.external_payload,
-      notes: sourceFile.notes,
-    };
+        "SELECT * FROM files WHERE full_directory_path = ?",
+        [finalPath]
+      )
+    )[0] as FileRecord;
+    if (existingFile) return existingFile;
+    throw new Error(
+      "File already exists and resolution strategy prevents creation."
+    );
+  }
 
+  const newFileUuid = newCopyId || GenerateID.File();
+  const now = Date.now();
+  const newVersionId = GenerateID.FileVersionID();
+
+  // Create new file record (data prepared for sync insert)
+  const newFileRecord: FileRecord = {
+    id: newFileUuid,
+    name: finalName,
+    parent_folder_uuid: destinationFolderId,
+    version_id: newVersionId,
+    file_version: 1, // New copy always starts at version 1
+    prior_version: undefined,
+    extension: sourceFile.extension,
+    full_directory_path: finalPath,
+    labels: sourceFile.labels, // Keep original labels
+    created_by: userId, // New creator
+    created_at: now, // New creation time
+    disk_id: sourceFile.disk_id,
+    disk_type: sourceFile.disk_type,
+    file_size: sourceFile.file_size,
+    raw_url: internals.formatFileAssetPath(
+      driveId,
+      newFileUuid,
+      sourceFile.extension
+    ), // New asset path
+    last_updated_date_ms: now,
+    last_updated_by: userId,
+    deleted: false,
+    drive_id: driveId,
+    expires_at: sourceFile.expires_at,
+    restore_trash_prior_folder_uuid: undefined,
+    has_sovereign_permissions: sourceFile.has_sovereign_permissions,
+    shortcut_to: sourceFile.shortcut_to,
+    upload_status: sourceFile.upload_status, // Keep original upload status
+    external_id: sourceFile.external_id,
+    external_payload: sourceFile.external_payload,
+    notes: sourceFile.notes,
+  };
+
+  // SYNCHRONOUS TRANSACTION
+  await dbHelpers.transaction("drive", driveId, (tx: Database) => {
     tx.prepare(
       `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -707,16 +726,15 @@ export async function copyFile(
       newFileRecord.external_payload
     );
 
-    // Insert new version record
     tx.prepare(
       `INSERT INTO file_versions(version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
-       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newVersionId,
       newFileUuid,
       finalName,
       1,
-      undefined, // No prior version for a new copy
+      undefined,
       sourceFile.extension,
       userId,
       now,
@@ -726,133 +744,134 @@ export async function copyFile(
       newFileRecord.raw_url,
       sourceFile.notes
     );
-
-    // Update destination folder's file_uuids.
-    // In SQLite, we rely on the `files` table having `parent_folder_id`.
-    // If we need to update the `subfolder_uuids` or `file_uuids` arrays directly on the `folders` table,
-    // that logic would go here. For now, we assume the relational queries handle it.
-
-    // If this is an S3 or Storj bucket, perform copy operation (asynchronous)
-    if (
-      sourceFile.disk_type === DiskTypeEnum.AwsBucket ||
-      sourceFile.disk_type === DiskTypeEnum.StorjWeb3
-    ) {
-      const disk = await get_disk_from_db(driveId, sourceFile.disk_id);
-      if (!disk || !disk.auth_json) {
-        console.error("Missing disk or auth for copy operation.");
-      } else {
-        const auth = JSON.parse(disk.auth_json);
-        const sourceKey = sourceFile.raw_url; // Assuming raw_url is the actual S3 key
-        const destinationKey = newFileRecord.raw_url;
-
-        // Fire and forget (Rust uses `ic_cdk::spawn`)
-        (async () => {
-          let copyResult;
-          if (sourceFile.disk_type === DiskTypeEnum.AwsBucket) {
-            copyResult = await internals.copyS3Object(
-              sourceKey,
-              destinationKey,
-              auth
-            );
-          } else {
-            copyResult = await internals.copyStorjObject(
-              sourceKey,
-              destinationKey,
-              auth
-            ); // Assuming similar function exists
-          }
-          if (copyResult.err) {
-            console.error(`Cloud copy failed: ${copyResult.err}`);
-          } else {
-            console.log("Cloud copy completed successfully.");
-          }
-        })();
-      }
-    }
-
-    const copiedFile = tx
-      .prepare("SELECT * FROM files WHERE id = ?")
-      .get(newFileUuid) as FileRecord;
-
-    return copiedFile;
   });
+
+  // ASYNC CLOUD OPERATION (OUTSIDE TRANSACTION)
+  if (
+    newFileRecord.upload_status === UploadStatus.QUEUED &&
+    (sourceFile.disk_type === DiskTypeEnum.AwsBucket ||
+      sourceFile.disk_type === DiskTypeEnum.StorjWeb3)
+  ) {
+    const disk = await get_disk_from_db(driveId, sourceFile.disk_id);
+    if (!disk || !disk.auth_json) {
+      console.error("Missing disk or auth for copy operation.");
+    } else {
+      const auth = JSON.parse(disk.auth_json);
+      const sourceKey = sourceFile.raw_url;
+      const destinationKey = newFileRecord.raw_url;
+
+      (async () => {
+        let copyResult;
+        if (sourceFile.disk_type === DiskTypeEnum.AwsBucket) {
+          copyResult = await internals.copyS3Object(
+            sourceKey,
+            destinationKey,
+            auth
+          );
+        } else {
+          copyResult = await internals.copyStorjObject(
+            sourceKey,
+            destinationKey,
+            auth
+          );
+        }
+        if (copyResult.err) {
+          console.error(`Cloud copy failed: ${copyResult.err}`);
+        } else {
+          console.log("Cloud copy completed successfully.");
+        }
+      })();
+    }
+  }
+
+  // Fetch the newly copied file after the transaction
+  const copiedFile = (
+    await db.queryDrive(driveId, "SELECT * FROM files WHERE id = ?", [
+      newFileUuid,
+    ])
+  )[0] as FileRecord;
+
+  return copiedFile;
 }
 
 /**
  * Copies a folder to a new destination folder recursively.
+ * This function will orchestrate the transaction, calling a synchronous helper.
  */
 export async function copyFolder(
   driveId: DriveID,
-  userId: UserID, // PERMIT: Add userId for permission check
+  userId: UserID,
   folderId: FolderID,
   destinationFolderId: FolderID,
   resolution: FileConflictResolutionEnum | undefined,
   newCopyId?: FolderID
 ): Promise<FolderRecord> {
-  // FIX: dbHelpers.transaction is async
-  return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
-    const sourceFolder = tx
-      .prepare("SELECT * FROM folders WHERE id = ?")
-      .get(folderId) as FolderRecord;
-    const destFolder = tx
-      .prepare("SELECT * FROM folders WHERE id = ?")
-      .get(destinationFolderId) as FolderRecord;
+  // ASYNC PRE-CHECKS AND DATA FETCHING
+  const sourceFolder = (
+    await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+      folderId,
+    ])
+  )[0] as FolderRecord;
+  const destFolder = (
+    await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+      destinationFolderId,
+    ])
+  )[0] as FolderRecord;
 
-    if (!sourceFolder || !destFolder)
-      throw new Error("Source folder or destination folder not found.");
-    if (sourceFolder.disk_id !== destFolder.disk_id)
-      throw new Error("Cannot copy between different disks.");
+  if (!sourceFolder || !destFolder)
+    throw new Error("Source folder or destination folder not found.");
+  if (sourceFolder.disk_id !== destFolder.disk_id)
+    throw new Error("Cannot copy between different disks.");
 
-    // PERMIT: Check for VIEW permission on source folder and UPLOAD/EDIT/MANAGE on destination folder
-    const sourceFolderResourceId: DirectoryResourceID =
-      `${folderId}` as DirectoryResourceID;
-    const destFolderResourceId: DirectoryResourceID =
-      `${destinationFolderId}` as DirectoryResourceID;
+  const sourceFolderResourceId: DirectoryResourceID =
+    `${folderId}` as DirectoryResourceID;
+  const destFolderResourceId: DirectoryResourceID =
+    `${destinationFolderId}` as DirectoryResourceID;
 
-    const hasViewSourcePermission = (
-      await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
-    ).includes(DirectoryPermissionType.VIEW);
+  const hasViewSourcePermission = (
+    await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.VIEW);
 
-    const hasCreateDestPermission = (
-      await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
-    ).includes(DirectoryPermissionType.UPLOAD);
+  const hasCreateDestPermission = (
+    await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.UPLOAD);
 
-    const isOwner = (await getDriveOwnerId(driveId)) === userId;
+  const isOwner = (await getDriveOwnerId(driveId)) === userId;
 
-    if (!isOwner && (!hasViewSourcePermission || !hasCreateDestPermission)) {
-      throw new Error(
-        `Permission denied: User ${userId} cannot copy folder ${folderId} to folder ${destinationFolderId}.`
-      );
-    }
-
-    // Resolve naming conflict for the new folder
-    const [finalName, finalPath] = await internals.resolveNamingConflict(
-      driveId,
-      destFolder.full_directory_path,
-      sourceFolder.name,
-      true, // isFolder = true
-      resolution
+  if (!isOwner && (!hasViewSourcePermission || !hasCreateDestPermission)) {
+    throw new Error(
+      `Permission denied: User ${userId} cannot copy folder ${folderId} to folder ${destinationFolderId}.`
     );
+  }
 
-    // If finalName is empty, it means KEEP_ORIGINAL was chosen and a conflict exists.
-    // In copy_folder, Rust returns the existing folder.
-    if (!finalName) {
-      const existingFolder = (
-        await db.queryDrive(
-          driveId,
-          "SELECT * FROM folders WHERE full_directory_path = ?",
-          [finalPath]
-        )
-      )[0] as FolderRecord;
-      if (existingFolder) return existingFolder;
-      throw new Error(
-        "Folder already exists and resolution strategy prevents creation."
-      );
-    }
+  // Resolve naming conflict for the new folder (ASYNC before transaction)
+  const [finalName, finalPath] = await internals.resolveNamingConflict(
+    driveId,
+    destFolder.full_directory_path,
+    sourceFolder.name,
+    true, // isFolder = true
+    resolution
+  );
 
-    const newFolderUuid = newCopyId || GenerateID.Folder();
-    const now = Date.now();
+  if (!finalName) {
+    const existingFolder = (
+      await db.queryDrive(
+        driveId,
+        "SELECT * FROM folders WHERE full_directory_path = ?",
+        [finalPath]
+      )
+    )[0] as FolderRecord;
+    if (existingFolder) return existingFolder;
+    throw new Error(
+      "Folder already exists and resolution strategy prevents creation."
+    );
+  }
 
+  const newFolderUuid = newCopyId || GenerateID.Folder();
+  const now = Date.now();
+
+  // SYNCHRONOUS TRANSACTION for the main folder creation and recursive calls
+  return dbHelpers.transaction("drive", driveId, (tx: Database) => {
     // Create new folder record (shallow copy initially)
     const newFolderRecord: FolderRecord = {
       id: newFolderUuid,
@@ -904,101 +923,81 @@ export async function copyFolder(
       newFolderRecord.external_payload
     );
 
-    // Recursively copy subfolders and files
-    // NOTE: This will recursively call copyFolder and copyFile, which will re-enter the transaction.
-    // Better-sqlite3 allows nested transactions (they become savepoints), but it's important
-    // that the `tx` object is passed down.
-    const subfolders = tx
-      .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
-      .all(sourceFolder.id) as { id: FolderID }[];
-
-    for (const sub of subfolders) {
-      const copiedSubfolder = await copyFolder(
-        driveId,
-        userId,
-        sub.id,
-        newFolderRecord.id,
-        resolution
-      );
-      // Update newFolderRecord.subfolder_uuids if in-memory sync is needed
-      tx.prepare(
-        `UPDATE folders SET subfolder_uuids = json_insert(coalesce(subfolder_uuids, '[]'), '$[#]', ?) WHERE id = ?`
-      ).run(copiedSubfolder.id, newFolderRecord.id);
-    }
-
-    const filesInFolder = tx
-      .prepare("SELECT id FROM files WHERE parent_folder_id = ?")
-      .all(sourceFolder.id) as { id: FileID }[];
-
-    for (const file_of_folder of filesInFolder) {
-      const copiedFile = await copyFile(
-        driveId,
-        userId,
-        file_of_folder.id,
-        newFolderRecord.id,
-        resolution
-      );
-      // Update newFolderRecord.file_uuids if in-memory sync is needed
-      tx.prepare(
-        `UPDATE folders SET file_uuids = json_insert(coalesce(file_uuids, '[]'), '$[#]', ?) WHERE id = ?`
-      ).run(copiedFile.id, newFolderRecord.id);
-    }
+    // Recursively copy subfolders and files using synchronous helpers
+    // These functions must also accept `tx: Database` and not perform async operations inside.
+    internals.copyFolderContents_SYNC(
+      tx,
+      driveId,
+      userId,
+      sourceFolder.id,
+      newFolderRecord.id,
+      resolution
+    );
 
     const copiedFolder = tx
       .prepare("SELECT * FROM folders WHERE id = ?")
       .get(newFolderUuid) as FolderRecord;
 
-    return copiedFolder;
+    return copiedFolder; // This is the return value of the synchronous transaction
   });
 }
 
 /**
  * Moves a file to a new destination folder.
+ * This function will orchestrate the transaction, calling a synchronous helper.
  */
 export async function moveFile(
   driveId: DriveID,
-  userId: UserID, // PERMIT: Add userId for permission check
+  userId: UserID,
   fileId: FileID,
   destinationFolderId: FolderID,
   resolution: FileConflictResolutionEnum
 ): Promise<FileRecord> {
-  // FIX: dbHelpers.transaction is async
-  return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
-    const file = tx
-      .prepare("SELECT * FROM files WHERE id = ?")
-      .get(fileId) as FileRecord;
-    const destFolder = tx
-      .prepare("SELECT * FROM folders WHERE id = ?")
-      .get(destinationFolderId) as FolderRecord;
+  // ASYNC PRE-CHECKS AND DATA FETCHING
+  const file = (
+    await db.queryDrive(driveId, "SELECT * FROM files WHERE id = ?", [fileId])
+  )[0] as FileRecord;
+  const destFolder = (
+    await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+      destinationFolderId,
+    ])
+  )[0] as FolderRecord;
 
-    if (!file || !destFolder) throw new Error("File or destination not found.");
-    if (file.disk_id !== destFolder.disk_id)
-      throw new Error("Cannot move between different disks.");
+  if (!file || !destFolder) throw new Error("File or destination not found.");
+  if (file.disk_id !== destFolder.disk_id)
+    throw new Error("Cannot move between different disks.");
 
-    // PERMIT: Check EDIT permission on the source file and UPLOAD/CREATE on the destination folder
-    const sourceFileResourceId: DirectoryResourceID =
-      `${fileId}` as DirectoryResourceID;
-    const destFolderResourceId: DirectoryResourceID =
-      `${destinationFolderId}` as DirectoryResourceID;
+  const sourceFileResourceId: DirectoryResourceID =
+    `${fileId}` as DirectoryResourceID;
+  const destFolderResourceId: DirectoryResourceID =
+    `${destinationFolderId}` as DirectoryResourceID;
 
-    const hasEditSourcePermission = (
-      await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
-    ).includes(DirectoryPermissionType.EDIT);
+  const hasEditSourcePermission = (
+    await checkDirectoryPermissions(sourceFileResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.EDIT);
 
-    const hasCreateDestPermission = (
-      await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
-    ).includes(DirectoryPermissionType.UPLOAD);
+  const hasCreateDestPermission = (
+    await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.UPLOAD);
 
-    const isOwner = (await getDriveOwnerId(driveId)) === userId;
+  const isOwner = (await getDriveOwnerId(driveId)) === userId;
 
-    if (!isOwner && (!hasEditSourcePermission || !hasCreateDestPermission)) {
-      throw new Error(
-        `Permission denied: User ${userId} cannot move file ${fileId} to folder ${destinationFolderId}.`
-      );
-    }
+  if (!isOwner && (!hasEditSourcePermission || !hasCreateDestPermission)) {
+    throw new Error(
+      `Permission denied: User ${userId} cannot move file ${fileId} to folder ${destinationFolderId}.`
+    );
+  }
 
-    // Synchronous version of resolveNamingConflict for transactions
-    const [finalName, finalPath] = internals.resolveNamingConflict(
+  // Synchronous version of resolveNamingConflict for transactions
+  // This will be called inside the synchronous transaction, so it must accept `tx`
+  // We cannot call async resolveNamingConflict here because its result might change if there are parallel operations.
+  // The conflict resolution needs to be part of the atomic transaction.
+  // We will call the synchronous version inside the transaction.
+
+  // SYNCHRONOUS TRANSACTION
+  return dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    const [finalName, finalPath] = internals.resolveNamingConflict_SYNC(
+      tx, // Pass the transaction object
       driveId,
       destFolder.full_directory_path,
       file.name,
@@ -1007,15 +1006,9 @@ export async function moveFile(
     );
 
     if (!finalName) {
-      // If finalName is empty, it means KEEP_ORIGINAL was chosen and a conflict exists.
-      // Rust's move_file returns the original file in this case.
-      return file;
+      return file; // Rust's move_file returns the original file in this case.
     }
 
-    // Remove file from old parent's list (if tracking is by arrays)
-    // SQL handles this by updating the parent_folder_id.
-
-    // Update file's metadata and parent
     tx.prepare(
       "UPDATE files SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
     ).run(
@@ -1027,7 +1020,6 @@ export async function moveFile(
       fileId
     );
 
-    // Update resource_path for associated directory permissions
     const permissionsToUpdate = tx
       .prepare(
         `SELECT id FROM permissions_directory WHERE resource_type = 'File' AND resource_id = ?`
@@ -1042,22 +1034,22 @@ export async function moveFile(
     const updatedFile = tx
       .prepare("SELECT * FROM files WHERE id = ?")
       .get(fileId) as FileRecord;
-    return updatedFile;
+    return updatedFile; // This is the return value of the synchronous transaction
   });
 }
 
 /**
  * Synchronous transaction helper for moveFolder.
- * This is needed because `moveFolder` can be called from `deleteResource` within a transaction.
+ * This is designed to be called *within* an existing transaction.
  */
-async function moveFolderTransaction(
+function moveFolderTransaction_SYNC(
   tx: Database,
   driveId: DriveID,
   userId: UserID,
   folderId: FolderID,
   destinationFolderId: FolderID,
   resolution: FileConflictResolutionEnum
-): Promise<FolderRecord> {
+): FolderRecord {
   const folder = tx
     .prepare("SELECT * FROM folders WHERE id = ?")
     .get(folderId) as FolderRecord;
@@ -1070,7 +1062,7 @@ async function moveFolderTransaction(
   if (folder.disk_id !== destFolder.disk_id)
     throw new Error("Cannot move between different disks.");
 
-  // Circular reference check (Rust logic)
+  // Circular reference check (Synchronous)
   let currentParentId: FolderID | null | undefined = destinationFolderId;
   while (currentParentId) {
     if (currentParentId === folderId) {
@@ -1084,32 +1076,16 @@ async function moveFolderTransaction(
     currentParentId = parentFolder?.parent_folder_id;
   }
 
-  // PERMIT: Check EDIT permission on the source folder and UPLOAD/CREATE on the destination folder
-  const sourceFolderResourceId: DirectoryResourceID =
-    `${folderId}` as DirectoryResourceID;
-  const destFolderResourceId: DirectoryResourceID =
-    `${destinationFolderId}` as DirectoryResourceID;
-
-  const hasEditSourcePermission = (
-    await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
-  ).includes(DirectoryPermissionType.EDIT);
-
-  const hasCreateDestPermission = (
-    await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
-  ).includes(DirectoryPermissionType.UPLOAD);
-
-  const isOwner = (await getDriveOwnerId(driveId)) === userId;
-
-  if (!isOwner && (!hasEditSourcePermission || !hasCreateDestPermission)) {
-    throw new Error(
-      `Permission denied: User ${userId} cannot move folder ${folderId} to folder ${destinationFolderId}.`
-    );
-  }
+  // Permission checks would normally be ASYNC, but this function is meant to be called INSIDE
+  // a transaction. The outer `moveFolder` should handle permissions.
+  // If `moveFolderTransaction_SYNC` is called directly, you'd need async checks here,
+  // making it impossible to be a pure sync function.
+  // For `restoreFromTrash`, the permission check is done higher up, before calling this.
 
   const oldPath = folder.full_directory_path;
 
-  // Synchronous version of resolveNamingConflict needed for transactions
-  const [finalName, finalPath] = internals.resolveNamingConflict(
+  const [finalName, finalPath] = internals.resolveNamingConflict_SYNC(
+    tx, // Pass the transaction object
     driveId,
     destFolder.full_directory_path,
     folder.name,
@@ -1118,11 +1094,9 @@ async function moveFolderTransaction(
   );
 
   if (!finalName) {
-    // If empty strings returned, keep original folder
-    return folder;
+    return folder; // If empty strings returned, keep original folder
   }
 
-  // Update folder's metadata and parent
   tx.prepare(
     "UPDATE folders SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?"
   ).run(
@@ -1134,14 +1108,8 @@ async function moveFolderTransaction(
     folderId
   );
 
-  // Update subfolder and file paths recursively
-  await internals.updateSubfolderPaths(
-    driveId,
-    folderId,
-    oldPath,
-    finalPath,
-    userId
-  );
+  // Update subfolder and file paths recursively (synchronous)
+  internals.updateSubfolderPaths_SYNC(tx, folderId, oldPath, finalPath, userId);
 
   // Update resource_path for directory permissions associated with the moved folder
   const permissionsToUpdate = tx
@@ -1166,15 +1134,37 @@ async function moveFolderTransaction(
  */
 export async function moveFolder(
   driveId: DriveID,
-  userId: UserID, // PERMIT: Add userId for permission check
+  userId: UserID,
   folderId: FolderID,
   destinationFolderId: FolderID,
   resolution: FileConflictResolutionEnum
 ): Promise<FolderRecord> {
-  // FIX: dbHelpers.transaction is async
-  return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
-    // Re-use the synchronous transaction helper
-    return moveFolderTransaction(
+  // ASYNC PRE-CHECKS AND DATA FETCHING (permissions are async)
+  const sourceFolderResourceId: DirectoryResourceID =
+    `${folderId}` as DirectoryResourceID;
+  const destFolderResourceId: DirectoryResourceID =
+    `${destinationFolderId}` as DirectoryResourceID;
+
+  const hasEditSourcePermission = (
+    await checkDirectoryPermissions(sourceFolderResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.EDIT);
+
+  const hasCreateDestPermission = (
+    await checkDirectoryPermissions(destFolderResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.UPLOAD);
+
+  const isOwner = (await getDriveOwnerId(driveId)) === userId;
+
+  if (!isOwner && (!hasEditSourcePermission || !hasCreateDestPermission)) {
+    throw new Error(
+      `Permission denied: User ${userId} cannot move folder ${folderId} to folder ${destinationFolderId}.`
+    );
+  }
+
+  // SYNCHRONOUS TRANSACTION
+  return dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    // Call the synchronous helper within the transaction
+    return moveFolderTransaction_SYNC(
       tx,
       driveId,
       userId,
@@ -1191,161 +1181,212 @@ export async function moveFolder(
 export async function restoreFromTrash(
   driveId: DriveID,
   payload: RestoreTrashPayload,
-  userId: UserID // PERMIT: Add userId for permission check
+  userId: UserID
 ): Promise<RestoreTrashResponse> {
-  // FIX: dbHelpers.transaction is async
-  return dbHelpers.transaction("drive", driveId, async (tx: Database) => {
-    const isFile = payload.id.startsWith(IDPrefixEnum.File);
-    const tableName = isFile ? "files" : "folders";
+  const isFile = payload.id.startsWith(IDPrefixEnum.File);
+  const tableName = isFile ? "files" : "folders";
 
-    const resource: any = tx
-      .prepare(`SELECT * FROM ${tableName} WHERE id = ? AND deleted = 1`)
-      .get(payload.id);
-    if (!resource) {
-      throw new Error("Resource not found in trash.");
-    }
+  // --- ASYNC PRE-TRANSACTION CHECKS AND DATA FETCHING ---
+  const resource: any = (
+    await db.queryDrive(
+      driveId,
+      `SELECT * FROM ${tableName} WHERE id = ? AND deleted = 1`,
+      [payload.id]
+    )
+  )[0];
 
-    // Verify resource is actually in trash (redundant check, but matches Rust)
-    if (resource.restore_trash_prior_folder_uuid === null) {
-      throw new Error(`${isFile ? "File" : "Folder"} is not in trash.`);
-    }
+  if (!resource) {
+    throw new Error("Resource not found in trash.");
+  }
 
-    let targetDestinationFolder: FolderRecord | null = null;
-    let finalDestinationFolderId: FolderID;
+  if (resource.restore_trash_prior_folder_uuid === null) {
+    throw new Error(`${isFile ? "File" : "Folder"} is not in trash.`);
+  }
 
-    if (payload.restore_to_folder_path) {
-      // User provided a specific path to restore to
-      const translation = await internals.translatePathToId(
-        driveId,
-        payload.restore_to_folder_path
-      );
-      if (translation.folder) {
-        targetDestinationFolder = translation.folder;
-      } else {
-        // If path doesn't exist, create the folder structure
-        const disk = await get_disk_from_db(driveId, resource.disk_id);
-        if (!disk) throw new Error("Disk not found for resource.");
+  let targetDestinationFolder: FolderRecord | null = null;
+  let finalDestinationFolderId: FolderID;
+  let createdNewPath = false; // Flag to check if we created a new path
 
-        const createdFolderId = await internals.ensureFolderStructure(
-          driveId,
-          payload.restore_to_folder_path,
-          resource.disk_id,
-          userId,
-          false // default to non-sovereign for created path
-        );
-        targetDestinationFolder = (
-          await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
-            createdFolderId,
-          ])
-        )[0] as FolderRecord;
-      }
+  if (payload.restore_to_folder_path) {
+    const translation = await internals.translatePathToId(
+      driveId,
+      payload.restore_to_folder_path
+    );
+    if (translation.folder) {
+      targetDestinationFolder = translation.folder;
     } else {
-      // Restore to original location
-      targetDestinationFolder = tx
-        .prepare("SELECT * FROM folders WHERE id = ?")
-        .get(resource.restore_trash_prior_folder_uuid) as FolderRecord;
+      // If path doesn't exist, create the folder structure (ASYNC ensureFolderStructure)
+      const disk = await get_disk_from_db(driveId, resource.disk_id);
+      if (!disk) throw new Error("Disk not found for resource.");
 
-      // If original folder not found, restore to root of the disk
-      if (!targetDestinationFolder) {
-        const disk = await get_disk_from_db(driveId, resource.disk_id);
-        if (!disk) throw new Error("Disk not found.");
-        targetDestinationFolder = tx
-          .prepare("SELECT * FROM folders WHERE id = ?")
-          .get(disk.root_folder) as FolderRecord;
-        if (!targetDestinationFolder)
-          throw new Error("Root folder not found for disk.");
-      }
+      const createdFolderId = await internals.ensureFolderStructure(
+        // This uses its own transaction
+        driveId,
+        payload.restore_to_folder_path,
+        resource.disk_id,
+        userId,
+        false
+      );
+      targetDestinationFolder = (
+        await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+          createdFolderId,
+        ])
+      )[0] as FolderRecord;
+      createdNewPath = true; // Mark that a new path was created
     }
+  } else {
+    // Restore to original location
+    targetDestinationFolder = (
+      await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+        resource.restore_trash_prior_folder_uuid,
+      ])
+    )[0] as FolderRecord;
 
     if (!targetDestinationFolder) {
-      throw new Error("Failed to determine restore destination.");
+      const disk = await get_disk_from_db(driveId, resource.disk_id);
+      if (!disk) throw new Error("Disk not found.");
+      targetDestinationFolder = (
+        await db.queryDrive(driveId, "SELECT * FROM folders WHERE id = ?", [
+          disk.root_folder,
+        ])
+      )[0] as FolderRecord;
+      if (!targetDestinationFolder)
+        throw new Error("Root folder not found for disk.");
     }
+  }
 
-    // Verify target folder is not in trash (Rust logic)
-    if (targetDestinationFolder.restore_trash_prior_folder_uuid !== null) {
-      throw new Error(
-        `Cannot restore to a folder that is in trash. Please first restore ${targetDestinationFolder.full_directory_path}.`
-      );
-    }
+  if (!targetDestinationFolder) {
+    throw new Error("Failed to determine restore destination.");
+  }
 
-    finalDestinationFolderId = targetDestinationFolder.id;
+  if (targetDestinationFolder.deleted) {
+    // Use .deleted directly as it's a boolean from query result
+    throw new Error(
+      `Cannot restore to a folder that is in trash. Please first restore ${targetDestinationFolder.full_directory_path}.`
+    );
+  }
 
-    // PERMIT: Check UPLOAD/EDIT/MANAGE permission on the target destination folder
-    const targetFolderResourceId: DirectoryResourceID =
-      `${finalDestinationFolderId}` as DirectoryResourceID;
+  finalDestinationFolderId = targetDestinationFolder.id;
 
-    const hasPermissionToRestore = (
-      await checkDirectoryPermissions(targetFolderResourceId, userId, driveId)
-    ).includes(DirectoryPermissionType.UPLOAD); // Rust uses Upload for creating in a folder
+  const targetFolderResourceId: DirectoryResourceID =
+    `${finalDestinationFolderId}` as DirectoryResourceID;
 
-    const isOwner = (await getDriveOwnerId(driveId)) === userId;
+  const hasPermissionToRestore = (
+    await checkDirectoryPermissions(targetFolderResourceId, userId, driveId)
+  ).includes(DirectoryPermissionType.UPLOAD);
 
-    if (!isOwner && !hasPermissionToRestore) {
-      throw new Error(
-        `Permission denied: User ${userId} cannot restore resource ${payload.id} to folder ${finalDestinationFolderId}.`
-      );
-    }
+  const isOwner = (await getDriveOwnerId(driveId)) === userId;
 
-    // Use moveFile/moveFolder to handle conflicts and update paths correctly
-    let restoredFileId: FileID | undefined;
-    let restoredFolderId: FolderID | undefined;
-    let restoredResource: FileRecord | FolderRecord;
+  if (!isOwner && !hasPermissionToRestore) {
+    throw new Error(
+      `Permission denied: User ${userId} cannot restore resource ${payload.id} to folder ${finalDestinationFolderId}.`
+    );
+  }
 
-    if (isFile) {
-      restoredResource = await moveFile(
-        driveId,
-        userId,
-        payload.id as FileID,
-        finalDestinationFolderId,
-        payload.file_conflict_resolution || FileConflictResolutionEnum.KEEP_BOTH // Default
-      );
-      restoredFileId = restoredResource.id as FileID;
-    } else {
-      restoredResource = await moveFolderTransaction(
-        tx, // Pass the current transaction object
-        driveId,
-        userId,
-        payload.id as FolderID,
-        finalDestinationFolderId,
-        payload.file_conflict_resolution || FileConflictResolutionEnum.KEEP_BOTH // Default
-      );
-      restoredFolderId = restoredResource.id as FolderID;
-    }
+  // --- SYNCHRONOUS TRANSACTION ---
+  const response = await dbHelpers.transaction(
+    "drive",
+    driveId,
+    (tx: Database) => {
+      let restoredFileId: FileID | undefined;
+      let restoredFolderId: FolderID | undefined;
+      let restoredResource: FileRecord | FolderRecord;
 
-    // Clear restore_trash_prior_folder_uuid and set deleted to 0
-    tx.prepare(
-      `UPDATE ${tableName} SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?`
-    ).run(payload.id);
+      // Inside the transaction, we must use the synchronous versions of moveFile/moveFolderTransaction
+      if (isFile) {
+        // Direct call to synchronous logic of moveFile
+        // We need to re-fetch the file within the transaction context for consistency if needed,
+        // but the `file` object from outside is fine for its ID/initial properties.
+        const fileFromTx = tx
+          .prepare("SELECT * FROM files WHERE id = ?")
+          .get(payload.id) as FileRecord;
+        if (!fileFromTx)
+          throw new Error("File not found for restore within transaction.");
 
-    // If restoring a folder, recursively clear trash flags for its contents
-    if (!isFile) {
-      const foldersToProcess: FolderID[] = [payload.id as FolderID];
-      let idx = 0;
-      while (idx < foldersToProcess.length) {
-        const currentFolderId = foldersToProcess[idx++];
-        tx.prepare(
-          `UPDATE folders SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?`
-        ).run(currentFolderId);
-        tx.prepare(
-          `UPDATE files SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE parent_folder_id = ?`
-        ).run(currentFolderId);
+        const [finalName, finalPath] = internals.resolveNamingConflict_SYNC(
+          tx,
+          driveId,
+          targetDestinationFolder.full_directory_path,
+          fileFromTx.name,
+          false,
+          payload.file_conflict_resolution ||
+            FileConflictResolutionEnum.KEEP_BOTH
+        );
 
-        const subfolders = tx
-          .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
-          .all(currentFolderId) as { id: FolderID }[];
-        for (const sub of subfolders) {
-          foldersToProcess.push(sub.id);
+        if (!finalName) {
+          // This case means KEEP_ORIGINAL was chosen and a conflict exists, so return original file.
+          // For restore, if conflict, it implies we don't move it. Rust returns it in old state.
+          restoredResource = fileFromTx;
+        } else {
+          tx.prepare(
+            "UPDATE files SET name = ?, full_directory_path = ?, parent_folder_id = ?, last_updated_date_ms = ?, last_updated_by = ?, deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?"
+          ).run(
+            finalName,
+            finalPath,
+            finalDestinationFolderId,
+            Date.now(),
+            userId,
+            payload.id
+          );
+
+          const permissionsToUpdate = tx
+            .prepare(
+              `SELECT id FROM permissions_directory WHERE resource_type = 'File' AND resource_id = ?`
+            )
+            .all(payload.id) as { id: string }[];
+          for (const perm of permissionsToUpdate) {
+            tx.prepare(
+              `UPDATE permissions_directory SET resource_path = ? WHERE id = ?`
+            ).run(finalPath, perm.id);
+          }
+          restoredResource = tx
+            .prepare("SELECT * FROM files WHERE id = ?")
+            .get(payload.id) as FileRecord;
         }
+        restoredFileId = restoredResource.id as FileID;
+      } else {
+        // Call the synchronous move folder logic, passing the current transaction
+        // moveFolderTransaction_SYNC needs to be updated to be truly synchronous with its permission checks
+        // as it's now internal to a transaction and shouldn't call async db.queryDrive
+        restoredResource = moveFolderTransaction_SYNC(
+          tx,
+          driveId,
+          userId,
+          payload.id as FolderID,
+          finalDestinationFolderId,
+          payload.file_conflict_resolution ||
+            FileConflictResolutionEnum.KEEP_BOTH
+        );
+
+        // After move, explicitly clear deleted and restore_trash_prior_folder_uuid for the moved folder and its contents
+        const foldersToProcess: FolderID[] = [payload.id as FolderID];
+        let idx = 0;
+        while (idx < foldersToProcess.length) {
+          const currentFolderId = foldersToProcess[idx++];
+          tx.prepare(
+            `UPDATE folders SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE id = ?`
+          ).run(currentFolderId);
+          tx.prepare(
+            `UPDATE files SET deleted = 0, restore_trash_prior_folder_uuid = NULL WHERE parent_folder_id = ?`
+          ).run(currentFolderId);
+
+          const subfolders = tx
+            .prepare("SELECT id FROM folders WHERE parent_folder_id = ?")
+            .all(currentFolderId) as { id: FolderID }[];
+          for (const sub of subfolders) {
+            foldersToProcess.push(sub.id);
+          }
+        }
+        restoredFolderId = restoredResource.id as FolderID;
       }
+
+      return {
+        restored_folders: restoredFolderId ? [restoredFolderId] : [],
+        restored_files: restoredFileId ? [restoredFileId] : [],
+      };
     }
-
-    const response: RestoreTrashResponse = {
-      restored_folders: restoredFolderId ? [restoredFolderId] : [],
-      restored_files: restoredFileId ? [restoredFileId] : [],
-    };
-
-    return response;
-  });
+  );
+  return response;
 }
 
 /**
@@ -1421,6 +1462,9 @@ export async function getFolderMetadata(
   }
 
   const row = rows[0];
+
+  console.log(`yo big dawg!`, row);
+
   return {
     id: row.id as FolderID,
     name: row.name,

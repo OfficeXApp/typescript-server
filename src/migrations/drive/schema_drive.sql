@@ -97,7 +97,7 @@ CREATE TABLE disks (
     auth_json TEXT, -- Stores credentials, e.g., for AWS S3
     created_at INTEGER NOT NULL,
     root_folder TEXT, -- only null briefly during creation
-    trash_folder_id TEXT, -- only null briefly during creation
+    trash_folder TEXT, -- only null briefly during creation
     external_id TEXT,
     external_payload TEXT,
     endpoint TEXT

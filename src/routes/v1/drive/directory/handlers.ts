@@ -360,7 +360,7 @@ export async function listDirectoryHandler(
     const [folders, files, counts] = await Promise.all([
       db.queryDrive(
         driveId,
-        "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
+        "SELECT id, name, parent_folder_id, full_directory_path, created_by, created_at, subfolder_uuids, file_uuids, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, restore_trash_prior_folder_uuid, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload FROM folders WHERE parent_folder_id = ? LIMIT ? OFFSET ?",
         [targetFolderId, pageSize, offset]
       ),
       db.queryDrive(
