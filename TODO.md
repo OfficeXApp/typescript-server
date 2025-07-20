@@ -11,14 +11,15 @@
 - [x] Audit group invite flows
 - [x] Audit permit sharing flows (for example, right now anyone in a group can edit group)
 
-- [ ] Fix recents & trashbin
-- [ ] Fix file/folder copy move
+- [x] Fix recents & trashbin
+- [x] Fix file/folder copy move
 
-- [ ] Fix superswap, old users not removed from frontend
-- [ ] Default allow "Group for All" access to View all disks
-- [ ] Fix multi-tab organizations, removing localstorage dependencies
 - [ ] Add rate-limiting to web2 server
 - [ ] Disable creating new database on rest call at unknown org route (should throw 404. db should only be created via giftcard spawnorg)
+- [ ] Default allow "Group for All" access to View all disks
+- [ ] Fix multi-tab organizations, removing localstorage dependencies
+
+- [ ] Fix superswap, old users not removed from frontend
 
 - [ ] Fix bug where password access to a folder doesnt work (but file does)
 - [ ] Fix bug where cannot update a spreadsheet without access to parent folder create permit
@@ -29,3 +30,6 @@
 
 - [ ] Implement actual label handling logic based on permissions/ownership.
 - [ ] Consider offering raw POST url uploading (ie. the web2 version of canister uploading)
+
+- [ ] Fix copy, cannot actually copy in S3/AWS
+- [ ] Fix move/copy navigation on frontend (its flat, not tree)
