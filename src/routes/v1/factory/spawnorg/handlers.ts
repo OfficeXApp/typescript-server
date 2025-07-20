@@ -21,7 +21,15 @@ import {
   GroupInviteeTypeEnum,
   GroupRole,
 } from "@officexapp/types";
-import { db, dbHelpers, initDriveDB } from "../../../../services/database";
+import {
+  configureDatabase,
+  db,
+  dbHelpers,
+  DRIVE_SCHEMA,
+  ensureDirectorySync,
+  getDriveDbPath,
+  initDriveDB,
+} from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
 import { isValidID } from "../../../../api/helpers";
 import { generateMnemonic, mnemonicToSeed } from "bip39";
@@ -29,6 +37,9 @@ import { getPublicKeyAsync } from "@noble/ed25519";
 import { Principal } from "@dfinity/principal";
 import { validateIcpPrincipal } from "../../../../services/validation";
 import { FREE_MODE } from "../../../../constants";
+import path from "path";
+import Database from "better-sqlite3";
+import fs from "fs";
 
 // Type definitions for route params
 interface GetGiftcardSpawnOrgParams {
@@ -710,8 +721,42 @@ export async function redeemGiftcardSpawnOrgHandler(
     const driveId = `DriveID_${deployedCanisterId}`;
 
     // --- Start: New Drive DB Creation and Initialization ---
-    // 1. Initialize the new drive's SQLite database
-    await initDriveDB(driveId);
+    const driveDbPath = getDriveDbPath(driveId);
+    const dbDir = path.dirname(driveDbPath);
+    ensureDirectorySync(dbDir); // Ensure the directory exists
+
+    // CRITICAL CHANGE: Explicitly create the database file and apply schema here
+    let driveDatabaseInstance: Database.Database | null = null;
+    try {
+      driveDatabaseInstance = new Database(driveDbPath); // This creates the file if it doesn't exist
+      configureDatabase(driveDatabaseInstance); // Apply pragmas
+
+      if (DRIVE_SCHEMA.trim().length > 0) {
+        driveDatabaseInstance.exec(DRIVE_SCHEMA);
+        console.log(
+          `Drive database schema applied for ${driveId} during redemption.`
+        );
+      } else {
+        console.warn(
+          `No drive schema to apply for ${driveId}. DRIVE_SCHEMA is empty.`
+        );
+      }
+    } catch (error) {
+      console.error(
+        `Error creating or applying schema for new drive DB ${driveId}:`,
+        error
+      );
+      // Clean up potentially partially created DB file on error
+      if (fs.existsSync(driveDbPath)) {
+        fs.unlinkSync(driveDbPath);
+      }
+      throw new Error(`Failed to create new drive database for ${driveId}.`);
+    } finally {
+      if (driveDatabaseInstance) {
+        driveDatabaseInstance.close(); // Close the connection after creation and schema application
+      }
+    }
+    // --- End: New Drive DB Creation and Initialization ---
 
     // 2. Insert into the new drive's 'about_drive' table
     // Using dbHelpers.transaction for atomicity on the new drive's DB
