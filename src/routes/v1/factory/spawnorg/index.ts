@@ -6,6 +6,13 @@ import {
   deleteGiftcardSpawnOrgHandler,
   redeemGiftcardSpawnOrgHandler,
 } from "./handlers";
+import { factoryRateLimitPreHandler } from "../../../../services/rate-limit";
+import {
+  DeleteGiftcardSpawnOrgRequestBody,
+  ListGiftcardSpawnOrgsRequestBody,
+  RedeemGiftcardSpawnOrgData,
+  UpsertGiftcardSpawnOrgRequestBody,
+} from "@officexapp/types";
 
 const giftcardSpawnOrgRoutes: FastifyPluginAsync = async (
   fastify,
@@ -15,16 +22,32 @@ const giftcardSpawnOrgRoutes: FastifyPluginAsync = async (
   fastify.get("/get/:giftcard_id", getGiftcardSpawnOrgHandler);
 
   // POST /v1/factory/giftcards/spawnorg/list
-  fastify.post("/list", listGiftcardSpawnOrgsHandler);
+  fastify.post<{ Body: ListGiftcardSpawnOrgsRequestBody }>(
+    "/list",
+    { preHandler: [factoryRateLimitPreHandler] },
+    listGiftcardSpawnOrgsHandler
+  );
 
   // POST /v1/factory/giftcards/spawnorg/upsert
-  fastify.post("/upsert", upsertGiftcardSpawnOrgHandler);
+  fastify.post<{ Body: UpsertGiftcardSpawnOrgRequestBody }>(
+    "/upsert",
+    { preHandler: [factoryRateLimitPreHandler] },
+    upsertGiftcardSpawnOrgHandler
+  );
 
   // POST /v1/factory/giftcards/spawnorg/delete
-  fastify.post("/delete", deleteGiftcardSpawnOrgHandler);
+  fastify.post<{ Body: DeleteGiftcardSpawnOrgRequestBody }>(
+    "/delete",
+    { preHandler: [factoryRateLimitPreHandler] },
+    deleteGiftcardSpawnOrgHandler
+  );
 
   // POST /v1/factory/giftcards/spawnorg/redeem
-  fastify.post("/redeem", redeemGiftcardSpawnOrgHandler);
+  fastify.post<{ Body: RedeemGiftcardSpawnOrgData }>(
+    "/redeem",
+    { preHandler: [factoryRateLimitPreHandler] },
+    redeemGiftcardSpawnOrgHandler
+  );
 };
 
 export default giftcardSpawnOrgRoutes;

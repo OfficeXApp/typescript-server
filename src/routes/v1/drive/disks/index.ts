@@ -1,3 +1,5 @@
+// src/routes/v1/drive/disks/index.ts
+
 import { FastifyPluginAsync } from "fastify";
 import {
   getDiskHandler,
@@ -6,22 +8,58 @@ import {
   updateDiskHandler,
   deleteDiskHandler,
 } from "./handlers";
+import { driveRateLimitPreHandler } from "../../../../services/rate-limit"; // Import the preHandler
+import {
+  OrgIdParams, // Assuming org_id is part of the parent plugin's prefix
+} from "../../types"; // Adjust path if needed for your types
+import {
+  DiskID, // Assuming you have a DiskID type
+  IRequestCreateDisk, // Assuming these types exist for your handlers
+  IRequestDeleteDisk,
+  IRequestListDisks,
+  IRequestUpdateDisk,
+} from "@officexapp/types"; // Adjust this path if your types are elsewhere
+
+// Define interfaces for params and body
+interface GetDiskParams extends OrgIdParams {
+  disk_id: DiskID;
+}
 
 const diskRoutes: FastifyPluginAsync = async (fastify, opts): Promise<void> => {
   // GET /v1/drive/disks/get/:disk_id
-  fastify.get("/get/:disk_id", getDiskHandler);
+  fastify.get<{ Params: GetDiskParams }>(
+    "/get/:disk_id",
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    getDiskHandler
+  );
 
   // POST /v1/drive/disks/list
-  fastify.post("/list", listDisksHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestListDisks }>( // Assuming IRequestListDisks exists
+    "/list",
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    listDisksHandler
+  );
 
   // POST /v1/drive/disks/create
-  fastify.post("/create", createDiskHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestCreateDisk }>( // Assuming IRequestCreateDisk exists
+    "/create",
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    createDiskHandler
+  );
 
   // POST /v1/drive/disks/update
-  fastify.post("/update", updateDiskHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestUpdateDisk }>( // Assuming IRequestUpdateDisk exists
+    "/update",
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    updateDiskHandler
+  );
 
   // POST /v1/drive/disks/delete
-  fastify.post("/delete", deleteDiskHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestDeleteDisk }>( // Assuming IRequestDeleteDisk exists
+    "/delete",
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    deleteDiskHandler
+  );
 };
 
 export default diskRoutes;

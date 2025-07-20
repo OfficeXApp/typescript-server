@@ -1,3 +1,5 @@
+// src/routes/v1/drive/organization/index.ts
+
 import { FastifyPluginAsync } from "fastify";
 import {
   aboutDriveHandler,
@@ -13,46 +15,114 @@ import {
   redeemOrganizationDriveHandler,
   inboxDriveHandler,
 } from "./handlers";
+import { driveRateLimitPreHandler } from "../../../../services/rate-limit";
+import { OrgIdParams } from "../../types"; // Assuming this path is correct for OrgIdParams
+import {
+  AboutDriveResponseData,
+  IRequestReplayDrive,
+  SearchDriveRequestBody,
+  IRequestReindexDrive,
+  ExternalIDsDriveRequestBody,
+  IRequestTransferDriveOwnership,
+  IRequestSuperswapUser,
+  IRequestRedeemOrg,
+  IRequestInboxOrg,
+  IResponseWhoAmI,
+} from "@officexapp/types"; // Adjust this path if your types are elsewhere
 
 const organizationRoutes: FastifyPluginAsync = async (
   fastify,
   opts
 ): Promise<void> => {
   // GET /v1/drive/:org_id/organization/about
-  fastify.get(`/about`, aboutDriveHandler);
+  fastify.get<{ Params: OrgIdParams; Reply: AboutDriveResponseData }>(
+    `/about`,
+    { preHandler: [driveRateLimitPreHandler] },
+    aboutDriveHandler
+  );
 
   // GET /v1/drive/:org_id/organization/snapshot
-  fastify.get(`/snapshot`, snapshotDriveHandler);
+  // Assuming snapshotDriveHandler has no specific request body/params beyond OrgIdParams,
+  // and its response type is not explicitly provided, keeping it generic for now.
+  fastify.get<{ Params: OrgIdParams }>(
+    `/snapshot`,
+    { preHandler: [driveRateLimitPreHandler] },
+    snapshotDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/replay
-  fastify.post(`/replay`, replayDriveHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestReplayDrive }>(
+    `/replay`,
+    { preHandler: [driveRateLimitPreHandler] },
+    replayDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/search
-  fastify.post(`/search`, searchDriveHandler);
+  fastify.post<{ Params: OrgIdParams; Body: SearchDriveRequestBody }>(
+    `/search`,
+    { preHandler: [driveRateLimitPreHandler] },
+    searchDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/reindex
-  fastify.post(`/reindex`, reindexDriveHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestReindexDrive }>(
+    `/reindex`,
+    { preHandler: [driveRateLimitPreHandler] },
+    reindexDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/external_id
-  fastify.post(`/external_id`, externalIdDriveHandler);
+  fastify.post<{ Params: OrgIdParams; Body: ExternalIDsDriveRequestBody }>(
+    `/external_id`,
+    { preHandler: [driveRateLimitPreHandler] },
+    externalIdDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/transfer_ownership
-  fastify.post(`/transfer_ownership`, transferOwnershipDriveHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestTransferDriveOwnership }>(
+    `/transfer_ownership`,
+    { preHandler: [driveRateLimitPreHandler] },
+    transferOwnershipDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/update_allowed_domains
-  fastify.post(`/update_allowed_domains`, updateAllowedDomainsDriveHandler);
+  // Note: IRequestUpdateAllowedDomainsDrive type is assumed. If it's not present, you'll need to define it.
+  fastify.post(
+    `/update_allowed_domains`,
+
+    updateAllowedDomainsDriveHandler
+  );
 
   // GET /v1/drive/:org_id/organization/whoami
-  fastify.get(`/whoami`, whoAmIDriveHandler);
+  fastify.get<{ Params: OrgIdParams; Reply: IResponseWhoAmI }>(
+    `/whoami`,
+    { preHandler: [driveRateLimitPreHandler] },
+    whoAmIDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/superswap_user
-  fastify.post(`/superswap_user`, superswapUserIdDriveHandler);
+  // Corrected type to IRequestSuperswapUser based on your provided types.
+  fastify.post<{ Params: OrgIdParams; Body: IRequestSuperswapUser }>(
+    `/superswap_user`,
+    { preHandler: [driveRateLimitPreHandler] },
+    superswapUserIdDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/redeem
-  fastify.post(`/redeem`, redeemOrganizationDriveHandler);
+  // Corrected type to IRequestRedeemOrg based on your provided types.
+  fastify.post<{ Params: OrgIdParams; Body: IRequestRedeemOrg }>(
+    `/redeem`,
+    { preHandler: [driveRateLimitPreHandler] },
+    redeemOrganizationDriveHandler
+  );
 
   // POST /v1/drive/:org_id/organization/inbox
-  fastify.post(`/inbox`, inboxDriveHandler);
+  // Corrected type to IRequestInboxOrg based on your provided types.
+  fastify.post<{ Params: OrgIdParams; Body: IRequestInboxOrg }>(
+    `/inbox`,
+    { preHandler: [driveRateLimitPreHandler] },
+    inboxDriveHandler
+  );
 };
 
 export default organizationRoutes;

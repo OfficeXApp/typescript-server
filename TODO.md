@@ -13,14 +13,14 @@
 
 - [x] Fix recents & trashbin
 - [x] Fix file/folder copy move
+- [x] Add rate-limiting to web2 server
 
-- [ ] Add rate-limiting to web2 server
 - [ ] Disable creating new database on rest call at unknown org route (should throw 404. db should only be created via giftcard spawnorg)
 - [ ] Default allow "Group for All" access to View all disks
 - [ ] Fix multi-tab organizations, removing localstorage dependencies
 
+- [ ] Search Drive
 - [ ] Fix superswap, old users not removed from frontend
-
 - [ ] Fix bug where password access to a folder doesnt work (but file does)
 - [ ] Fix bug where cannot update a spreadsheet without access to parent folder create permit
 
