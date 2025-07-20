@@ -23,7 +23,7 @@ import { validateIcpPrincipal } from "../../../../services/validation";
 import { createApiResponse } from "../../types";
 
 // Type definitions for route params
-interface GetGiftcardRefuelParams {
+export interface GetGiftcardRefuelParams {
   giftcard_id: string;
 }
 

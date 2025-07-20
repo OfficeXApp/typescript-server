@@ -1,8 +1,8 @@
 // /src/routes/v1/drive/permissions/index.ts
 import { FastifyPluginAsync } from "fastify";
 import {
-  getDirectoryPermissionById,
-  listDirectoryPermissionsForResource,
+  // getDirectoryPermissionById, // Unused as per provided routes
+  // listDirectoryPermissionsForResource, // Unused as per provided routes
   createDirectoryPermissionsHandler,
   updateDirectoryPermissionsHandler,
   deleteDirectoryPermissionsHandler,
@@ -18,6 +18,37 @@ import {
   listDirectoryPermissionsHandler,
   getDirectoryPermissionsHandler,
 } from "./handlers";
+import { driveRateLimitPreHandler } from "../../../../services/rate-limit";
+import {
+  DirectoryPermissionID,
+  SystemPermissionID,
+  IRequestGetDirectoryPermission, // Used for 'get' route's params
+  IRequestListDirectoryPermissions,
+  IRequestCreateDirectoryPermission,
+  IRequestUpdateDirectoryPermission,
+  IRequestDeleteDirectoryPermission,
+  IRequestCheckDirectoryPermissions,
+  IRequestRedeemDirectoryPermission,
+  IRequestGetSystemPermission, // Used for 'get' route's params
+  IRequestListSystemPermissions,
+  IRequestCreateSystemPermission,
+  IRequestUpdateSystemPermission,
+  IRequestDeleteSystemPermission,
+  IRequestCheckSystemPermissions,
+  IRequestRedeemSystemPermission,
+} from "@officexapp/types"; // Adjust this path if your types are elsewhere
+import { OrgIdParams } from "../../types";
+
+// Interfaces for specific route parameters that include org_id explicitly in the path
+interface GetDirectoryPermissionRouteParams {
+  org_id: string; // From route path, not parent prefix
+  directory_permission_id: DirectoryPermissionID;
+}
+
+interface GetSystemPermissionRouteParams {
+  org_id: string; // From route path, not parent prefix
+  system_permission_id: SystemPermissionID;
+}
 
 const permissionRoutes: FastifyPluginAsync = async (
   fastify,
@@ -25,53 +56,121 @@ const permissionRoutes: FastifyPluginAsync = async (
 ): Promise<void> => {
   // Directory Permissions
   // GET /v1/drive/permissions/directory/get/:org_id/:directory_permission_id
-  fastify.get(
+  fastify.get<{ Params: GetDirectoryPermissionRouteParams }>(
     "/directory/get/:org_id/:directory_permission_id",
+    { preHandler: [driveRateLimitPreHandler] },
     getDirectoryPermissionsHandler
   );
 
   // POST /v1/drive/permissions/directory/list/:org_id
-  fastify.post("/directory/list", listDirectoryPermissionsHandler);
+  // Note: Your route definition is "/directory/list", but comment shows /:org_id.
+  // Assuming org_id comes from a parent prefix if not explicitly in route string.
+  // If :org_id is *meant* to be a path param here, the route string needs adjustment.
+  fastify.post<{ Params: OrgIdParams; Body: IRequestListDirectoryPermissions }>(
+    "/directory/list",
+    { preHandler: [driveRateLimitPreHandler] },
+    listDirectoryPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/directory/create/:org_id
-  fastify.post("/directory/create", createDirectoryPermissionsHandler);
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestCreateDirectoryPermission;
+  }>(
+    "/directory/create",
+    { preHandler: [driveRateLimitPreHandler] },
+    createDirectoryPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/directory/update/:org_id
-  fastify.post("/directory/update", updateDirectoryPermissionsHandler);
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateDirectoryPermission;
+  }>(
+    "/directory/update",
+    { preHandler: [driveRateLimitPreHandler] },
+    updateDirectoryPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/directory/delete/:org_id
-  fastify.post("/directory/delete", deleteDirectoryPermissionsHandler);
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteDirectoryPermission;
+  }>(
+    "/directory/delete",
+    { preHandler: [driveRateLimitPreHandler] },
+    deleteDirectoryPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/directory/check/:org_id
-  fastify.post("/directory/check", checkDirectoryPermissionsHandler);
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestCheckDirectoryPermissions;
+  }>(
+    "/directory/check",
+    { preHandler: [driveRateLimitPreHandler] },
+    checkDirectoryPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/directory/redeem/:org_id
-  fastify.post("/directory/redeem", redeemDirectoryPermissionsHandler);
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestRedeemDirectoryPermission;
+  }>(
+    "/directory/redeem",
+    { preHandler: [driveRateLimitPreHandler] },
+    redeemDirectoryPermissionsHandler
+  );
 
   // System Permissions
   // GET /v1/drive/permissions/system/get/:org_id/:system_permission_id
-  fastify.get(
+  fastify.get<{ Params: GetSystemPermissionRouteParams }>(
     "/system/get/:org_id/:system_permission_id",
+    { preHandler: [driveRateLimitPreHandler] },
     getSystemPermissionsHandler
   );
 
   // POST /v1/drive/permissions/system/list/:org_id
-  fastify.post("/system/list", listSystemPermissionsHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestListSystemPermissions }>(
+    "/system/list",
+    { preHandler: [driveRateLimitPreHandler] },
+    listSystemPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/system/create/:org_id
-  fastify.post("/system/create", createSystemPermissionsHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestCreateSystemPermission }>(
+    "/system/create",
+    { preHandler: [driveRateLimitPreHandler] },
+    createSystemPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/system/update/:org_id
-  fastify.post("/system/update", updateSystemPermissionsHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestUpdateSystemPermission }>(
+    "/system/update",
+    { preHandler: [driveRateLimitPreHandler] },
+    updateSystemPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/system/delete/:org_id
-  fastify.post("/system/delete", deleteSystemPermissionsHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestDeleteSystemPermission }>(
+    "/system/delete",
+    { preHandler: [driveRateLimitPreHandler] },
+    deleteSystemPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/system/check/:org_id
-  fastify.post("/system/check", checkSystemPermissionsHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestCheckSystemPermissions }>(
+    "/system/check",
+    { preHandler: [driveRateLimitPreHandler] },
+    checkSystemPermissionsHandler
+  );
 
   // POST /v1/drive/permissions/system/redeem/:org_id
-  fastify.post("/system/redeem", redeemSystemPermissionsHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestRedeemSystemPermission }>(
+    "/system/redeem",
+    { preHandler: [driveRateLimitPreHandler] },
+    redeemSystemPermissionsHandler
+  );
 };
 
 export default permissionRoutes;

@@ -27,11 +27,11 @@ import { getAppropriateUrlEndpoint } from "../spawnorg/handlers";
 // Import the database service
 
 // Type definitions for route params
-interface GetApiKeyParams {
+export interface GetApiKeyParams {
   api_key_id: string;
 }
 
-interface ListApiKeysParams {
+export interface ListApiKeysParams {
   user_id: string;
 }
 

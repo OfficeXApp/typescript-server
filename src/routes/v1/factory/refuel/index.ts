@@ -5,26 +5,54 @@ import {
   upsertGiftcardRefuelHandler,
   deleteGiftcardRefuelHandler,
   redeemGiftcardRefuelHandler,
+  GetGiftcardRefuelParams,
 } from "./handlers";
+import { factoryRateLimitPreHandler } from "../../../../services/rate-limit";
+import {
+  DeleteGiftcardRefuelRequestBody,
+  ListGiftcardRefuelsRequestBody,
+  RedeemGiftcardRefuelData,
+  UpsertGiftcardRefuelRequestBody,
+} from "@officexapp/types";
 
 const giftcardRefuelRoutes: FastifyPluginAsync = async (
   fastify,
   opts
 ): Promise<void> => {
   // GET /v1/factory/giftcards/refuel/get/:giftcard_id
-  fastify.get("/get/:giftcard_id", getGiftcardRefuelHandler);
+  fastify.get<{ Params: GetGiftcardRefuelParams }>(
+    "/get/:giftcard_id",
+    { preHandler: [factoryRateLimitPreHandler] },
+    getGiftcardRefuelHandler
+  );
 
   // POST /v1/factory/giftcards/refuel/list
-  fastify.post("/list", listGiftcardRefuelsHandler);
+  fastify.post<{ Body: ListGiftcardRefuelsRequestBody }>(
+    "/list",
+    { preHandler: [factoryRateLimitPreHandler] },
+    listGiftcardRefuelsHandler
+  );
 
   // POST /v1/factory/giftcards/refuel/upsert
-  fastify.post("/upsert", upsertGiftcardRefuelHandler);
+  fastify.post<{ Body: UpsertGiftcardRefuelRequestBody }>(
+    "/upsert",
+    { preHandler: [factoryRateLimitPreHandler] },
+    upsertGiftcardRefuelHandler
+  );
 
   // POST /v1/factory/giftcards/refuel/delete
-  fastify.post("/delete", deleteGiftcardRefuelHandler);
+  fastify.post<{ Body: DeleteGiftcardRefuelRequestBody }>(
+    "/delete",
+    { preHandler: [factoryRateLimitPreHandler] },
+    deleteGiftcardRefuelHandler
+  );
 
   // POST /v1/factory/giftcards/refuel/redeem
-  fastify.post("/redeem", redeemGiftcardRefuelHandler);
+  fastify.post<{ Body: RedeemGiftcardRefuelData }>(
+    "/redeem",
+    { preHandler: [factoryRateLimitPreHandler] },
+    redeemGiftcardRefuelHandler
+  );
 };
 
 export default giftcardRefuelRoutes;

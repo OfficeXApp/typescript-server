@@ -9,31 +9,71 @@ import {
   deleteContactHandler,
   redeemContactHandler,
 } from "./handlers";
+import { driveRateLimitPreHandler } from "../../../../services/rate-limit"; // Import the preHandler
+import {
+  OrgIdParams, // Assuming you might need this for consistency, though not explicitly used in your provided contacts routes
+} from "../../types"; // Assuming this path is correct for OrgIdParams
+import {
+  UserID, // Assuming you have a UserID type
+  IRequestCreateContact, // Assuming these types exist for your handlers
+  IRequestDeleteContact,
+  IRequestListContacts,
+  IRequestUpdateContact,
+  IRequestRedeemContact,
+} from "@officexapp/types"; // Adjust this path if your types are elsewhere
+
+// Define interfaces for params and body if they are not already defined in @officexapp/types
+// Example for getContactHandler
+interface GetContactParams {
+  org_id: string; // From parent plugin prefix
+  contact_id: UserID;
+}
 
 const contactsRoutes: FastifyPluginAsync = async (
   fastify,
   opts
 ): Promise<void> => {
-  // Routes will now include a mandatory :org_id parameter
-  const baseRoute = "/:org_id/contacts";
-
   // GET /v1/drive/:org_id/contacts/get/:contact_id
-  fastify.get(`/get/:contact_id`, getContactHandler);
+  fastify.get<{ Params: GetContactParams }>(
+    `/get/:contact_id`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    getContactHandler
+  );
 
   // POST /v1/drive/:org_id/contacts/list
-  fastify.post(`/list`, listContactsHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestListContacts }>( // Assuming IRequestListContacts exists
+    `/list`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    listContactsHandler
+  );
 
   // POST /v1/drive/:org_id/contacts/create
-  fastify.post(`/create`, createContactHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestCreateContact }>( // Assuming IRequestCreateContact exists
+    `/create`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    createContactHandler
+  );
 
   // POST /v1/drive/:org_id/contacts/update
-  fastify.post(`/update`, updateContactHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestUpdateContact }>( // Assuming IRequestUpdateContact exists
+    `/update`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    updateContactHandler
+  );
 
   // POST /v1/drive/:org_id/contacts/delete
-  fastify.post(`/delete`, deleteContactHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestDeleteContact }>( // Assuming IRequestDeleteContact exists
+    `/delete`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    deleteContactHandler
+  );
 
   // POST /v1/drive/:org_id/contacts/redeem
-  fastify.post(`/redeem`, redeemContactHandler);
+  fastify.post<{ Params: OrgIdParams; Body: IRequestRedeemContact }>( // Assuming IRequestRedeemContact exists
+    `/redeem`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    redeemContactHandler
+  );
 };
 
 export default contactsRoutes;
