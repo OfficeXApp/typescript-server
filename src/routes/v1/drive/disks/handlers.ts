@@ -696,8 +696,8 @@ export async function createDiskHandler(
 
         // 2. Insert Root Folder
         const insertRootStmt = database.prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid, subfolder_uuids, file_uuids)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]')`
         );
         insertRootStmt.run(
           generatedRootFolderId,
@@ -757,8 +757,8 @@ export async function createDiskHandler(
 
         // 3. Insert Trash Folder
         const insertTrashStmt = database.prepare(
-          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO folders (id, name, parent_folder_id, full_directory_path, created_by, created_at, last_updated_date_ms, last_updated_by, disk_id, disk_type, deleted, expires_at, drive_id, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload, restore_trash_prior_folder_uuid, subfolder_uuids, file_uuids)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]')`
         );
         insertTrashStmt.run(
           generatedTrashFolderId,

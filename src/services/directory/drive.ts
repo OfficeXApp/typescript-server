@@ -318,11 +318,15 @@ export async function createFile(
       fileRecord.notes
     );
 
-    // Update parent folder's file_uuids list if this is a new file for the folder
-    // Note: This is simpler than Rust's update_folder_file_uuids as we're not tracking old values.
-    // It's assumed the `files` table's parent_folder_id handles the relationship.
-    // If the Rust logic means `FolderRecord.file_uuids` in memory, we need to manually update it too.
-    // Given we are using SQLite, we query the list dynamically rather than maintaining it in a cached struct.
+    // Update parent folder's file_uuids list
+    const parentFolder = tx.prepare("SELECT file_uuids FROM folders WHERE id = ?").get(parent_folder_uuid) as { file_uuids: string | null };
+    if (parentFolder) {
+      const fileUuids = parentFolder.file_uuids ? JSON.parse(parentFolder.file_uuids) : [];
+      if (!fileUuids.includes(fileRecord.id)) {
+        fileUuids.push(fileRecord.id);
+        tx.prepare("UPDATE folders SET file_uuids = ? WHERE id = ?").run(JSON.stringify(fileUuids), parent_folder_uuid);
+      }
+    }
   });
 
   let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
@@ -441,6 +445,19 @@ export async function createFolder(
     "SELECT * FROM folders WHERE id = ?",
     [folderId]
   );
+
+  // Update parent folder's subfolder_uuids list
+  dbHelpers.transaction('drive', driveId, (tx: Database) => {
+    const parent = tx.prepare("SELECT subfolder_uuids FROM folders WHERE id = ?").get(parent_folder_uuid) as { subfolder_uuids: string | null };
+    if (parent) {
+      const subfolderUuids = parent.subfolder_uuids ? JSON.parse(parent.subfolder_uuids) : [];
+      if (!subfolderUuids.includes(folder.id)) {
+        subfolderUuids.push(folder.id);
+        tx.prepare("UPDATE folders SET subfolder_uuids = ? WHERE id = ?").run(JSON.stringify(subfolderUuids), parent_folder_uuid);
+      }
+    }
+  });
+
   return folder as FolderRecord;
 }
 
@@ -1445,6 +1462,9 @@ export async function getFolderMetadata(
   }
 
   const row = rows[0];
+
+  console.log(`yo big dawg!`, row);
+
   return {
     id: row.id as FolderID,
     name: row.name,
