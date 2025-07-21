@@ -1,4 +1,4 @@
-# docker-compose.http.yml - For Cloudflare/RepoCloud.io delegated SSL or local development
+# docker-compose.yml - For Cloudflare/RepoCloud.io delegated SSL or local development
 # (This is your original default docker-compose.yml)
 version: "3.8"
 
