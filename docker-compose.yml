@@ -1,4 +1,4 @@
-# docker-compose.http.yml - For Cloudflare/RepoCloud.io delegated SSL or local development
+# docker-compose.yml - For Cloudflare/RepoCloud.io delegated SSL or local development
 # (This is your original default docker-compose.yml)
 version: "3.8"
 
@@ -16,6 +16,8 @@ services:
       - NODE_ENV=development # Often useful to set to development for this file
       - DATA_DIR=/data
       - PORT=${PORT:-8888} # Pass the port to your application's environment
+      - SERVER_DOMAIN=${SERVER_DOMAIN}
+      - SANITY_CHECK_ENV=${SANITY_CHECK_ENV}
 
     volumes:
       - app_data:/data

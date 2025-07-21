@@ -1,5 +1,43 @@
 # Standalone Typescript Server | OfficeX
 
+NodeJS Backend Server for [OfficeX](https://officex.app).
+Anonymous OfficeX | Documents, Spreadsheets & Cloud Storage
+
+Quickstart
+
+```sh
+$ git clone https://github.com/OfficeXApp/typescript-server.git
+$ npm install
+$ cp .env.example .env
+$ npm run dev
+```
+
+Docker container available at [https://hub.docker.com/r/officex/typescript-server](https://hub.docker.com/r/officex/typescript-server)
+
+## Environment Files
+
+Copy the `.env.example` file to `.env` and fill in the values. If in development, you can leave the values exactly as is.
+
+```.env
+# .env.example
+
+NODE_ENV=development # Set to 'development' for local development, 'production' for production
+
+# Mandatory Defaults
+DATA_DIR=./data # Recommended: Do not change this. The directory where the server will store its data
+PORT=8888 # Recommended: Do not change this. The port the server will listen on
+LOG_LEVEL=silent # Recommended: Do not change this. The log level for reporting
+
+# Mandatory for production
+TRAEFIK_ENABLED=false # True if Traefik should handle SSL (eg. AWS EC2), false if localhost http or a 3rd party handles SSL (eg. Cloudflare/RepoCloud.io)
+LE_EMAIL=youremail@email.com # Your email for Let's Encrypt notifications (or empty for dev). only necessary if TRAEFIK_ENABLED=true
+SERVER_DOMAIN=yourdomain.com # Your domain name, eg. myapp.com.  only necessary if TRAEFIK_ENABLED=true
+
+# Optional
+SANITY_CHECK_ENV=helloworld # Optional: A sanity check environment variable which you can see at GET /health
+OWNER= # Optional: The owner of the server as OfficeX UserID, eg. UserID_..., If omited, server will create an admin
+```
+
 ## Development:
 
 ```sh

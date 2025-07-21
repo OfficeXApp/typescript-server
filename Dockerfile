@@ -24,9 +24,9 @@ RUN npm run build
 # Production stage
 FROM node:20-slim
 
-# Install curl for healthcheck and sqlite3 for database operations
+# Install curl for healthcheck, sqlite3 for database operations, and python3 for node-gyp
 RUN apt-get update && \
-    apt-get install -y curl sqlite3 && \
+    apt-get install -y curl sqlite3 python3 && \ 
     rm -rf /var/lib/apt/lists/*
 
 # Create app directory

@@ -67,7 +67,7 @@ async function getSystemInfoForFactory(
   )[0].admin_user_id;
   return {
     canister_id: "DEFAULT_FACTORY_CANISTER_ID" as ICPPrincipalString,
-    version: "OfficeX.Beta.0.0.2",
+    version: "OfficeX.NodeJS.Alpha.0.0.1",
     owner_id: owner_id,
     endpoint_url: endpoint as URLEndpoint,
   };
