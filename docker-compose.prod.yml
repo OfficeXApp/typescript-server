@@ -21,7 +21,10 @@ services:
     environment:
       - NODE_ENV=production
       - DATA_DIR=/data
-      - PORT=${PORT:-8888} # Pass the port to your application's environment
+      - PORT=${PORT:-8888}
+      - OWNER=${OWNER}
+      - SERVER_DOMAIN=${SERVER_DOMAIN}
+      - SANITY_CHECK_ENV=${SANITY_CHECK_ENV}
       # Potentially add other prod-specific env vars (e.g., database connection strings, API keys)
       # - DB_HOST=your_db_host
       # - SOME_API_KEY=${PROD_API_KEY}
