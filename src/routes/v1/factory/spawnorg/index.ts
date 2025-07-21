@@ -14,12 +14,19 @@ import {
   UpsertGiftcardSpawnOrgRequestBody,
 } from "@officexapp/types";
 
+interface GetGiftcardSpawnOrgParams {
+  giftcard_id: string;
+}
+
 const giftcardSpawnOrgRoutes: FastifyPluginAsync = async (
   fastify,
   opts
 ): Promise<void> => {
   // GET /v1/factory/giftcards/spawnorg/get/:giftcard_id
-  fastify.get("/get/:giftcard_id", getGiftcardSpawnOrgHandler);
+  fastify.get<{ Params: GetGiftcardSpawnOrgParams }>(
+    "/get/:giftcard_id",
+    getGiftcardSpawnOrgHandler
+  );
 
   // POST /v1/factory/giftcards/spawnorg/list
   fastify.post<{ Body: ListGiftcardSpawnOrgsRequestBody }>(
