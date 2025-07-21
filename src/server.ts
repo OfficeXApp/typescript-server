@@ -4,6 +4,9 @@ import { fastify } from "fastify";
 import { app } from "./app";
 import Fastify from "fastify";
 import { LOCAL_DEV_MODE } from "./constants";
+// activate dotenv
+import * as dotenv from "dotenv";
+dotenv.config();
 
 if (LOCAL_DEV_MODE) {
   Fastify({
