@@ -1,5 +1,19 @@
 # Standalone Typescript Server | OfficeX
 
+NodeJS Backend Server for [OfficeX](https://officex.app).
+Anonymous OfficeX | Documents, Spreadsheets & Cloud Storage
+
+Quickstart
+
+```sh
+$ git clone https://github.com/OfficeXApp/typescript-server.git
+$ npm install
+$ cp .env.example .env
+$ npm run dev
+```
+
+Docker container available at [https://hub.docker.com/r/officex/typescript-server](https://hub.docker.com/r/officex/typescript-server)
+
 ## Environment Files
 
 Copy the `.env.example` file to `.env` and fill in the values. If in development, you can leave the values exactly as is.
