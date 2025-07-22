@@ -161,10 +161,7 @@ export function getAppropriateUrlEndpoint(request: FastifyRequest): string {
   if (process.env.SERVER_DOMAIN && process.env.PORT) {
     // If SERVER_DOMAIN is provided, use it directly without port
     // Ensure it's a valid URL base, default to https if not specified
-    let domain = `${process.env.SERVER_DOMAIN}:${process.env.PORT}`;
-    if (!domain.startsWith("http://") && !domain.startsWith("https://")) {
-      domain = `https://${domain}`; // Assume HTTPS if not explicitly provided
-    }
+    let domain = `https://${process.env.SERVER_DOMAIN}`;
     // Append the driveId as a path parameter. Ensure no double slashes.
     return `${domain.endsWith("/") ? domain.slice(0, -1) : domain}`;
   } else {
