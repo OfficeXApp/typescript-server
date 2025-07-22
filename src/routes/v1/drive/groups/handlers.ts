@@ -1118,7 +1118,7 @@ export async function deleteGroupHandler(
       },
     };
 
-    return reply.status(200).send(createApiResponse(deletedData));
+    return reply.status(200).send(deletedData);
   } catch (error) {
     request.log.error("Error in deleteGroupHandler:", error);
     return reply.status(500).send(
