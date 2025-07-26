@@ -596,7 +596,7 @@ export async function listDisksHandler(
       page_size: itemsToReturn.length,
       total: totalCount,
       direction: body.direction || SortDirection.ASC, // Default as per Rust's default
-      cursor: nextCursor,
+      cursor: nextCursor || undefined,
     };
 
     return reply.status(200).send(createApiResponse(responseData));

@@ -317,6 +317,35 @@ CREATE TABLE webhooks (
     created_at INTEGER NOT NULL
 );
 
+-- Table: job_runs
+-- Description: Stores information about job runs.
+CREATE TABLE job_runs (
+    id TEXT PRIMARY KEY NOT NULL, -- Corresponds to JobRunID
+    template_id TEXT,
+    vendor_name TEXT NOT NULL,
+    vendor_id TEXT NOT NULL, -- Corresponds to UserID
+    status TEXT NOT NULL, -- Corresponds to JobRunStatus enum
+    description TEXT,
+    about_url TEXT NOT NULL,
+    billing_url TEXT,
+    support_url TEXT,
+    delivery_url TEXT,
+    verification_url TEXT,
+    installation_url TEXT,
+    title TEXT NOT NULL,
+    subtitle TEXT,
+    pricing TEXT,
+    vendor_notes TEXT,
+    notes TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_updated_at INTEGER NOT NULL,
+    tracer TEXT,
+    external_id TEXT,
+    external_payload TEXT
+);
+
+
 -- Table: contact_id_superswap_history
 -- Source: src/core/state/drives/state.rs -> HISTORY_SUPERSWAP_USERID
 -- Description: Tracks the history of contact ID changes.
@@ -452,6 +481,15 @@ CREATE TABLE label_labels (
     FOREIGN KEY(child_label_id) REFERENCES labels(id) ON DELETE CASCADE
 );
 
+CREATE TABLE job_run_labels (
+    job_run_id TEXT NOT NULL,
+    label_id TEXT NOT NULL,
+    PRIMARY KEY (job_run_id, label_id),
+    FOREIGN KEY(job_run_id) REFERENCES job_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(label_id) REFERENCES labels(id) ON DELETE CASCADE
+);
+
+
 -- Table: external_id_mappings
 -- Description: Stores mappings from an ExternalID to a list of internal IDs (e.g., DriveID, FileID, FolderID, etc.)
 CREATE TABLE external_id_mappings (
@@ -496,3 +534,7 @@ CREATE INDEX idx_webhooks_event ON webhooks(event);
 
 CREATE INDEX idx_external_id_mappings ON external_id_mappings(external_id);
 CREATE INDEX idx_uuid_claimed ON uuid_claimed(uuid);
+
+CREATE INDEX idx_job_runs_vendor_id ON job_runs(vendor_id);
+CREATE INDEX idx_job_runs_status ON job_runs(status);
+CREATE INDEX idx_job_runs_created_at ON job_runs(created_at);
