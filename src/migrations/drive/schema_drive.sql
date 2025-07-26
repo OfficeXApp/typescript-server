@@ -326,7 +326,8 @@ CREATE TABLE job_runs (
     vendor_id TEXT NOT NULL, -- Corresponds to UserID
     status TEXT NOT NULL, -- Corresponds to JobRunStatus enum
     description TEXT,
-    about_url TEXT NOT NULL,
+    about_url TEXT,
+    run_url TEXT,
     billing_url TEXT,
     support_url TEXT,
     delivery_url TEXT,

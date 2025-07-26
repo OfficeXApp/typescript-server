@@ -391,7 +391,7 @@ export async function createJobRunHandler(
           body.vendor_id,
           body.status || JobRunStatus.REQUESTED, // Default status if not provided
           body.description || null,
-          body.about_url,
+          body.about_url || "",
           body.billing_url || null,
           body.support_url || null,
           body.delivery_url || null,
@@ -424,11 +424,12 @@ export async function createJobRunHandler(
         const createdJobRun: JobRun = {
           id: jobRunId,
           template_id: body.template_id,
-          vendor_name: body.vendor_name,
-          vendor_id: body.vendor_id,
+          vendor_name: body.vendor_name || "",
+          vendor_id: body.vendor_id || "",
           status: body.status || JobRunStatus.REQUESTED,
           description: body.description || "",
           about_url: body.about_url || "",
+          run_url: body.run_url || "",
           billing_url: body.billing_url || "",
           support_url: body.support_url || "",
           delivery_url: body.delivery_url || "",
@@ -608,6 +609,38 @@ export async function updateJobRunHandler(
     const values: any[] = [];
     const now = Date.now();
 
+    if (body.title !== undefined) {
+      updates.push("title = ?");
+      values.push(body.title);
+    }
+    if (body.subtitle !== undefined) {
+      updates.push("subtitle = ?");
+      values.push(body.subtitle);
+    }
+    if (body.description !== undefined) {
+      updates.push("description = ?");
+      values.push(body.description);
+    }
+    if (body.about_url !== undefined) {
+      updates.push("about_url = ?");
+      values.push(body.about_url);
+    }
+    if (body.run_url !== undefined) {
+      updates.push("run_url = ?");
+      values.push(body.run_url);
+    }
+    if (body.delivery_url !== undefined) {
+      updates.push("delivery_url = ?");
+      values.push(body.delivery_url);
+    }
+    if (body.verification_url !== undefined) {
+      updates.push("verification_url = ?");
+      values.push(body.verification_url);
+    }
+    if (body.installation_url !== undefined) {
+      updates.push("installation_url = ?");
+      values.push(body.installation_url);
+    }
     if (body.status !== undefined) {
       updates.push("status = ?");
       values.push(body.status);
@@ -902,12 +935,76 @@ async function validateCreateJobRunRequest(
     }
   }
 
-  let validation = validateShortString(body.vendor_name, "vendor_name");
-  if (!validation.valid) return validation;
+  let validation: { valid: boolean; error?: string };
+
+  if (body.vendor_name) {
+    validation = validateShortString(body.vendor_name, "vendor_name");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.vendor_id) {
+    validation = validateShortString(body.vendor_id, "vendor_id");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.vendor_notes) {
+    validation = validateDescription(body.vendor_notes, "vendor_notes");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.vendor_id) {
+    validation = { valid: validateIdString(body.vendor_id) };
+    if (!validation.valid) return validation;
+  }
+
+  if (body.vendor_name) {
+    validation = validateShortString(body.vendor_name, "vendor_name");
+    if (!validation.valid) return validation;
+  }
 
   if (body.description) {
     validation = validateDescription(body.description, "description");
     if (!validation.valid) return validation;
+  }
+
+  if (body.about_url) {
+    const is_valid = validateUrl(body.about_url);
+    if (!is_valid) return { valid: false, error: "about_url is required." };
+  }
+
+  if (body.title) {
+    validation = validateShortString(body.title, "title");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.notes) {
+    validation = validateDescription(body.notes, "notes");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.template_id) {
+    validation = validateShortString(body.template_id, "template_id");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.vendor_id) {
+    validation = validateShortString(body.vendor_id, "vendor_id");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.vendor_name) {
+    validation = validateShortString(body.vendor_name, "vendor_name");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.vendor_notes) {
+    validation = validateDescription(body.vendor_notes, "vendor_notes");
+    if (!validation.valid) return validation;
+  }
+
+  if (body.support_url) {
+    const is_valid = validateUrl(body.support_url);
+    if (!is_valid) return { valid: false, error: "support_url is required." };
   }
 
   validation = validateShortString(body.title, "title");
@@ -922,8 +1019,6 @@ async function validateCreateJobRunRequest(
     // about_url is mandatory but has validation.
     const is_valid = validateUrl(body.about_url);
     if (!is_valid) return { valid: false, error: "about_url is required." };
-  } else {
-    return { valid: false, error: "about_url is required." };
   }
 
   if (body.billing_url) {

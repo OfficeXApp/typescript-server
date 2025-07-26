@@ -499,7 +499,7 @@ export async function listLabelsHandler(
           items: [],
           page_size: requestBody.page_size || 50,
           total: 0,
-          cursor: null,
+          cursor: undefined,
         })
       );
     }
@@ -602,7 +602,7 @@ export async function listLabelsHandler(
         items: labels, // labels is already LabelFE[]
         page_size: pageSize,
         total: totalCount,
-        cursor: nextCursor,
+        cursor: nextCursor || undefined,
       })
     );
   } catch (error) {
