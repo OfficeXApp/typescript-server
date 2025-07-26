@@ -10,6 +10,7 @@ import permissionsRoutes from "./permissions";
 import webhooksRoutes from "./webhooks";
 import directoryRoutes from "./directory";
 import drivesRoutes from "./drives";
+import jobRunsRoutes from "./job_runs";
 import { getDriveDbPath } from "../../../services/database";
 import fs from "fs";
 
@@ -65,6 +66,7 @@ const driveRoutes: FastifyPluginAsync = async (
   fastify.register(organizationRoutes, { prefix: "/:org_id/organization" });
   fastify.register(permissionsRoutes, { prefix: "/:org_id/permissions" });
   fastify.register(webhooksRoutes, { prefix: "/:org_id/webhooks" });
+  fastify.register(jobRunsRoutes, { prefix: "/:org_id/job_runs" });
 };
 
 export default driveRoutes;

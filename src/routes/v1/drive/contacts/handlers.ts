@@ -340,7 +340,7 @@ export async function listContactsHandler(
           page_size: 0,
           total: 0,
           direction: direction,
-          cursor: null,
+          cursor: undefined,
         })
       );
     }
@@ -364,7 +364,7 @@ export async function listContactsHandler(
           page_size: 0,
           total: 0,
           direction: direction,
-          cursor: null,
+          cursor: undefined,
         })
       );
     }
@@ -452,7 +452,7 @@ export async function listContactsHandler(
         page_size: processedContacts.length,
         total: totalCountToReturn,
         direction: direction,
-        cursor: nextCursor,
+        cursor: nextCursor || undefined,
       })
     );
   } catch (error) {
