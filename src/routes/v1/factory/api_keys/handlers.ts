@@ -224,8 +224,8 @@ export async function listApiKeysHandler(
   }
 }
 
-export async function upsertApiKeyHandler(
-  request: FastifyRequest<{ Body: IRequestFactoryUpsertApiKey }>,
+export async function createApiKeyHandler(
+  request: FastifyRequest<{ Body: IRequestFactoryCreateApiKey }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -239,159 +239,174 @@ export async function upsertApiKeyHandler(
         );
     }
 
-    const body = request.body as IRequestFactoryUpsertApiKey;
+    const body = request.body as IRequestFactoryCreateApiKey;
 
-    if (body.action === "CREATE") {
-      const createBody = body as IRequestFactoryCreateApiKey;
-
-      // Validate request
-      const validation = validateCreateRequest(createBody);
-      if (!validation.valid) {
-        return reply.status(400).send(
-          createApiResponse(undefined, {
-            code: 400,
-            message: validation.error!,
-          })
-        );
-      }
-
-      const ownerId = request.server.factory_owner;
-      const isOwner = requesterApiKey.user_id === ownerId;
-
-      // Check permissions
-      if (!isOwner) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
-      const ownerID = request.server.factory_owner;
-
-      // Create new API key
-      const newApiKey: FactoryApiKey = {
-        id: `${IDPrefixEnum.ApiKey}${uuidv4()}` as any,
-        value: await generateApiKey(),
-        user_id: ownerID,
-        name: createBody.name,
-        created_at: Date.now(),
-        expires_at: createBody.expires_at || -1,
-        is_revoked: false,
-      };
-
-      // Insert into database using transaction
-      await dbHelpers.transaction("factory", null, (database) => {
-        const stmt = database.prepare(
-          `INSERT INTO factory_api_keys (id, value, user_id, name, created_at, expires_at, is_revoked) 
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        );
-        stmt.run(
-          newApiKey.id,
-          newApiKey.value,
-          newApiKey.user_id,
-          newApiKey.name,
-          newApiKey.created_at,
-          newApiKey.expires_at,
-          newApiKey.is_revoked ? 1 : 0
-        );
-      });
-
-      return reply.status(200).send(createApiResponse(newApiKey));
-    } else if (body.action === "UPDATE") {
-      const updateBody = body as IRequestFactoryUpdateApiKey;
-
-      // Validate request
-      const validation = validateUpdateRequest(updateBody);
-      if (!validation.valid) {
-        return reply.status(400).send(
-          createApiResponse(undefined, {
-            code: 400,
-            message: validation.error!,
-          })
-        );
-      }
-
-      // Get the existing API key
-      const apiKeys = await db.queryFactory(
-        "SELECT * FROM factory_api_keys WHERE id = ?",
-        [updateBody.id]
+    // Validate request
+    const validation = validateCreateRequest(body);
+    if (!validation.valid) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: validation.error!,
+        })
       );
+    }
 
-      if (!apiKeys || apiKeys.length === 0) {
-        return reply.status(404).send(
-          createApiResponse(undefined, {
-            code: 404,
-            message: "API key not found",
-          })
-        );
-      }
+    const ownerId = request.server.factory_owner;
+    const isOwner = requesterApiKey.user_id === ownerId;
 
-      const apiKey = apiKeys[0] as FactoryApiKey;
-      const ownerId = request.server.factory_owner;
-      const isOwner = requesterApiKey.user_id === ownerId;
-      const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
-
-      // Check permissions
-      if (!isOwner && !isOwnKey) {
-        return reply
-          .status(403)
-          .send(
-            createApiResponse(undefined, { code: 403, message: "Forbidden" })
-          );
-      }
-
-      // Build update query dynamically
-      const updates: string[] = [];
-      const values: any[] = [];
-
-      if (updateBody.name !== undefined) {
-        updates.push("name = ?");
-        values.push(updateBody.name);
-      }
-      if (updateBody.expires_at !== undefined) {
-        updates.push("expires_at = ?");
-        values.push(updateBody.expires_at);
-      }
-      if (updateBody.is_revoked !== undefined) {
-        updates.push("is_revoked = ?");
-        values.push(updateBody.is_revoked ? 1 : 0);
-      }
-
-      if (updates.length === 0) {
-        return reply.status(400).send(
-          createApiResponse(undefined, {
-            code: 400,
-            message: "No fields to update",
-          })
-        );
-      }
-
-      values.push(updateBody.id);
-
-      // Update in transaction
-      await dbHelpers.transaction("factory", null, (database) => {
-        const stmt = database.prepare(
-          `UPDATE factory_api_keys SET ${updates.join(", ")} WHERE id = ?`
-        );
-        stmt.run(...values);
-      });
-
-      // Get updated API key
-      const updatedKeys = await db.queryFactory(
-        "SELECT * FROM factory_api_keys WHERE id = ?",
-        [updateBody.id]
-      );
-
+    // Check permissions
+    if (!isOwner) {
       return reply
-        .status(200)
-        .send(createApiResponse(updatedKeys[0] as FactoryApiKey));
-    } else {
-      return reply
-        .status(400)
+        .status(403)
         .send(
-          createApiResponse(undefined, { code: 400, message: "Invalid action" })
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
         );
     }
+    const ownerID = request.server.factory_owner;
+
+    // Create new API key
+    const newApiKey: FactoryApiKey = {
+      id: `${IDPrefixEnum.ApiKey}${uuidv4()}` as any,
+      value: await generateApiKey(),
+      user_id: ownerID,
+      name: body.name,
+      created_at: Date.now(),
+      expires_at: body.expires_at || -1,
+      is_revoked: false,
+    };
+
+    // Insert into database using transaction
+    await dbHelpers.transaction("factory", null, (database) => {
+      const stmt = database.prepare(
+        `INSERT INTO factory_api_keys (id, value, user_id, name, created_at, expires_at, is_revoked) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      stmt.run(
+        newApiKey.id,
+        newApiKey.value,
+        newApiKey.user_id,
+        newApiKey.name,
+        newApiKey.created_at,
+        newApiKey.expires_at,
+        newApiKey.is_revoked ? 1 : 0
+      );
+    });
+
+    return reply.status(200).send(createApiResponse(newApiKey));
+  } catch (error) {
+    request.log.error("Error in upsertApiKeyHandler:", error);
+    return reply.status(500).send(
+      createApiResponse(undefined, {
+        code: 500,
+        message: `Internal server error - ${error}`,
+      })
+    );
+  }
+}
+
+export async function updateApiKeyHandler(
+  request: FastifyRequest<{ Body: IRequestFactoryUpdateApiKey }>,
+  reply: FastifyReply
+): Promise<void> {
+  try {
+    // Authenticate request
+    const requesterApiKey = await authenticateRequest(request, "factory");
+    if (!requesterApiKey) {
+      return reply
+        .status(401)
+        .send(
+          createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+        );
+    }
+
+    const updateBody = request.body as IRequestFactoryUpdateApiKey;
+
+    // Validate request
+    const validation = validateUpdateRequest(updateBody);
+    if (!validation.valid) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: validation.error!,
+        })
+      );
+    }
+
+    // Get the existing API key
+    const apiKeys = await db.queryFactory(
+      "SELECT * FROM factory_api_keys WHERE id = ?",
+      [updateBody.id]
+    );
+
+    if (!apiKeys || apiKeys.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: "API key not found",
+        })
+      );
+    }
+
+    const apiKey = apiKeys[0] as FactoryApiKey;
+    const ownerId = request.server.factory_owner;
+    const isOwner = requesterApiKey.user_id === ownerId;
+    const isOwnKey = requesterApiKey.user_id === apiKey.user_id;
+
+    // Check permissions
+    if (!isOwner && !isOwnKey) {
+      return reply
+        .status(403)
+        .send(
+          createApiResponse(undefined, { code: 403, message: "Forbidden" })
+        );
+    }
+
+    // Build update query dynamically
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (updateBody.name !== undefined) {
+      updates.push("name = ?");
+      values.push(updateBody.name);
+    }
+    if (updateBody.expires_at !== undefined) {
+      updates.push("expires_at = ?");
+      values.push(updateBody.expires_at);
+    }
+    if (updateBody.is_revoked !== undefined) {
+      updates.push("is_revoked = ?");
+      values.push(updateBody.is_revoked ? 1 : 0);
+    }
+
+    if (updates.length === 0) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: "No fields to update",
+        })
+      );
+    }
+
+    values.push(updateBody.id);
+
+    // Update in transaction
+    await dbHelpers.transaction("factory", null, (database) => {
+      const stmt = database.prepare(
+        `UPDATE factory_api_keys SET ${updates.join(", ")} WHERE id = ?`
+      );
+      stmt.run(...values);
+    });
+
+    // Get updated API key
+    const updatedKeys = await db.queryFactory(
+      "SELECT * FROM factory_api_keys WHERE id = ?",
+      [updateBody.id]
+    );
+
+    return reply
+      .status(200)
+      .send(createApiResponse(updatedKeys[0] as FactoryApiKey));
   } catch (error) {
     request.log.error("Error in upsertApiKeyHandler:", error);
     return reply.status(500).send(

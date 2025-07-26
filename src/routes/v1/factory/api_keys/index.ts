@@ -3,14 +3,17 @@ import { FastifyPluginAsync } from "fastify";
 import {
   getApiKeyHandler,
   listApiKeysHandler,
-  upsertApiKeyHandler,
   deleteApiKeyHandler,
   GetApiKeyParams,
   ListApiKeysParams,
+  createApiKeyHandler,
+  updateApiKeyHandler,
 } from "./handlers";
 import { factoryRateLimitPreHandler } from "../../../../services/rate-limit";
 import {
+  IRequestFactoryCreateApiKey,
   IRequestFactoryDeleteApiKey,
+  IRequestFactoryUpdateApiKey,
   IRequestFactoryUpsertApiKey,
 } from "@officexapp/types";
 
@@ -32,11 +35,18 @@ const apiKeyRoutes: FastifyPluginAsync = async (
     listApiKeysHandler
   );
 
-  // POST /v1/factory/api_keys/upsert
-  fastify.post<{ Body: IRequestFactoryUpsertApiKey }>(
-    "/upsert",
+  // POST /v1/factory/api_keys/create
+  fastify.post<{ Body: IRequestFactoryCreateApiKey }>(
+    "/create",
     { preHandler: [factoryRateLimitPreHandler] },
-    upsertApiKeyHandler
+    createApiKeyHandler
+  );
+
+  // POST /v1/factory/api_keys/update
+  fastify.post<{ Body: IRequestFactoryUpdateApiKey }>(
+    "/update",
+    { preHandler: [factoryRateLimitPreHandler] },
+    updateApiKeyHandler
   );
 
   // POST /v1/factory/api_keys/delete
