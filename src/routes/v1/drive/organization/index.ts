@@ -18,11 +18,11 @@ import {
 import { driveRateLimitPreHandler } from "../../../../services/rate-limit";
 import { OrgIdParams } from "../../types"; // Assuming this path is correct for OrgIdParams
 import {
-  AboutDriveResponseData,
+  IAboutDriveResponseData,
   IRequestReplayDrive,
-  SearchDriveRequestBody,
+  IRequestSearchDrive,
   IRequestReindexDrive,
-  ExternalIDsDriveRequestBody,
+  IRequestExternalIDsDrive,
   IRequestTransferDriveOwnership,
   IRequestSuperswapUser,
   IRequestRedeemOrg,
@@ -35,7 +35,7 @@ const organizationRoutes: FastifyPluginAsync = async (
   opts
 ): Promise<void> => {
   // GET /v1/drive/:org_id/organization/about
-  fastify.get<{ Params: OrgIdParams; Reply: AboutDriveResponseData }>(
+  fastify.get<{ Params: OrgIdParams; Reply: IAboutDriveResponseData }>(
     `/about`,
     { preHandler: [driveRateLimitPreHandler] },
     aboutDriveHandler
@@ -58,7 +58,7 @@ const organizationRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/drive/:org_id/organization/search
-  fastify.post<{ Params: OrgIdParams; Body: SearchDriveRequestBody }>(
+  fastify.post<{ Params: OrgIdParams; Body: IRequestSearchDrive }>(
     `/search`,
     { preHandler: [driveRateLimitPreHandler] },
     searchDriveHandler
@@ -72,7 +72,7 @@ const organizationRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/drive/:org_id/organization/external_id
-  fastify.post<{ Params: OrgIdParams; Body: ExternalIDsDriveRequestBody }>(
+  fastify.post<{ Params: OrgIdParams; Body: IRequestExternalIDsDrive }>(
     `/external_id`,
     { preHandler: [driveRateLimitPreHandler] },
     externalIdDriveHandler

@@ -1,19 +1,18 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
-  ApiResponse,
-  CreateGiftcardSpawnOrgRequestBody,
-  UpdateGiftcardSpawnOrgRequestBody,
-  UpsertGiftcardSpawnOrgRequestBody,
-  DeleteGiftcardSpawnOrgRequestBody,
-  DeletedGiftcardSpawnOrgData,
-  RedeemGiftcardSpawnOrgData,
+  ISuccessResponse,
+  IRequestCreateGiftcardSpawnOrg,
+  IRequestUpdateGiftcardSpawnOrg,
+  IRequestDeleteGiftcardSpawnOrg,
+  IDeletedGiftcardSpawnOrgData,
   GiftcardSpawnOrg,
-  RedeemGiftcardSpawnOrgResult,
-  FactorySpawnHistoryRecord,
-  SpawnInitArgs,
-  ListGiftcardSpawnOrgsRequestBody,
-  ListGiftcardSpawnOrgsResponseData,
+  IRequestRedeemGiftcardSpawnOrg,
+  IFactorySpawnHistoryRecord,
+  IRequestSpawnInitArgs,
+  IResponseRedeemGiftcardSpawnOrg,
+  IRequestListGiftcardSpawnOrgs,
+  IResponseListGiftcardSpawnOrgsData,
   SortDirection,
   IDPrefixEnum,
   DriveID,
@@ -52,7 +51,7 @@ interface GetGiftcardSpawnOrgParams {
 function createApiResponse<T>(
   data: T,
   error?: { code: number; message: string }
-): ApiResponse<T> {
+): ISuccessResponse<T> {
   return {
     ok: {
       data,
@@ -60,9 +59,9 @@ function createApiResponse<T>(
   };
 }
 
-// Helper function to validate CreateGiftcardSpawnOrgRequestBody
+// Helper function to validate IRequestCreateGiftcardSpawnOrg
 function validateCreateGiftcardSpawnOrgRequest(
-  body: CreateGiftcardSpawnOrgRequestBody
+  body: IRequestCreateGiftcardSpawnOrg
 ): { valid: boolean; error?: string } {
   if (body.gas_cycles_included < 1_000_000_000_000) {
     return {
@@ -76,9 +75,9 @@ function validateCreateGiftcardSpawnOrgRequest(
   return { valid: true };
 }
 
-// Helper function to validate UpdateGiftcardSpawnOrgRequestBody
+// Helper function to validate IRequestUpdateGiftcardSpawnOrg
 function validateUpdateGiftcardSpawnOrgRequest(
-  body: UpdateGiftcardSpawnOrgRequestBody
+  body: IRequestUpdateGiftcardSpawnOrg
 ): { valid: boolean; error?: string } {
   if (!isValidID(IDPrefixEnum.GiftcardSpawnOrg, body.id)) {
     return { valid: false, error: "Invalid GiftcardSpawnOrg ID" };
@@ -104,9 +103,9 @@ function validateUpdateGiftcardSpawnOrgRequest(
   return { valid: true };
 }
 
-// Helper function to validate DeleteGiftcardSpawnOrgRequestBody
+// Helper function to validate IRequestDeleteGiftcardSpawnOrg
 function validateDeleteGiftcardSpawnOrgRequest(
-  body: DeleteGiftcardSpawnOrgRequestBody
+  body: IRequestDeleteGiftcardSpawnOrg
 ): { valid: boolean; error?: string } {
   if (!isValidID(IDPrefixEnum.GiftcardSpawnOrg, body.id)) {
     return { valid: false, error: "Invalid GiftcardSpawnOrg ID" };
@@ -120,9 +119,9 @@ function validateDeleteGiftcardSpawnOrgRequest(
   return { valid: true };
 }
 
-// Helper function to validate RedeemGiftcardSpawnOrgData
+// Helper function to validate IRequestRedeemGiftcardSpawnOrg
 function validateRedeemGiftcardSpawnOrgRequest(
-  body: RedeemGiftcardSpawnOrgData
+  body: IRequestRedeemGiftcardSpawnOrg
 ): { valid: boolean; error?: string } {
   if (!body.giftcard_id.startsWith(IDPrefixEnum.GiftcardSpawnOrg)) {
     return {
@@ -282,7 +281,7 @@ export async function getGiftcardSpawnOrgHandler(
 }
 
 export async function listGiftcardSpawnOrgsHandler(
-  request: FastifyRequest<{ Body: ListGiftcardSpawnOrgsRequestBody }>,
+  request: FastifyRequest<{ Body: IRequestListGiftcardSpawnOrgs }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -375,7 +374,7 @@ export async function listGiftcardSpawnOrgsHandler(
         : null;
 
     return reply.status(200).send(
-      createApiResponse<ListGiftcardSpawnOrgsResponseData>({
+      createApiResponse<IResponseListGiftcardSpawnOrgsData>({
         items: giftcards as GiftcardSpawnOrg[],
         page_size: giftcards.length,
         total: total,
@@ -394,9 +393,9 @@ export async function listGiftcardSpawnOrgsHandler(
   }
 }
 
-// Helper function to validate ListGiftcardSpawnOrgsRequestBody
+// Helper function to validate IRequestListGiftcardSpawnOrgs
 function validateListGiftcardSpawnOrgsRequest(
-  body: ListGiftcardSpawnOrgsRequestBody
+  body: IRequestListGiftcardSpawnOrgs
 ): { valid: boolean; error?: string } {
   if (body.filters && body.filters.length > 256) {
     return { valid: false, error: "Filters must be 256 characters or less" };
@@ -413,8 +412,8 @@ function validateListGiftcardSpawnOrgsRequest(
   return { valid: true };
 }
 
-export async function upsertGiftcardSpawnOrgHandler(
-  request: FastifyRequest<{ Body: UpsertGiftcardSpawnOrgRequestBody }>,
+export async function createGiftcardSpawnOrgHandler(
+  request: FastifyRequest<{ Body: IRequestCreateGiftcardSpawnOrg }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -444,137 +443,171 @@ export async function upsertGiftcardSpawnOrgHandler(
 
     const body = request.body;
 
-    if (body.action === "CREATE") {
-      const createBody = body as CreateGiftcardSpawnOrgRequestBody;
-      const validation = validateCreateGiftcardSpawnOrgRequest(createBody);
-      if (!validation.valid) {
-        return reply.status(400).send(
-          createApiResponse(undefined, {
-            code: 400,
-            message: validation.error!,
-          })
-        );
-      }
-
-      const newGiftcard: GiftcardSpawnOrg = {
-        id: `${IDPrefixEnum.GiftcardSpawnOrg}${uuidv4()}`,
-        usd_revenue_cents: createBody.usd_revenue_cents,
-        note: createBody.note,
-        gas_cycles_included: createBody.gas_cycles_included,
-        timestamp_ms: Date.now(),
-        external_id: createBody.external_id,
-        redeemed: false,
-        disk_auth_json: createBody.disk_auth_json,
-      };
-
-      await dbHelpers.transaction("factory", null, (database) => {
-        const stmt = database.prepare(
-          `INSERT INTO giftcard_spawn_orgs (id, usd_revenue_cents, note, gas_cycles_included, timestamp_ms, external_id, redeemed, disk_auth_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        );
-        stmt.run(
-          newGiftcard.id,
-          newGiftcard.usd_revenue_cents,
-          newGiftcard.note,
-          newGiftcard.gas_cycles_included,
-          newGiftcard.timestamp_ms,
-          newGiftcard.external_id,
-          newGiftcard.redeemed ? 1 : 0,
-          newGiftcard.disk_auth_json || null
-        );
-
-        // Link to owner in user_giftcard_spawn_orgs
-        const userGiftcardStmt = database.prepare(
-          `INSERT INTO user_giftcard_spawn_orgs (user_id, giftcard_id) VALUES (?, ?)`
-        );
-
-        userGiftcardStmt.run(userId, newGiftcard.id);
-      });
-
-      return reply.status(200).send(createApiResponse(newGiftcard));
-    } else if (body.action === "UPDATE") {
-      const updateBody = body as UpdateGiftcardSpawnOrgRequestBody;
-      const validation = validateUpdateGiftcardSpawnOrgRequest(updateBody);
-      if (!validation.valid) {
-        return reply.status(400).send(
-          createApiResponse(undefined, {
-            code: 400,
-            message: validation.error!,
-          })
-        );
-      }
-
-      const giftcards = await db.queryFactory(
-        "SELECT * FROM giftcard_spawn_orgs WHERE id = ?",
-        [updateBody.id]
+    const createBody = body as IRequestCreateGiftcardSpawnOrg;
+    const validation = validateCreateGiftcardSpawnOrgRequest(createBody);
+    if (!validation.valid) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: validation.error!,
+        })
       );
-      if (!giftcards || giftcards.length === 0) {
-        return reply.status(404).send(
-          createApiResponse(undefined, {
-            code: 404,
-            message: "GiftcardSpawnOrg not found",
-          })
-        );
-      }
-      let giftcardToUpdate = giftcards[0] as GiftcardSpawnOrg;
-
-      const updates: string[] = [];
-      const values: any[] = [];
-
-      if (updateBody.note !== undefined) {
-        updates.push("note = ?");
-        values.push(updateBody.note);
-        giftcardToUpdate.note = updateBody.note;
-      }
-      if (updateBody.usd_revenue_cents !== undefined) {
-        updates.push("usd_revenue_cents = ?");
-        values.push(updateBody.usd_revenue_cents);
-        giftcardToUpdate.usd_revenue_cents = updateBody.usd_revenue_cents;
-      }
-      if (updateBody.gas_cycles_included !== undefined) {
-        updates.push("gas_cycles_included = ?");
-        values.push(updateBody.gas_cycles_included);
-        giftcardToUpdate.gas_cycles_included = updateBody.gas_cycles_included;
-      }
-      if (updateBody.external_id !== undefined) {
-        updates.push("external_id = ?");
-        values.push(updateBody.external_id);
-        giftcardToUpdate.external_id = updateBody.external_id;
-      }
-      if (updateBody.disk_auth_json !== undefined) {
-        updates.push("disk_auth_json = ?");
-        values.push(updateBody.disk_auth_json);
-        giftcardToUpdate.disk_auth_json = updateBody.disk_auth_json;
-      }
-
-      if (updates.length === 0) {
-        return reply.status(400).send(
-          createApiResponse(undefined, {
-            code: 400,
-            message: "No fields to update",
-          })
-        );
-      }
-
-      values.push(updateBody.id);
-
-      await dbHelpers.transaction("factory", null, (database) => {
-        const stmt = database.prepare(
-          `UPDATE giftcard_spawn_orgs SET ${updates.join(", ")} WHERE id = ?`
-        );
-        stmt.run(...values);
-      });
-
-      return reply.status(200).send(createApiResponse(giftcardToUpdate));
-    } else {
-      return reply
-        .status(400)
-        .send(
-          createApiResponse(undefined, { code: 400, message: "Invalid action" })
-        );
     }
+
+    const newGiftcard: GiftcardSpawnOrg = {
+      id: `${IDPrefixEnum.GiftcardSpawnOrg}${uuidv4()}`,
+      usd_revenue_cents: createBody.usd_revenue_cents,
+      note: createBody.note,
+      gas_cycles_included: createBody.gas_cycles_included,
+      timestamp_ms: Date.now(),
+      external_id: createBody.external_id,
+      redeemed: false,
+      disk_auth_json: createBody.disk_auth_json,
+    };
+
+    await dbHelpers.transaction("factory", null, (database) => {
+      const stmt = database.prepare(
+        `INSERT INTO giftcard_spawn_orgs (id, usd_revenue_cents, note, gas_cycles_included, timestamp_ms, external_id, redeemed, disk_auth_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      stmt.run(
+        newGiftcard.id,
+        newGiftcard.usd_revenue_cents,
+        newGiftcard.note,
+        newGiftcard.gas_cycles_included,
+        newGiftcard.timestamp_ms,
+        newGiftcard.external_id,
+        newGiftcard.redeemed ? 1 : 0,
+        newGiftcard.disk_auth_json || null
+      );
+
+      // Link to owner in user_giftcard_spawn_orgs
+      const userGiftcardStmt = database.prepare(
+        `INSERT INTO user_giftcard_spawn_orgs (user_id, giftcard_id) VALUES (?, ?)`
+      );
+
+      userGiftcardStmt.run(userId, newGiftcard.id);
+    });
+
+    return reply.status(200).send(createApiResponse(newGiftcard));
   } catch (error) {
-    request.log.error("Error in upsertGiftcardSpawnOrgHandler:", error);
+    request.log.error("Error in createGiftcardSpawnOrgHandler:", error);
+    console.log(error);
+    return reply.status(500).send(
+      createApiResponse(undefined, {
+        code: 500,
+        message: `Internal server error - ${error}`,
+      })
+    );
+  }
+}
+
+export async function updateGiftcardSpawnOrgHandler(
+  request: FastifyRequest<{ Body: IRequestUpdateGiftcardSpawnOrg }>,
+  reply: FastifyReply
+): Promise<void> {
+  try {
+    let userId: string;
+    if (FREE_MODE) {
+      userId = "Free_Mode_Anonymous_User";
+    } else {
+      const requesterApiKey = await authenticateRequest(request, "factory");
+      if (!requesterApiKey) {
+        return reply
+          .status(401)
+          .send(
+            createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+          );
+      }
+
+      const isOwner = request.server.factory_owner === requesterApiKey.user_id;
+      if (!isOwner) {
+        return reply
+          .status(403)
+          .send(
+            createApiResponse(undefined, { code: 403, message: "Forbidden" })
+          );
+      }
+      userId = requesterApiKey.user_id;
+    }
+
+    const body = request.body;
+
+    const updateBody = body as IRequestUpdateGiftcardSpawnOrg;
+    const validation = validateUpdateGiftcardSpawnOrgRequest(updateBody);
+    if (!validation.valid) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: validation.error!,
+        })
+      );
+    }
+
+    const giftcards = await db.queryFactory(
+      "SELECT * FROM giftcard_spawn_orgs WHERE id = ?",
+      [updateBody.id]
+    );
+    if (!giftcards || giftcards.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: "GiftcardSpawnOrg not found",
+        })
+      );
+    }
+    let giftcardToUpdate = giftcards[0] as GiftcardSpawnOrg;
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (updateBody.note !== undefined) {
+      updates.push("note = ?");
+      values.push(updateBody.note);
+      giftcardToUpdate.note = updateBody.note;
+    }
+    if (updateBody.usd_revenue_cents !== undefined) {
+      updates.push("usd_revenue_cents = ?");
+      values.push(updateBody.usd_revenue_cents);
+      giftcardToUpdate.usd_revenue_cents = updateBody.usd_revenue_cents;
+    }
+    if (updateBody.gas_cycles_included !== undefined) {
+      updates.push("gas_cycles_included = ?");
+      values.push(updateBody.gas_cycles_included);
+      giftcardToUpdate.gas_cycles_included = updateBody.gas_cycles_included;
+    }
+    if (updateBody.external_id !== undefined) {
+      updates.push("external_id = ?");
+      values.push(updateBody.external_id);
+      giftcardToUpdate.external_id = updateBody.external_id;
+    }
+    if (updateBody.disk_auth_json !== undefined) {
+      updates.push("disk_auth_json = ?");
+      values.push(updateBody.disk_auth_json);
+      giftcardToUpdate.disk_auth_json = updateBody.disk_auth_json;
+    }
+
+    if (updates.length === 0) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: "No fields to update",
+        })
+      );
+    }
+
+    values.push(updateBody.id);
+
+    await dbHelpers.transaction("factory", null, (database) => {
+      const stmt = database.prepare(
+        `UPDATE giftcard_spawn_orgs SET ${updates.join(", ")} WHERE id = ?`
+      );
+      stmt.run(...values);
+    });
+
+    return reply.status(200).send(createApiResponse(giftcardToUpdate));
+  } catch (error) {
+    request.log.error("Error in updateGiftcardSpawnOrgHandler:", error);
     console.log(error);
     return reply.status(500).send(
       createApiResponse(undefined, {
@@ -586,7 +619,7 @@ export async function upsertGiftcardSpawnOrgHandler(
 }
 
 export async function deleteGiftcardSpawnOrgHandler(
-  request: FastifyRequest<{ Body: DeleteGiftcardSpawnOrgRequestBody }>,
+  request: FastifyRequest<{ Body: IRequestDeleteGiftcardSpawnOrg }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -645,7 +678,7 @@ export async function deleteGiftcardSpawnOrgHandler(
     });
 
     return reply.status(200).send(
-      createApiResponse<DeletedGiftcardSpawnOrgData>({
+      createApiResponse<IDeletedGiftcardSpawnOrgData>({
         id: body.id,
         deleted: true,
       })
@@ -662,7 +695,7 @@ export async function deleteGiftcardSpawnOrgHandler(
 }
 
 export async function redeemGiftcardSpawnOrgHandler(
-  request: FastifyRequest<{ Body: RedeemGiftcardSpawnOrgData }>,
+  request: FastifyRequest<{ Body: IRequestRedeemGiftcardSpawnOrg }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -938,7 +971,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         .run(giftcard.id);
 
       // Store deployment history in the factory DB
-      const historyRecord: FactorySpawnHistoryRecord = {
+      const historyRecord: IFactorySpawnHistoryRecord = {
         id: null as any, // Auto-incremented
         owner_id: ownerId,
         drive_id: driveId,
@@ -974,7 +1007,7 @@ export async function redeemGiftcardSpawnOrgHandler(
     });
 
     return reply.status(200).send(
-      createApiResponse<RedeemGiftcardSpawnOrgResult>({
+      createApiResponse({
         owner_id: ownerId,
         drive_id: driveId,
         endpoint: endpoint,

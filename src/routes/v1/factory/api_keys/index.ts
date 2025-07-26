@@ -10,8 +10,8 @@ import {
 } from "./handlers";
 import { factoryRateLimitPreHandler } from "../../../../services/rate-limit";
 import {
-  FactoryDeleteApiKeyRequestBody,
-  FactoryUpsertApiKeyRequestBody,
+  IRequestFactoryDeleteApiKey,
+  IRequestFactoryUpsertApiKey,
 } from "@officexapp/types";
 
 const apiKeyRoutes: FastifyPluginAsync = async (
@@ -33,14 +33,14 @@ const apiKeyRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/factory/api_keys/upsert
-  fastify.post<{ Body: FactoryUpsertApiKeyRequestBody }>(
+  fastify.post<{ Body: IRequestFactoryUpsertApiKey }>(
     "/upsert",
     { preHandler: [factoryRateLimitPreHandler] },
     upsertApiKeyHandler
   );
 
   // POST /v1/factory/api_keys/delete
-  fastify.post<{ Body: FactoryDeleteApiKeyRequestBody }>(
+  fastify.post<{ Body: IRequestFactoryDeleteApiKey }>(
     "/delete",
     { preHandler: [factoryRateLimitPreHandler] },
     deleteApiKeyHandler

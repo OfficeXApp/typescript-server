@@ -1,18 +1,18 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
-  ApiResponse,
-  CreateGiftcardRefuelRequestBody,
-  UpdateGiftcardRefuelRequestBody,
-  UpsertGiftcardRefuelRequestBody,
-  DeleteGiftcardRefuelRequestBody,
-  DeletedGiftcardRefuelData,
-  RedeemGiftcardRefuelData,
+  ISuccessResponse,
+  IRequestCreateGiftcardRefuel,
+  IRequestUpdateGiftcardRefuel,
+  IRequestUpsertGiftcardRefuel,
+  IRequestDeleteGiftcardRefuel,
+  IDeletedGiftcardRefuelData,
+  IRedeemGiftcardRefuelData,
   GiftcardRefuel,
-  RedeemGiftcardRefuelResult,
-  FactoryRefuelHistoryRecord,
-  ListGiftcardRefuelsRequestBody,
-  ListGiftcardRefuelsResponseData,
+  IRedeemGiftcardRefuelResult,
+  IFactoryRefuelHistoryRecord,
+  IRequestListGiftcardRefuels,
+  IResponseListGiftcardRefuelsData,
   SortDirection,
   IDPrefixEnum,
 } from "@officexapp/types";
@@ -27,9 +27,9 @@ export interface GetGiftcardRefuelParams {
   giftcard_id: string;
 }
 
-// Helper function to validate CreateGiftcardRefuelRequestBody
+// Helper function to validate IRequestCreateGiftcardRefuel
 function validateCreateGiftcardRefuelRequest(
-  body: CreateGiftcardRefuelRequestBody
+  body: IRequestCreateGiftcardRefuel
 ): { valid: boolean; error?: string } {
   if (body.gas_cycles_included < 1_000_000_000_000) {
     return {
@@ -43,9 +43,9 @@ function validateCreateGiftcardRefuelRequest(
   return { valid: true };
 }
 
-// Helper function to validate UpdateGiftcardRefuelRequestBody
+// Helper function to validate IRequestUpdateGiftcardRefuel
 function validateUpdateGiftcardRefuelRequest(
-  body: UpdateGiftcardRefuelRequestBody
+  body: IRequestUpdateGiftcardRefuel
 ): { valid: boolean; error?: string } {
   if (!isValidID(IDPrefixEnum.GiftcardRefuel, body.id)) {
     return { valid: false, error: "Invalid GiftcardRefuel ID" };
@@ -71,9 +71,9 @@ function validateUpdateGiftcardRefuelRequest(
   return { valid: true };
 }
 
-// Helper function to validate DeleteGiftcardRefuelRequestBody
+// Helper function to validate IRequestDeleteGiftcardRefuel
 function validateDeleteGiftcardRefuelRequest(
-  body: DeleteGiftcardRefuelRequestBody
+  body: IRequestDeleteGiftcardRefuel
 ): { valid: boolean; error?: string } {
   if (!isValidID(IDPrefixEnum.GiftcardRefuel, body.id)) {
     return { valid: false, error: "Invalid GiftcardRefuel ID" };
@@ -87,8 +87,8 @@ function validateDeleteGiftcardRefuelRequest(
   return { valid: true };
 }
 
-// Helper function to validate RedeemGiftcardRefuelData
-function validateRedeemGiftcardRefuelRequest(body: RedeemGiftcardRefuelData): {
+// Helper function to validate IRedeemGiftcardRefuelData
+function validateRedeemGiftcardRefuelRequest(body: IRedeemGiftcardRefuelData): {
   valid: boolean;
   error?: string;
 } {
@@ -172,7 +172,7 @@ export async function getGiftcardRefuelHandler(
 }
 
 export async function listGiftcardRefuelsHandler(
-  request: FastifyRequest<{ Body: ListGiftcardRefuelsRequestBody }>,
+  request: FastifyRequest<{ Body: IRequestListGiftcardRefuels }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -256,7 +256,7 @@ export async function listGiftcardRefuelsHandler(
         : null;
 
     return reply.status(200).send(
-      createApiResponse<ListGiftcardRefuelsResponseData>({
+      createApiResponse<IResponseListGiftcardRefuelsData>({
         items: giftcards as GiftcardRefuel[],
         page_size: giftcards.length,
         total: total,
@@ -275,9 +275,9 @@ export async function listGiftcardRefuelsHandler(
   }
 }
 
-// Helper function to validate ListGiftcardRefuelsRequestBody
+// Helper function to validate IRequestListGiftcardRefuels
 function validateListGiftcardRefuelsRequest(
-  body: ListGiftcardRefuelsRequestBody
+  body: IRequestListGiftcardRefuels
 ): { valid: boolean; error?: string } {
   if (body.filters && body.filters.length > 256) {
     return { valid: false, error: "Filters must be 256 characters or less" };
@@ -295,7 +295,7 @@ function validateListGiftcardRefuelsRequest(
 }
 
 export async function upsertGiftcardRefuelHandler(
-  request: FastifyRequest<{ Body: UpsertGiftcardRefuelRequestBody }>,
+  request: FastifyRequest<{ Body: IRequestUpsertGiftcardRefuel }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -320,7 +320,7 @@ export async function upsertGiftcardRefuelHandler(
     const body = request.body;
 
     if (body.action === "CREATE") {
-      const createBody = body as CreateGiftcardRefuelRequestBody;
+      const createBody = body as IRequestCreateGiftcardRefuel;
       const validation = validateCreateGiftcardRefuelRequest(createBody);
       if (!validation.valid) {
         return reply.status(400).send(
@@ -365,7 +365,7 @@ export async function upsertGiftcardRefuelHandler(
 
       return reply.status(200).send(createApiResponse(newGiftcard));
     } else if (body.action === "UPDATE") {
-      const updateBody = body as UpdateGiftcardRefuelRequestBody;
+      const updateBody = body as IRequestUpdateGiftcardRefuel;
       const validation = validateUpdateGiftcardRefuelRequest(updateBody);
       if (!validation.valid) {
         return reply.status(400).send(
@@ -452,7 +452,7 @@ export async function upsertGiftcardRefuelHandler(
 }
 
 export async function deleteGiftcardRefuelHandler(
-  request: FastifyRequest<{ Body: DeleteGiftcardRefuelRequestBody }>,
+  request: FastifyRequest<{ Body: IRequestDeleteGiftcardRefuel }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -511,7 +511,7 @@ export async function deleteGiftcardRefuelHandler(
     });
 
     return reply.status(200).send(
-      createApiResponse<DeletedGiftcardRefuelData>({
+      createApiResponse<IDeletedGiftcardRefuelData>({
         id: body.id,
         deleted: true,
       })
@@ -528,7 +528,7 @@ export async function deleteGiftcardRefuelHandler(
 }
 
 export async function redeemGiftcardRefuelHandler(
-  request: FastifyRequest<{ Body: RedeemGiftcardRefuelData }>,
+  request: FastifyRequest<{ Body: IRedeemGiftcardRefuelData }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -584,7 +584,7 @@ export async function redeemGiftcardRefuelHandler(
           .run(giftcard.id);
 
         // Store redemption history
-        const historyRecord: FactoryRefuelHistoryRecord = {
+        const historyRecord: IFactoryRefuelHistoryRecord = {
           id: null as any, // Auto-incremented
           note: `Redeemed giftcard ${giftcard.id} by ${userId}, deposited ${giftcard.gas_cycles_included} cycles into principal ${body.icp_principal}`,
           giftcard_id: giftcard.id,
@@ -614,7 +614,7 @@ export async function redeemGiftcardRefuelHandler(
       });
 
       return reply.status(200).send(
-        createApiResponse<RedeemGiftcardRefuelResult>({
+        createApiResponse<IRedeemGiftcardRefuelResult>({
           giftcard_id: giftcard.id,
           icp_principal: body.icp_principal,
           redeem_code: redeemCode,

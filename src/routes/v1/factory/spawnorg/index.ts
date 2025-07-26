@@ -2,16 +2,19 @@ import { FastifyPluginAsync } from "fastify";
 import {
   getGiftcardSpawnOrgHandler,
   listGiftcardSpawnOrgsHandler,
-  upsertGiftcardSpawnOrgHandler,
   deleteGiftcardSpawnOrgHandler,
   redeemGiftcardSpawnOrgHandler,
+  createGiftcardSpawnOrgHandler,
+  updateGiftcardSpawnOrgHandler,
 } from "./handlers";
 import { factoryRateLimitPreHandler } from "../../../../services/rate-limit";
 import {
-  DeleteGiftcardSpawnOrgRequestBody,
-  ListGiftcardSpawnOrgsRequestBody,
-  RedeemGiftcardSpawnOrgData,
-  UpsertGiftcardSpawnOrgRequestBody,
+  IRequestCreateGiftcardSpawnOrg,
+  IRequestDeleteGiftcardSpawnOrg,
+  IRequestListGiftcardSpawnOrgs,
+  IRequestRedeemGiftcardSpawnOrg,
+  IRequestUpdateGiftcardSpawnOrg,
+  IRequestUpsertGiftcardSpawnOrg,
 } from "@officexapp/types";
 
 interface GetGiftcardSpawnOrgParams {
@@ -29,28 +32,35 @@ const giftcardSpawnOrgRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/factory/giftcards/spawnorg/list
-  fastify.post<{ Body: ListGiftcardSpawnOrgsRequestBody }>(
+  fastify.post<{ Body: IRequestListGiftcardSpawnOrgs }>(
     "/list",
     { preHandler: [factoryRateLimitPreHandler] },
     listGiftcardSpawnOrgsHandler
   );
 
-  // POST /v1/factory/giftcards/spawnorg/upsert
-  fastify.post<{ Body: UpsertGiftcardSpawnOrgRequestBody }>(
-    "/upsert",
+  // POST /v1/factory/giftcards/spawnorg/create
+  fastify.post<{ Body: IRequestCreateGiftcardSpawnOrg }>(
+    "/create",
     { preHandler: [factoryRateLimitPreHandler] },
-    upsertGiftcardSpawnOrgHandler
+    createGiftcardSpawnOrgHandler
+  );
+
+  // POST /v1/factory/giftcards/spawnorg/update
+  fastify.post<{ Body: IRequestUpdateGiftcardSpawnOrg }>(
+    "/update",
+    { preHandler: [factoryRateLimitPreHandler] },
+    updateGiftcardSpawnOrgHandler
   );
 
   // POST /v1/factory/giftcards/spawnorg/delete
-  fastify.post<{ Body: DeleteGiftcardSpawnOrgRequestBody }>(
+  fastify.post<{ Body: IRequestDeleteGiftcardSpawnOrg }>(
     "/delete",
     { preHandler: [factoryRateLimitPreHandler] },
     deleteGiftcardSpawnOrgHandler
   );
 
   // POST /v1/factory/giftcards/spawnorg/redeem
-  fastify.post<{ Body: RedeemGiftcardSpawnOrgData }>(
+  fastify.post<{ Body: IRequestRedeemGiftcardSpawnOrg }>(
     "/redeem",
     { preHandler: [factoryRateLimitPreHandler] },
     redeemGiftcardSpawnOrgHandler

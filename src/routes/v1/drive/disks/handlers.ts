@@ -13,7 +13,6 @@ import {
   IRequestUpdateDisk,
   IResponseDeleteDisk,
   IPaginatedResponse,
-  ApiResponse,
   UserID,
   DriveID,
   SystemPermissionType,

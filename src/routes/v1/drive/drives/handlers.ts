@@ -17,7 +17,7 @@ import {
   SystemTableValueEnum,
   URLEndpoint,
   UserID,
-  ApiResponse,
+  ISuccessResponse,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
