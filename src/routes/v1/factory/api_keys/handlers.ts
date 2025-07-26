@@ -3,13 +3,13 @@ import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import {
   FactoryApiKey,
-  ApiResponse,
-  FactoryCreateApiKeyRequestBody,
-  FactoryUpdateApiKeyRequestBody,
-  FactoryUpsertApiKeyRequestBody,
-  FactoryDeleteApiKeyRequestBody,
-  FactoryDeletedApiKeyData,
-  FactorySnapshotResponse,
+  ISuccessResponse,
+  IRequestFactoryCreateApiKey,
+  IRequestFactoryUpdateApiKey,
+  IRequestFactoryUpsertApiKey,
+  IRequestFactoryDeleteApiKey,
+  IFactoryDeletedApiKeyData,
+  IResponseFactorySnapshot,
   IDPrefixEnum,
   DriveID,
   UserID,
@@ -36,7 +36,7 @@ export interface ListApiKeysParams {
 }
 
 // Helper function to validate request body
-function validateCreateRequest(body: FactoryCreateApiKeyRequestBody): {
+function validateCreateRequest(body: IRequestFactoryCreateApiKey): {
   valid: boolean;
   error?: string;
 } {
@@ -64,7 +64,7 @@ function validateCreateRequest(body: FactoryCreateApiKeyRequestBody): {
   return { valid: true };
 }
 
-function validateUpdateRequest(body: FactoryUpdateApiKeyRequestBody): {
+function validateUpdateRequest(body: IRequestFactoryUpdateApiKey): {
   valid: boolean;
   error?: string;
 } {
@@ -89,7 +89,7 @@ function validateUpdateRequest(body: FactoryUpdateApiKeyRequestBody): {
   return { valid: true };
 }
 
-function validateDeleteRequest(body: FactoryDeleteApiKeyRequestBody): {
+function validateDeleteRequest(body: IRequestFactoryDeleteApiKey): {
   valid: boolean;
   error?: string;
 } {
@@ -103,7 +103,7 @@ function validateDeleteRequest(body: FactoryDeleteApiKeyRequestBody): {
 function createApiResponse<T>(
   data: T,
   error?: { code: number; message: string }
-): ApiResponse<T> {
+): ISuccessResponse<T> {
   return {
     ok: {
       data,
@@ -225,7 +225,7 @@ export async function listApiKeysHandler(
 }
 
 export async function upsertApiKeyHandler(
-  request: FastifyRequest<{ Body: FactoryUpsertApiKeyRequestBody }>,
+  request: FastifyRequest<{ Body: IRequestFactoryUpsertApiKey }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -239,10 +239,10 @@ export async function upsertApiKeyHandler(
         );
     }
 
-    const body = request.body as FactoryUpsertApiKeyRequestBody;
+    const body = request.body as IRequestFactoryUpsertApiKey;
 
     if (body.action === "CREATE") {
-      const createBody = body as FactoryCreateApiKeyRequestBody;
+      const createBody = body as IRequestFactoryCreateApiKey;
 
       // Validate request
       const validation = validateCreateRequest(createBody);
@@ -298,7 +298,7 @@ export async function upsertApiKeyHandler(
 
       return reply.status(200).send(createApiResponse(newApiKey));
     } else if (body.action === "UPDATE") {
-      const updateBody = body as FactoryUpdateApiKeyRequestBody;
+      const updateBody = body as IRequestFactoryUpdateApiKey;
 
       // Validate request
       const validation = validateUpdateRequest(updateBody);
@@ -404,7 +404,7 @@ export async function upsertApiKeyHandler(
 }
 
 export async function deleteApiKeyHandler(
-  request: FastifyRequest<{ Body: FactoryDeleteApiKeyRequestBody }>,
+  request: FastifyRequest<{ Body: IRequestFactoryDeleteApiKey }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -418,7 +418,7 @@ export async function deleteApiKeyHandler(
         );
     }
 
-    const body = request.body as FactoryDeleteApiKeyRequestBody;
+    const body = request.body as IRequestFactoryDeleteApiKey;
 
     // Validate request
     const validation = validateDeleteRequest(body);
@@ -468,7 +468,7 @@ export async function deleteApiKeyHandler(
       stmt.run(body.id);
     });
 
-    const deletedData: FactoryDeletedApiKeyData = {
+    const deletedData: IFactoryDeletedApiKeyData = {
       id: body.id,
       deleted: true,
     };

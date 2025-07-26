@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import {
   GroupInvite,
   GroupInviteFE,
-  ApiResponse,
+  ISuccessResponse,
   IRequestCreateGroupInvite,
   IRequestUpdateGroupInvite,
   IRequestDeleteGroupInvite,
@@ -1132,13 +1132,13 @@ export async function redeemGroupInviteHandler(
         }
       }
 
-      const responseData: IResponseRedeemGroupInvite = {
+      const responseData = {
         invite: {
           ...newInvite,
         },
       };
 
-      return reply.status(200).send(responseData);
+      return reply.status(200).send(createApiResponse(responseData));
     } else if (
       invite.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
     ) {
@@ -1238,13 +1238,13 @@ export async function redeemGroupInviteHandler(
         }
       }
 
-      const responseData: IResponseRedeemGroupInvite = {
+      const responseData = {
         invite: {
           ...updatedInvite,
         },
       };
 
-      return reply.status(200).send(responseData);
+      return reply.status(200).send(createApiResponse(responseData));
     } else if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
       // If it's a direct user invite, and the user matches the API key,
       // the "redemption" means confirming their membership.
@@ -1314,12 +1314,12 @@ export async function redeemGroupInviteHandler(
         }
       }
 
-      const responseData: IResponseRedeemGroupInvite = {
+      const responseData = {
         invite: {
           ...redeemedInvite,
         },
       };
-      return reply.status(200).send(responseData);
+      return reply.status(200).send(createApiResponse(responseData));
     } else {
       return reply.status(400).send(
         createApiResponse(undefined, {

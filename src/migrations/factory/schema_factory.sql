@@ -43,18 +43,18 @@ CREATE TABLE giftcard_spawn_orgs (
 );
 
 -- Table: factory_spawn_history
--- Source: src/core/state/drives/types.rs -> FactorySpawnHistoryRecord
+-- Source: src/core/state/drives/types.rs -> IFactorySpawnHistoryRecord
 -- Description: Logs the event of a new drive being spawned using a gift card.
 CREATE TABLE factory_spawn_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    owner_id TEXT NOT NULL,                -- Corresponds to FactorySpawnHistoryRecord.owner_id
-    drive_id TEXT NOT NULL,                -- Corresponds to FactorySpawnHistoryRecord.drive_id
-    endpoint TEXT NOT NULL,                -- Corresponds to FactorySpawnHistoryRecord.endpoint
-    version TEXT NOT NULL,                 -- Corresponds to FactorySpawnHistoryRecord.version
-    note TEXT,                             -- Corresponds to FactorySpawnHistoryRecord.note
-    giftcard_id TEXT NOT NULL UNIQUE,      -- Corresponds to FactorySpawnHistoryRecord.giftcard_id
-    gas_cycles_included INTEGER NOT NULL,  -- Corresponds to FactorySpawnHistoryRecord.gas_cycles_included
-    timestamp_ms INTEGER NOT NULL,         -- Corresponds to FactorySpawnHistoryRecord.timestamp_ms
+    owner_id TEXT NOT NULL,                -- Corresponds to IFactorySpawnHistoryRecord.owner_id
+    drive_id TEXT NOT NULL,                -- Corresponds to IFactorySpawnHistoryRecord.drive_id
+    endpoint TEXT NOT NULL,                -- Corresponds to IFactorySpawnHistoryRecord.endpoint
+    version TEXT NOT NULL,                 -- Corresponds to IFactorySpawnHistoryRecord.version
+    note TEXT,                             -- Corresponds to IFactorySpawnHistoryRecord.note
+    giftcard_id TEXT NOT NULL UNIQUE,      -- Corresponds to IFactorySpawnHistoryRecord.giftcard_id
+    gas_cycles_included INTEGER NOT NULL,  -- Corresponds to IFactorySpawnHistoryRecord.gas_cycles_included
+    timestamp_ms INTEGER NOT NULL,         -- Corresponds to IFactorySpawnHistoryRecord.timestamp_ms
     FOREIGN KEY(giftcard_id) REFERENCES giftcard_spawn_orgs(id)
 );
 
@@ -82,15 +82,15 @@ CREATE TABLE giftcard_refuels (
 );
 
 -- Table: factory_refuel_history
--- Source: src/core/state/drives/types.rs -> FactoryRefuelHistoryRecord
+-- Source: src/core/state/drives/types.rs -> IFactoryRefuelHistoryRecord
 -- Description: Logs the event of a drive being refueled using a gift card.
 CREATE TABLE factory_refuel_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    note TEXT,                             -- Corresponds to FactoryRefuelHistoryRecord.note
-    giftcard_id TEXT NOT NULL UNIQUE,      -- Corresponds to FactoryRefuelHistoryRecord.giftcard_id
-    gas_cycles_included INTEGER NOT NULL,  -- Corresponds to FactoryRefuelHistoryRecord.gas_cycles_included
-    timestamp_ms INTEGER NOT NULL,         -- Corresponds to FactoryRefuelHistoryRecord.timestamp_ms
-    icp_principal TEXT NOT NULL,           -- Corresponds to FactoryRefuelHistoryRecord.icp_principal
+    note TEXT,                             -- Corresponds to IFactoryRefuelHistoryRecord.note
+    giftcard_id TEXT NOT NULL UNIQUE,      -- Corresponds to IFactoryRefuelHistoryRecord.giftcard_id
+    gas_cycles_included INTEGER NOT NULL,  -- Corresponds to IFactoryRefuelHistoryRecord.gas_cycles_included
+    timestamp_ms INTEGER NOT NULL,         -- Corresponds to IFactoryRefuelHistoryRecord.timestamp_ms
+    icp_principal TEXT NOT NULL,           -- Corresponds to IFactoryRefuelHistoryRecord.icp_principal
     FOREIGN KEY(giftcard_id) REFERENCES giftcard_refuels(id)
 );
 

@@ -1,7 +1,7 @@
 // src/services/rate-limit.ts
 import NodeCache from "node-cache";
 import { FastifyRequest, FastifyReply } from "fastify";
-import { ApiError, ApiResponse } from "@officexapp/types";
+import { IErrorResponse, ISuccessResponse } from "@officexapp/types";
 
 interface RateLimitConfig {
   ipLimit: number;
@@ -122,7 +122,7 @@ export const driveRateLimitPreHandler = async (
         code: 429,
         message: "Too Many Requests. Please try again later.",
       },
-    } as ApiError);
+    } as IErrorResponse);
   }
 };
 
@@ -143,6 +143,6 @@ export const factoryRateLimitPreHandler = async (
         code: 429,
         message: "Too Many Requests. Please try again later.",
       },
-    } as ApiError);
+    } as IErrorResponse);
   }
 };

@@ -30,7 +30,7 @@ import {
   WebhookID,
   Webhook,
   LabelValue,
-  FactorySpawnHistoryRecord,
+  IFactorySpawnHistoryRecord,
   GranteeID,
   GroupInviteeID, // Import GroupInviteeID for more specific typing
 } from "@officexapp/types";
@@ -53,7 +53,7 @@ export interface DriveStateSnapshot {
   URL_ENDPOINT: URLEndpoint;
   DRIVE_STATE_TIMESTAMP_NS: string; // Rust's u64 is bigint, represent as string
   EXTERNAL_ID_MAPPINGS: Record<ExternalID, string[]>; // Maps ExternalID to Vec<String>
-  RECENT_DEPLOYMENTS: FactorySpawnHistoryRecord[]; // Vec<FactorySpawnHistoryRecord>
+  RECENT_DEPLOYMENTS: IFactorySpawnHistoryRecord[]; // Vec<IFactorySpawnHistoryRecord>
   SPAWN_REDEEM_CODE: string; // SpawnRedeemCode(string)
   SPAWN_NOTE: string;
   NONCE_UUID_GENERATED: string; // u128, represent as string
@@ -233,11 +233,11 @@ export async function getDriveSnapshot(
         {} as Record<ExternalID, string[]>
       );
 
-    // `RECENT_DEPLOYMENTS` (Vec<FactorySpawnHistoryRecord>)
+    // `RECENT_DEPLOYMENTS` (Vec<IFactorySpawnHistoryRecord>)
     // This isn't directly in the provided SQL schema, it's a Rust `StableVec`.
     // In TS, if it's stored, it would likely be another table or a JSON blob.
     // For now, mocking as an empty array or you'd need a `factory_spawn_history` table.
-    const RECENT_DEPLOYMENTS: FactorySpawnHistoryRecord[] = []; // TODO: Implement fetching from database if a table is created for it.
+    const RECENT_DEPLOYMENTS: IFactorySpawnHistoryRecord[] = []; // TODO: Implement fetching from database if a table is created for it.
 
     // `UUID_CLAIMED` (HashMap<String, bool>) from `uuid_claimed` table
     const uuidClaimedRows = database
@@ -706,7 +706,7 @@ export async function getDriveExternalIdMappings(
 
 export async function getDriveRecentDeployments(
   driveId: DriveID
-): Promise<FactorySpawnHistoryRecord[]> {
+): Promise<IFactorySpawnHistoryRecord[]> {
   // This data is not present in the provided SQL schema.
   // If it were in SQLite, you'd fetch it from a dedicated table.
   // For now, return an empty array or implement based on actual storage.

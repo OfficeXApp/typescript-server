@@ -1,9 +1,9 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import {
-  ApiResponse,
+  ISuccessResponse,
   IRequestReplayDrive,
-  SearchDriveRequestBody,
+  IRequestSearchDrive,
   IResponseReplayDrive,
   IResponseSearchDrive,
   IResponseReindexDrive,
@@ -17,10 +17,10 @@ import {
   IRequestInboxOrg,
   IResponseInboxOrg,
   IResponseWhoAmI,
-  ExternalIDsDriveRequestBody,
-  ExternalIDsDriveResponse,
+  IRequestExternalIDsDrive,
+  IResponseExternalIDsDrive,
   ExternalIDvsInternalIDMap,
-  AboutDriveResponseData,
+  IAboutDriveResponseData,
   SearchCategoryEnum,
   SortDirection,
   SystemPermissionType, // Import SystemPermissionType
@@ -112,7 +112,7 @@ export async function aboutDriveHandler(
       "Principal_mock_controller_2",
     ]; // Mock value
 
-    const responseData: AboutDriveResponseData = {
+    const responseData: IAboutDriveResponseData = {
       gas_cycles: gasCycles,
       organization_name: driveInfo.drive_name,
       organization_id: driveInfo.drive_id,
@@ -217,7 +217,7 @@ export async function replayDriveHandler(
 export async function searchDriveHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
-    Body: SearchDriveRequestBody;
+    Body: IRequestSearchDrive;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -395,7 +395,7 @@ export async function reindexDriveHandler(
 export async function externalIdDriveHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
-    Body: ExternalIDsDriveRequestBody;
+    Body: IRequestExternalIDsDrive;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -461,7 +461,7 @@ export async function externalIdDriveHandler(
       });
     }
 
-    const responseData: ExternalIDsDriveResponse["ok"]["data"] = {
+    const responseData: IResponseExternalIDsDrive["ok"]["data"] = {
       results,
     };
 
@@ -713,7 +713,7 @@ export async function whoAmIDriveHandler(
         ? contactInfo[0].icp_principal
         : requesterApiKey.user_id.replace("UserID_", "");
 
-    const whoAmIReport: IResponseWhoAmI = {
+    const whoAmIReport = {
       nickname: nickname,
       userID: requesterApiKey.user_id,
       driveID: org_id,
