@@ -32,7 +32,9 @@ import {
   LabelValue,
   IFactorySpawnHistoryRecord,
   GranteeID,
-  GroupInviteeID, // Import GroupInviteeID for more specific typing
+  GroupInviteeID,
+  JobRunID,
+  JobRun, // Import GroupInviteeID for more specific typing
 } from "@officexapp/types";
 import { dbHelpers } from "../database"; // Assuming dbHelpers is correctly implemented
 import { SystemTableValueEnum, SystemRecordIDEnum } from "@officexapp/types"; // Adjust path if needed
@@ -123,6 +125,10 @@ export interface DriveStateSnapshot {
   WEBHOOKS_BY_ALT_INDEX_HASHTABLE: Record<string, WebhookID[]>; // WebhookAltIndexID (string) to Vec<WebhookID>
   WEBHOOKS_BY_ID_HASHTABLE: Record<WebhookID, Webhook>;
   WEBHOOKS_BY_TIME_LIST: WebhookID[];
+
+  // Job Runs
+  JOB_RUNS_BY_ID_HASHTABLE: Record<JobRunID, JobRun>;
+  JOB_RUNS_BY_TIME_LIST: JobRunID[];
 }
 
 /**
@@ -550,6 +556,13 @@ export async function getDriveSnapshot(
       "id"
     );
 
+    // --- Job Runs ---
+    const JOB_RUNS_BY_ID_HASHTABLE = fetchAllToRecord<JobRun>("job_runs", "id");
+    const JOB_RUNS_BY_TIME_LIST = fetchIdList(
+      "job_runs ORDER BY created_at ASC",
+      "id"
+    );
+
     return {
       DRIVE_ID: aboutDrive.drive_id,
       CANISTER_ID: aboutDrive.canister_id,
@@ -602,6 +615,9 @@ export async function getDriveSnapshot(
       WEBHOOKS_BY_ALT_INDEX_HASHTABLE,
       WEBHOOKS_BY_ID_HASHTABLE,
       WEBHOOKS_BY_TIME_LIST,
+
+      JOB_RUNS_BY_ID_HASHTABLE,
+      JOB_RUNS_BY_TIME_LIST,
     };
   });
 }

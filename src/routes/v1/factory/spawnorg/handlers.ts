@@ -69,9 +69,6 @@ function validateCreateGiftcardSpawnOrgRequest(
       error: "Gas cycles included must be greater than 1T",
     };
   }
-  if (body.action !== "CREATE") {
-    return { valid: false, error: "Action must be 'CREATE'" };
-  }
   return { valid: true };
 }
 
@@ -87,9 +84,6 @@ function validateUpdateGiftcardSpawnOrgRequest(
       valid: false,
       error: `GiftcardSpawnOrg ID must start with '${IDPrefixEnum.GiftcardSpawnOrg}'`,
     };
-  }
-  if (body.action !== "UPDATE") {
-    return { valid: false, error: "Action must be 'UPDATE'" };
   }
   if (
     body.gas_cycles_included !== undefined &&
