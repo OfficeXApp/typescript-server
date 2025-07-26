@@ -6,7 +6,6 @@ import {
   ISuccessResponse,
   IRequestFactoryCreateApiKey,
   IRequestFactoryUpdateApiKey,
-  IRequestFactoryUpsertApiKey,
   IRequestFactoryDeleteApiKey,
   IFactoryDeletedApiKeyData,
   IResponseFactorySnapshot,

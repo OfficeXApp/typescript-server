@@ -14,7 +14,6 @@ import {
   IRequestFactoryCreateApiKey,
   IRequestFactoryDeleteApiKey,
   IRequestFactoryUpdateApiKey,
-  IRequestFactoryUpsertApiKey,
 } from "@officexapp/types";
 
 const apiKeyRoutes: FastifyPluginAsync = async (
