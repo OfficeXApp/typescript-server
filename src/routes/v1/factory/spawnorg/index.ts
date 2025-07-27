@@ -14,7 +14,6 @@ import {
   IRequestListGiftcardSpawnOrgs,
   IRequestRedeemGiftcardSpawnOrg,
   IRequestUpdateGiftcardSpawnOrg,
-  IRequestUpsertGiftcardSpawnOrg,
 } from "@officexapp/types";
 
 interface GetGiftcardSpawnOrgParams {

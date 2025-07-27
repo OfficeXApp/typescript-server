@@ -329,12 +329,12 @@ export async function createApiKeyHandler(
       value: await generateApiKey(),
       user_id: keyUserId, // Use the determined user ID
       name: createBody.name,
+      private_note: createBody.private_note,
       created_at: Date.now(),
       is_revoked: false,
       begins_at: createBody.begins_at || Date.now(),
       expires_at: createBody.expires_at || -1,
       labels: [], // Labels are handled separately or default empty
-      private_note: undefined, // Ensure all fields are present
       external_id: createBody.external_id, // Pass along external_id
       external_payload: createBody.external_payload, // Pass along external_payload
     };
@@ -456,6 +456,10 @@ export async function updateApiKeyHandler(
     if (body.is_revoked !== undefined) {
       updates.push("is_revoked = ?");
       values.push(body.is_revoked ? 1 : 0);
+    }
+    if (body.private_note !== undefined) {
+      updates.push("private_note = ?");
+      values.push(body.private_note);
     }
 
     if (updates.length === 0) {

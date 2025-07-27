@@ -419,8 +419,6 @@ export async function createJobRunHandler(
           }
         }
 
-        // Removed job_run_related_resources insertion
-
         const createdJobRun: JobRun = {
           id: jobRunId,
           template_id: body.template_id,
@@ -438,6 +436,7 @@ export async function createJobRunHandler(
           title: body.title || "",
           subtitle: body.subtitle || "",
           pricing: body.pricing || "",
+          next_delivery_date: body.next_delivery_date || -1,
           vendor_notes: body.vendor_notes || "",
           notes: body.notes || "",
           created_at: now,
@@ -1052,6 +1051,11 @@ async function validateCreateJobRunRequest(
     const is_valid = validateShortString(body.pricing, "pricing");
     if (!is_valid) return { valid: false, error: "pricing is required." };
   }
+  if (body.next_delivery_date) {
+    const is_valid = !isNaN(body.next_delivery_date);
+    if (!is_valid)
+      return { valid: false, error: "next_delivery_date must be a number." };
+  }
   if (body.vendor_notes) {
     const is_valid = validateDescription(body.vendor_notes, "vendor_notes");
     if (!is_valid) return { valid: false, error: "vendor_notes is required." };
@@ -1122,6 +1126,11 @@ async function validateUpdateJobRunRequest(
   if (body.pricing) {
     is_valid = validateShortString(body.pricing, "pricing").valid;
     if (!is_valid) return { valid: false, error: "pricing is required." };
+  }
+  if (body.next_delivery_date) {
+    is_valid = !isNaN(body.next_delivery_date);
+    if (!is_valid)
+      return { valid: false, error: "next_delivery_date must be a number." };
   }
   if (body.vendor_notes) {
     is_valid = validateDescription(body.vendor_notes, "vendor_notes").valid;

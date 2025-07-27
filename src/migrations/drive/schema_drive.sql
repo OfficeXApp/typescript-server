@@ -336,6 +336,7 @@ CREATE TABLE job_runs (
     title TEXT NOT NULL,
     subtitle TEXT,
     pricing TEXT,
+    next_delivery_date INTEGER,
     vendor_notes TEXT,
     notes TEXT,
     created_at INTEGER NOT NULL,
