@@ -396,7 +396,7 @@ export async function createJobRunHandler(
           body.support_url || null,
           body.delivery_url || null,
           body.verification_url || null,
-          body.installation_url || null,
+          body.auth_installation_url || null,
           body.title,
           body.subtitle || null,
           body.pricing || null,
@@ -427,12 +427,11 @@ export async function createJobRunHandler(
           status: body.status || JobRunStatus.REQUESTED,
           description: body.description || "",
           about_url: body.about_url || "",
-          run_url: body.run_url || "",
           billing_url: body.billing_url || "",
           support_url: body.support_url || "",
           delivery_url: body.delivery_url || "",
           verification_url: body.verification_url || "",
-          installation_url: body.installation_url || "",
+          auth_installation_url: body.auth_installation_url || "",
           title: body.title || "",
           subtitle: body.subtitle || "",
           pricing: body.pricing || "",
@@ -624,10 +623,6 @@ export async function updateJobRunHandler(
       updates.push("about_url = ?");
       values.push(body.about_url);
     }
-    if (body.run_url !== undefined) {
-      updates.push("run_url = ?");
-      values.push(body.run_url);
-    }
     if (body.delivery_url !== undefined) {
       updates.push("delivery_url = ?");
       values.push(body.delivery_url);
@@ -635,10 +630,6 @@ export async function updateJobRunHandler(
     if (body.verification_url !== undefined) {
       updates.push("verification_url = ?");
       values.push(body.verification_url);
-    }
-    if (body.installation_url !== undefined) {
-      updates.push("installation_url = ?");
-      values.push(body.installation_url);
     }
     if (body.status !== undefined) {
       updates.push("status = ?");
@@ -659,10 +650,6 @@ export async function updateJobRunHandler(
     if (body.verification_url !== undefined) {
       updates.push("verification_url = ?");
       values.push(body.verification_url);
-    }
-    if (body.installation_url !== undefined) {
-      updates.push("installation_url = ?");
-      values.push(body.installation_url);
     }
     if (body.subtitle !== undefined) {
       updates.push("subtitle = ?");
@@ -1037,10 +1024,10 @@ async function validateCreateJobRunRequest(
     if (!is_valid)
       return { valid: false, error: "verification_url is required." };
   }
-  if (body.installation_url) {
-    const is_valid = validateUrl(body.installation_url);
+  if (body.auth_installation_url) {
+    const is_valid = validateUrl(body.auth_installation_url);
     if (!is_valid)
-      return { valid: false, error: "installation_url is required." };
+      return { valid: false, error: "auth_installation_url is required." };
   }
 
   if (body.subtitle) {
@@ -1112,11 +1099,6 @@ async function validateUpdateJobRunRequest(
     is_valid = validateUrl(body.verification_url);
     if (!is_valid)
       return { valid: false, error: "verification_url is required." };
-  }
-  if (body.installation_url) {
-    is_valid = validateUrl(body.installation_url);
-    if (!is_valid)
-      return { valid: false, error: "installation_url is required." };
   }
 
   if (body.subtitle) {
