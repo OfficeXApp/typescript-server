@@ -373,7 +373,7 @@ export async function createJobRunHandler(
         );
     }
 
-    const jobRunId = GenerateID.JobRunID();
+    const jobRunId = body.id || GenerateID.JobRunID();
     const now = Date.now();
 
     const newJobRun: JobRun = await dbHelpers.transaction(
