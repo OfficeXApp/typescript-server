@@ -34,6 +34,7 @@ import {
 
 import { getFolderMetadata, getFileMetadata } from "./drive"; // Assuming these are in a 'drive' sub-service within directory
 import { getDriveOwnerId } from "../../routes/v1/types"; // Import for isOwner check
+import { LOCAL_DEV_MODE } from "../../constants";
 
 // =========================================================================
 
@@ -987,8 +988,9 @@ export function formatFileAssetPath(
   fileId: FileID,
   extension: string
 ): string {
-  const baseUrl =
-    `https://${process.env.SERVER_DOMAIN}` || "http://localhost:8888";
+  const baseUrl = LOCAL_DEV_MODE
+    ? "http://localhost:8888"
+    : `https://${process.env.SERVER_DOMAIN}`;
   return `${baseUrl}/v1/drive/${driveId}/directory/asset/${fileId}.${extension}`;
 }
 
