@@ -7,6 +7,7 @@
     "test": "test"
   },
   "scripts": {
+    "newman": "newman run postman/postman-rest-api.json",
     "test": "npm run build:ts && tsc -p test/tsconfig.json && c8 node --test -r ts-node/register \"test/**/*.ts\"",
     "start": "npm run build:ts && fastify start -l info dist/app.js",
     "build": "tsc && npm run copy-assets",
