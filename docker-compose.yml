@@ -33,7 +33,7 @@ services:
     volumes:
       - ./:/etc/newman
     # Corrected command format
-    command: newman run postman/postman-rest-api.json -e .env
+    command: ["newman", "run", "postman/postman-rest-api.json", "-e", ".env"]
 
 volumes:
   app_data:
