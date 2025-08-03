@@ -24,7 +24,6 @@ services:
       retries: 10
       start_period: 20s
 
-  # NEW: A service dedicated to running Postman tests via Newman.
   newman:
     image: postman/newman:latest
     depends_on:
@@ -32,8 +31,9 @@ services:
         condition: service_healthy
     volumes:
       - ./:/etc/newman
-    # Corrected command format to use the environment file from the mounted volume
-    command: ["run", "postman/postman-rest-api.json", "-e", "/etc/newman/.env"]
+    env_file:
+      - ./.env
+    command: ["run", "postman/postman-rest-api.json"]
 
 volumes:
   app_data:
