@@ -3948,12 +3948,12 @@
     },
     {
       "key": "ServerEndpoint",
-      "value": "http://localhost:8888",
+      "value": "http://app:8888",
       "type": "default"
     },
     {
       "key": "FactoryEndpoint",
-      "value": "http://localhost:8888",
+      "value": "http://app:8888",
       "type": "default"
     }
   ]
