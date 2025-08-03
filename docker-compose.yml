@@ -28,13 +28,11 @@ services:
   newman:
     image: postman/newman:latest
     depends_on:
-      # This tells Docker Compose to wait until the 'app' service reports as "healthy"
       app:
         condition: service_healthy
     volumes:
-      # Mount the entire project directory so Newman can find the collection and environment files.
       - ./:/etc/newman
-    # The command to execute when this service runs.
+    # Corrected command format
     command: newman run postman/postman-rest-api.json -e .env
 
 volumes:
