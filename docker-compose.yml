@@ -32,8 +32,8 @@ services:
         condition: service_healthy
     volumes:
       - ./:/etc/newman
-    # Corrected command format
-    command: ["newman", "run", "postman/postman-rest-api.json", "-e", ".env"]
+    # Corrected command format to use the environment file from the mounted volume
+    command: ["run", "postman/postman-rest-api.json", "-e", "/etc/newman/.env"]
 
 volumes:
   app_data:

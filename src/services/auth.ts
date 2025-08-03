@@ -419,11 +419,8 @@ export async function generateApiKey(): Promise<string> {
     value: apiKeyInnerValue,
   };
 
-  console.log("API Key Proof:", apiKeyProof);
-
   // Serialize to JSON
   const jsonPayload = JSON.stringify(apiKeyProof);
-  console.log("json_payload:", jsonPayload);
 
   // Base64 encode the JSON
   return btoa(jsonPayload);
