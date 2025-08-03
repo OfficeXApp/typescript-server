@@ -16,6 +16,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Create .env file from secret
+        # This step uses the content of your GitHub secret to create the .env file.
+        # Docker Compose will find this file in the next step.
+        run: echo "${{ secrets.CI_ENV_FILE }}" > .env
+        shell: bash
+
       - name: Set up Docker Compose
         run: |
           docker --version
