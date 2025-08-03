@@ -1,0 +1,60 @@
+name: Postman REST API CI Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test_api_with_newman:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Compose
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Start services with Docker Compose
+        # This command starts your Fastify server in the background and builds it.
+        # It uses the `docker compose` command from your README.
+        run: docker compose up --build -d
+
+      - name: Check server health
+        # It's crucial to wait for the server to be ready before running tests.
+        # This script polls the /health endpoint until it gets a response.
+        run: |
+          echo "Waiting for the server to be ready on port 8888..."
+          for i in $(seq 1 10); do
+            response_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8888/health)
+            if [ "$response_code" == "200" ]; then
+              echo "Server is ready! Proceeding with Newman tests."
+              exit 0
+            fi
+            echo "Server is not ready yet (status: $response_code). Waiting 5 more seconds..."
+            sleep 5
+          done
+          echo "Server failed to start after 50 seconds. Exiting."
+          exit 1
+
+      - name: Install Newman
+        run: |
+          npm install -g newman
+
+      - name: Run Postman Collection with Newman
+        # This is where your tests are executed.
+        # Newman will automatically connect to http://localhost:8888 because that's the default host in your collection.
+        # The step will fail if any Newman test assertions fail.
+        run: newman run postman/postman-rest-api.json
+
+      - name: Stop services with Docker Compose
+        # This step ensures the Docker containers are stopped and cleaned up, even if a previous step failed.
+        # `if: always()` makes sure this step always runs.
+        if: always()
+        run: docker compose down

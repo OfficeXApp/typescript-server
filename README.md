@@ -95,6 +95,14 @@ Convinence restart
 $ docker compose down --volumes && docker compose up --build -d && docker compose logs -f
 ```
 
+## Testing
+
+```sh
+npm install -g newman
+
+newman run postman/postman-rest-api.json
+```
+
 ## Production
 
 Amazon EC2 Linux Pre-Setup
