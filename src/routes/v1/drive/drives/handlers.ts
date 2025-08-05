@@ -18,6 +18,8 @@ import {
   URLEndpoint,
   UserID,
   ISuccessResponse,
+  SortDirection,
+  SystemResourceID,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -26,7 +28,6 @@ import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 // Import the actual permission checking functions from the services/permissions/system.ts
 import {
   checkSystemPermissions,
-  canUserAccessSystemPermission,
   redactLabelValue,
 } from "../../../../services/permissions/system";
 
@@ -45,12 +46,12 @@ async function castDriveToFE(
 ): Promise<DriveFE> {
   const isOwner = userId === (await getDriveOwnerId(orgId));
 
-  // Use the actual checkSystemPermissions for permission previews
-  const permissionPreviews = await checkSystemPermissions(
-    `TABLE_${SystemTableValueEnum.DRIVES}` as SystemTableValueEnum, // SystemResourceID for the table
-    userId,
-    orgId
-  );
+  const permissionPreviews = await checkSystemPermissions({
+    resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+    resourceId: `${drive.id}` as SystemResourceID,
+    granteeId: userId,
+    orgId: orgId,
+  });
 
   let privateNote = drive.private_note;
   // Rust's SystemPermission.cast_fe does not redact private_note based on permission_previews.
@@ -142,19 +143,19 @@ export async function getDriveHandler(
     }
 
     // Use the imported canUserAccessSystemPermission to check if the user can view this drive record.
-    const canViewDrive = await canUserAccessSystemPermission(
-      requestedDriveId, // Resource ID (e.g., "DriveID_xyz")
-      requesterUserId,
-      orgId
-    );
+    // const canViewDrive = await _canUserAccessSystemPermission(
+    //   requestedDriveId, // Resource ID (e.g., "DriveID_xyz")
+    //   requesterUserId,
+    //   orgId
+    // );
 
-    if (!canViewDrive) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
-    }
+    // if (!canViewDrive) {
+    //   return reply
+    //     .status(403)
+    //     .send(
+    //       createApiResponse(undefined, { code: 403, message: "Forbidden" })
+    //     );
+    // }
 
     const driveFE = await castDriveToFE(drive, requesterUserId, orgId);
     return reply.status(200).send(createApiResponse(driveFE));
@@ -174,11 +175,11 @@ export async function listDrivesHandler(
   reply: FastifyReply
 ): Promise<void> {
   try {
-    const requesterApiKey = await authenticateRequest(
-      request,
-      "drive",
-      request.params.org_id as DriveID
-    );
+    const { org_id } = request.params;
+    const requestBody = request.body;
+
+    // 1. Authenticate the request
+    const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -186,154 +187,110 @@ export async function listDrivesHandler(
           createApiResponse(undefined, { code: 401, message: "Unauthorized" })
         );
     }
-
-    const orgId = request.params.org_id as DriveID;
     const requesterUserId = requesterApiKey.user_id;
 
-    console.log(">>>>> requesterUserId", requesterUserId);
-    console.log(">>>>> orgId", orgId);
-
-    // Check if the user has VIEW permission on the DRIVES table
-    const canViewDrivesTable = await checkSystemPermissions(
-      `TABLE_${SystemTableValueEnum.DRIVES}` as SystemTableValueEnum,
-      requesterUserId,
-      orgId
-    );
-
-    console.log(">>>>> canViewDrivesTable", canViewDrivesTable);
-
-    // If not owner and does not have VIEW permission on the DRIVES table
-    const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
-    if (!isOwner && !canViewDrivesTable.includes(SystemPermissionType.VIEW)) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
-    }
-
-    console.log(">>>>> isOwner", isOwner);
-
-    const {
-      filters,
-      page_size = 50,
-      direction = "DESC",
-      cursor,
-    } = request.body;
-
-    // Validate request body (simplified, more robust validation needed)
-    if (page_size <= 0 || page_size > 1000) {
+    // 2. Validate request body
+    const pageSize = requestBody.page_size || 50;
+    if (pageSize === 0 || pageSize > 1000) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: "Page size must be between 1 and 1000",
+          message:
+            "Validation error: page_size - Page size must be between 1 and 1000",
         })
       );
     }
-    if (filters && filters.length > 256) {
+    if (requestBody.filters && requestBody.filters.length > 256) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: "Filters must be 256 characters or less",
+          message:
+            "Validation error: filters - Filters must be 256 characters or less",
         })
       );
     }
-    if (cursor && cursor.length > 256) {
+    if (requestBody.cursor && requestBody.cursor.length > 256) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: "Cursor must be 256 characters or less",
+          message:
+            "Validation error: cursor - Cursor must be 256 characters or less",
         })
       );
     }
 
-    let query = "SELECT * FROM drives";
-    const params: any[] = [];
+    // 3. Construct the dynamic SQL query
+    const direction = requestBody.direction || SortDirection.DESC;
+    const filters = requestBody.filters || "";
+
+    let query = `SELECT * FROM drives`;
+    const queryParams: any[] = [];
     const whereClauses: string[] = [];
 
     if (filters) {
-      // TODO: FEATURE Implement more sophisticated filtering logic based on the Rust `filters` implementation.
-      // for now just ignore and log feature not yet implemented
-      request.log.warn(
-        `[TODO: FEATURE] Filtering by '${filters}' is not yet implemented.`
-      );
+      // Assuming a simple filter on the drive's name
+      whereClauses.push(`(name LIKE ?)`);
+      queryParams.push(`%${filters}%`);
     }
 
     if (whereClauses.length > 0) {
-      query += " WHERE " + whereClauses.join(" AND ");
+      query += ` WHERE ${whereClauses.join(" AND ")}`;
     }
 
-    query += ` ORDER BY created_at ${direction === "ASC" ? "ASC" : "DESC"}`;
+    query += ` ORDER BY created_at ${direction}`;
 
-    // Implement cursor-based pagination
-    // SQLite does not have native cursor support like some other databases.
-    // We'll use LIMIT and OFFSET or WHERE clauses with the last seen value for efficient pagination.
     let offset = 0;
-    if (cursor) {
-      // Assuming cursor is an index or a timestamp for now, adjust based on actual data
-      // For simplicity, treating cursor as an offset here.
-      // In a real scenario, you'd want to use the last item's `created_at` or `id` for `keyset pagination`.
-      offset = parseInt(cursor, 10);
-      if (isNaN(offset) || offset < 0) {
+    if (requestBody.cursor) {
+      offset = parseInt(requestBody.cursor, 10);
+      if (isNaN(offset)) {
         return reply.status(400).send(
           createApiResponse(undefined, {
             code: 400,
-            message: "Invalid cursor format for pagination.",
+            message: "Invalid cursor format",
           })
         );
       }
     }
+
     query += ` LIMIT ? OFFSET ?`;
-    params.push(page_size);
-    params.push(offset);
+    queryParams.push(pageSize, offset);
 
-    const totalCountResult = await db.queryDrive(
-      orgId,
-      `SELECT COUNT(*) as count FROM drives` +
-        (whereClauses.length > 0 ? " WHERE " + whereClauses.join(" AND ") : ""),
-      params.slice(0, whereClauses.length) // Only pass filter params for count
-    );
-    const total = totalCountResult[0].count;
+    // 4. Execute the query
+    const rawDrives = await db.queryDrive(org_id, query, queryParams);
 
-    console.log(
-      `querying org ${orgId} with query ${query} and params ${params}`
-    );
+    // 5. Process and filter drives based on permissions
+    const processedDrives: DriveFE[] = [];
+    for (const drive of rawDrives) {
+      const driveRecordResourceId: string = `${drive.id}`;
 
-    // query db with error logging
-    // const drives = await db.queryDrive(orgId, query, params);
-    let drives: Drive[] = [];
-    try {
-      drives = await db.queryDrive(orgId, query, params);
-    } catch (e) {
-      request.log.error(`Error querying drives for org ${orgId}:`, e);
-      return reply.status(500).send(
-        createApiResponse(undefined, {
-          code: 500,
-          message: "Internal server error querying drives",
-        })
-      );
+      const permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+        resourceId: driveRecordResourceId,
+        granteeId: requesterUserId,
+        orgId: org_id,
+      });
+
+      if (permissions.includes(SystemPermissionType.VIEW)) {
+        processedDrives.push(
+          await castDriveToFE(drive as Drive, requesterUserId, org_id)
+        );
+      }
     }
 
-    console.log(`drives: ${JSON.stringify(drives)}`);
-
-    // Apply casting and redaction for each drive
-    const driveFEs: DriveFE[] = await Promise.all(
-      drives.map((d: Drive) => castDriveToFE(d, requesterUserId, orgId))
-    );
-
+    // 6. Handle pagination and total count
     const nextCursor =
-      offset + drives.length < total
-        ? (offset + drives.length).toString()
-        : null;
+      processedDrives.length < pageSize ? null : (offset + pageSize).toString();
+
+    const totalCountToReturn = processedDrives.length;
 
     return reply.status(200).send(
-      createApiResponse({
-        items: driveFEs,
-        page_size: driveFEs.length,
-        total: total,
+      createApiResponse<IPaginatedResponse<DriveFE>>({
+        items: processedDrives,
+        page_size: processedDrives.length,
+        total: totalCountToReturn,
         direction: direction,
-        cursor: nextCursor,
-      } as IPaginatedResponse<DriveFE>) // Cast to the correct paginated response type
+        cursor: nextCursor || undefined,
+      })
     );
   } catch (error) {
     request.log.error("Error in listDrivesHandler:", error);
@@ -368,17 +325,16 @@ export async function createDriveHandler(
     const requesterUserId = requesterApiKey.user_id;
 
     // Check for CREATE permission on the DRIVES table
-    const hasCreatePermission = await checkSystemPermissions(
-      `TABLE_${SystemTableValueEnum.DRIVES}` as SystemTableValueEnum,
-      requesterUserId,
-      orgId
-    );
+    const hasCreatePermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
+    ).includes(SystemPermissionType.CREATE);
 
     const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
-    if (
-      !isOwner &&
-      !hasCreatePermission.includes(SystemPermissionType.CREATE)
-    ) {
+    if (!isOwner && !hasCreatePermission) {
       return reply
         .status(403)
         .send(
@@ -663,14 +619,17 @@ export async function updateDriveHandler(
     const currentDrive = existingDrives[0] as Drive;
 
     // Check for EDIT permission on this specific drive record
-    const hasEditPermission = await checkSystemPermissions(
-      id, // SystemResourceID for the record is the full ID like DriveID_xyz
-      requesterUserId,
-      orgId
-    );
+    const hasEditPermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+        resourceId: `${currentDrive.id}` as SystemResourceID,
+        granteeId: requesterUserId,
+        orgId: orgId,
+      })
+    ).includes(SystemPermissionType.EDIT);
 
     const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
-    if (!isOwner && !hasEditPermission.includes(SystemPermissionType.EDIT)) {
+    if (!isOwner && !hasEditPermission) {
       return reply
         .status(403)
         .send(
@@ -812,17 +771,17 @@ export async function deleteDriveHandler(
     }
 
     // Check for DELETE permission on this specific drive record
-    const hasDeletePermission = await checkSystemPermissions(
-      id, // SystemResourceID for the record is the full ID like DriveID_xyz
-      requesterUserId,
-      orgId
-    );
+    const hasDeletePermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+        resourceId: `${id}` as SystemResourceID,
+        granteeId: requesterUserId,
+        orgId: orgId,
+      })
+    ).includes(SystemPermissionType.DELETE);
 
     const isOwner = requesterUserId === (await getDriveOwnerId(orgId));
-    if (
-      !isOwner &&
-      !hasDeletePermission.includes(SystemPermissionType.DELETE)
-    ) {
+    if (!isOwner && !hasDeletePermission) {
       return reply
         .status(403)
         .send(

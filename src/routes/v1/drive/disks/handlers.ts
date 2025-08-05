@@ -33,21 +33,14 @@ import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
 import { createApiResponse, getDriveOwnerId } from "../../types";
 import {
-  checkSystemPermissions as checkSystemPermissionsService,
-  canUserAccessSystemPermission as canUserAccessSystemPermissionService,
   redactLabelValue,
+  checkSystemPermissions,
 } from "../../../../services/permissions/system";
-import {
-  checkDirectoryPermissions,
-  deriveBreadcrumbVisibilityPreviews,
-} from "../../../../services/permissions/directory";
-import { clipDirectoryPath } from "../../../../services/directory/internals";
 import {
   claimUUID,
   isUUIDClaimed,
   updateExternalIDMapping,
 } from "../../../../services/external";
-import Database from "better-sqlite3";
 
 // --- Helper Types for Request Params ---
 
@@ -344,11 +337,14 @@ export async function getDiskHandler(
 
     const disk = disks[0] as Disk;
 
-    const canAccessDisk = await canUserAccessSystemPermissionService(
-      `${disk_id}` as SystemResourceID, // Construct SystemResourceID for record
-      requesterApiKey.user_id,
-      org_id
-    );
+    const canAccessDisk = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+        resourceId: `${disk_id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.VIEW);
 
     if (!canAccessDisk && !isOwner) {
       return reply
@@ -359,30 +355,12 @@ export async function getDiskHandler(
     }
 
     // Determine permission_previews using the actual permission service
-    const permissionPreviews = isOwner
-      ? [
-          SystemPermissionType.CREATE,
-          SystemPermissionType.EDIT,
-          SystemPermissionType.DELETE,
-          SystemPermissionType.VIEW,
-          SystemPermissionType.INVITE,
-        ]
-      : await Promise.resolve().then(async () => {
-          // Use Promise.resolve().then for async operations
-          const recordPermissions = await checkSystemPermissionsService(
-            `${disk_id}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          const tablePermissions = await checkSystemPermissionsService(
-            `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          return Array.from(
-            new Set([...recordPermissions, ...tablePermissions])
-          );
-        });
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+      resourceId: `${disk_id}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
+    });
 
     // Cast to DiskFE and redact sensitive fields based on permissions
     const diskFE: DiskFE = {
@@ -429,9 +407,7 @@ export async function listDisksHandler(
 ): Promise<void> {
   try {
     const { org_id } = request.params;
-    const body = request.body;
 
-    // Authenticate request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -441,49 +417,60 @@ export async function listDisksHandler(
         );
     }
 
-    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
+    const requestBody = request.body;
 
-    // Validate request body
-    const validation = validateListDisksRequest(body);
-    if (!validation.valid) {
+    if (requestBody.filters && requestBody.filters.length > 256) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: validation.error!,
+          message:
+            "Validation error: filters - Filters must be 256 characters or less",
         })
       );
     }
 
-    const hasTablePermission = await checkSystemPermissionsService(
-      `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-      requesterApiKey.user_id,
-      org_id
-    ).then((perms) => perms.includes(SystemPermissionType.VIEW));
-
-    // If not owner and no table view permission, return forbidden
-    if (!isOwner && !hasTablePermission) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+    const pageSize = requestBody.page_size || 50;
+    if (pageSize === 0 || pageSize > 1000) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: page_size - Page size must be between 1 and 1000",
+        })
+      );
     }
 
-    // SQL query for listing disks. Filters and pagination need to be handled carefully.
-    // The Rust code iterates through a StableVec and then filters. For SQLite,
-    // we should leverage SQL's WHERE, ORDER BY, LIMIT, and OFFSET.
-    let sql = `SELECT * FROM disks`;
-    const params: any[] = [];
-    const orderBy =
-      body.direction === SortDirection.DESC
-        ? "created_at DESC"
-        : "created_at ASC"; // Assuming sort by created_at
-    const pageSize = body.page_size || 50;
-    let offset = 0;
+    if (requestBody.cursor && requestBody.cursor.length > 256) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: cursor - Cursor must be 256 characters or less",
+        })
+      );
+    }
 
-    // Handle cursor for pagination. Rust's cursor is an index.
-    if (body.cursor) {
-      offset = parseInt(body.cursor, 10);
+    const direction = requestBody.direction || SortDirection.DESC;
+    const filters = requestBody.filters || "";
+
+    let query = `SELECT * FROM disks`;
+    const queryParams: any[] = [];
+    const whereClauses: string[] = [];
+
+    if (filters) {
+      whereClauses.push(`(name LIKE ?)`);
+      queryParams.push(`%${filters}%`);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY created_at ${direction}`;
+
+    let offset = 0;
+    if (requestBody.cursor) {
+      offset = parseInt(requestBody.cursor, 10);
       if (isNaN(offset)) {
         return reply.status(400).send(
           createApiResponse(undefined, {
@@ -494,91 +481,43 @@ export async function listDisksHandler(
       }
     }
 
-    // TODO: FEATURE: Implement filtering based on `body.filters`. This requires parsing the filter string.
-    // For now, assuming no filters are applied to the SQL directly.
-    if (body.filters && body.filters.length > 0) {
-      // This is a placeholder. Real filtering logic would be complex.
-      // E.g., `sql += " WHERE name LIKE ?"`, `params.push(`%${body.filters}%`)`
-      request.log.warn(
-        `[TODO: FEATURE] Filtering by '${body.filters}' is not yet implemented.`
-      );
-    }
+    query += ` LIMIT ? OFFSET ?`;
+    queryParams.push(pageSize, offset);
 
-    sql += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
-    params.push(pageSize + 1, offset); // Fetch one extra to check for next cursor
+    const rawDisks = await db.queryDrive(org_id, query, queryParams);
 
-    const allDisks = await db.queryDrive(org_id, sql, params);
+    const processedDisks: DiskFE[] = [];
+    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    let itemsToReturn: Disk[] = [];
-    let nextCursor: string | null = null;
-    let totalCount = 0; // This will be the actual count in the DB if the user has permission
+    for (const disk of rawDisks) {
+      const diskRecordResourceId: string = `${disk.id}`;
 
-    if (allDisks.length > pageSize) {
-      nextCursor = (offset + pageSize).toString();
-      itemsToReturn = allDisks.slice(0, pageSize) as Disk[];
-    } else {
-      itemsToReturn = allDisks as Disk[];
-    }
+      const permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+        resourceId: diskRecordResourceId,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      });
 
-    // Get total count for the response (this part of Rust logic is tricky)
-    if (isOwner || hasTablePermission) {
-      // If owner or has table view permission, get actual total count
-      const totalResult = await db.queryDrive(
-        org_id,
-        "SELECT COUNT(*) as count FROM disks"
-      );
-      totalCount = totalResult[0].count;
-    } else {
-      // If limited permissions, total count is an approximation.
-      // Rust's logic `total_count_to_return = filtered_disks.len() + 1;` if next_cursor is Some
-      totalCount = itemsToReturn.length;
-      if (nextCursor) {
-        totalCount += 1; // Indicate there might be more
-      }
-    }
-
-    const redactedDisks = await Promise.all(
-      itemsToReturn.map(async (disk) => {
+      if (permissions.includes(SystemPermissionType.VIEW)) {
         const diskFE: DiskFE = {
-          ...disk,
+          ...(disk as Disk),
           labels: [],
-          permission_previews: isOwner
-            ? [
-                SystemPermissionType.CREATE,
-                SystemPermissionType.EDIT,
-                SystemPermissionType.DELETE,
-                SystemPermissionType.VIEW,
-                SystemPermissionType.INVITE,
-              ]
-            : await Promise.resolve().then(async () => {
-                const recordPermissions = await checkSystemPermissionsService(
-                  `${disk.id}` as SystemResourceID,
-                  requesterApiKey.user_id,
-                  org_id
-                );
-                const tablePermissions = await checkSystemPermissionsService(
-                  `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-                  requesterApiKey.user_id,
-                  org_id
-                );
-                return Array.from(
-                  new Set([...recordPermissions, ...tablePermissions])
-                );
-              }),
+          permission_previews: permissions,
         };
-        // Apply redaction
-        if (
-          !isOwner &&
-          !diskFE.permission_previews.includes(SystemPermissionType.EDIT)
-        ) {
+
+        // Redaction logic based on EDIT permission
+        if (!permissions.includes(SystemPermissionType.EDIT)) {
           diskFE.auth_json = undefined;
           diskFE.private_note = undefined;
         }
+
         const listDiskLabelsRaw = await db.queryDrive(
           org_id,
           `SELECT T2.value FROM disk_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.disk_id = ?`,
           [disk.id]
         );
+
         diskFE.labels = (
           await Promise.all(
             listDiskLabelsRaw.map((row: any) =>
@@ -586,19 +525,25 @@ export async function listDisksHandler(
             )
           )
         ).filter((label): label is string => label !== null);
-        return diskFE;
+
+        processedDisks.push(diskFE);
+      }
+    }
+
+    const nextCursor =
+      processedDisks.length < pageSize ? null : (offset + pageSize).toString();
+
+    const totalCountToReturn = processedDisks.length;
+
+    return reply.status(200).send(
+      createApiResponse<IPaginatedResponse<DiskFE>>({
+        items: processedDisks,
+        page_size: processedDisks.length,
+        total: totalCountToReturn,
+        direction: direction,
+        cursor: nextCursor || undefined,
       })
     );
-
-    const responseData: IPaginatedResponse<DiskFE> = {
-      items: redactedDisks,
-      page_size: itemsToReturn.length,
-      total: totalCount,
-      direction: body.direction || SortDirection.ASC, // Default as per Rust's default
-      cursor: nextCursor || undefined,
-    };
-
-    return reply.status(200).send(createApiResponse(responseData));
   } catch (error) {
     request.log.error("Error in listDisksHandler:", error);
     return reply.status(500).send(
@@ -638,18 +583,15 @@ export async function createDiskHandler(
         })
       );
     }
-    const userPermissions = await checkSystemPermissionsService(
-      `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-      requesterApiKey.user_id,
-      org_id
-    );
 
-    console.log(`userPermissions==`, userPermissions);
-
-    const hasCreatePermission =
-      isOwner || userPermissions.includes(SystemPermissionType.CREATE);
-
-    console.log(`hasCreatePermission==`, hasCreatePermission);
+    const hasCreatePermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+        resourceId: `${body.id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.CREATE);
 
     if (!hasCreatePermission) {
       return reply
@@ -862,42 +804,22 @@ export async function createDiskHandler(
       `${requesterApiKey.user_id}: Create Disk ${newDisk.id}`
     );
 
-    const permissionPreviews = isOwner
-      ? [
-          SystemPermissionType.CREATE,
-          SystemPermissionType.EDIT,
-          SystemPermissionType.DELETE,
-          SystemPermissionType.VIEW,
-          SystemPermissionType.INVITE,
-        ]
-      : await Promise.resolve().then(async () => {
-          const recordPermissions = await checkSystemPermissionsService(
-            `${diskId}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          const tablePermissions = await checkSystemPermissionsService(
-            `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          return Array.from(
-            new Set([...recordPermissions, ...tablePermissions])
-          );
-        });
+    const permissions = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+      resourceId: `${newDisk.id}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
+    });
+
+    if (!isOwner && !permissions.includes(SystemPermissionType.CREATE)) {
+      newDisk.auth_json = undefined;
+      newDisk.private_note = undefined;
+    }
 
     const diskFE: DiskFE = {
       ...newDisk,
-      permission_previews: permissionPreviews,
+      permission_previews: permissions,
     };
-
-    if (
-      !isOwner &&
-      !diskFE.permission_previews.includes(SystemPermissionType.EDIT)
-    ) {
-      diskFE.auth_json = undefined;
-      diskFE.private_note = undefined;
-    }
 
     const createDiskLabelsRaw = await db.queryDrive(
       org_id,
@@ -974,23 +896,14 @@ export async function updateDiskHandler(
     }
     const existingDisk = existingDisks[0] as Disk;
 
-    const hasEditPermission = await Promise.resolve().then(async () => {
-      const recordPermissions = await checkSystemPermissionsService(
-        `${diskId}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      const tablePermissions = await checkSystemPermissionsService(
-        `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      return (
-        recordPermissions.includes(SystemPermissionType.EDIT) ||
-        tablePermissions.includes(SystemPermissionType.EDIT)
-      );
-    });
-
+    const hasEditPermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+        resourceId: `${existingDisk.id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.EDIT);
     // Check update permission if not owner
     if (!isOwner && !hasEditPermission) {
       return reply
@@ -1072,31 +985,16 @@ export async function updateDiskHandler(
     );
     const updatedDisk = updatedDisks[0] as Disk;
 
+    const permission_previews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+      resourceId: `${updatedDisk.id}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
+    });
+
     const diskFE: DiskFE = {
       ...updatedDisk,
-      permission_previews: isOwner
-        ? [
-            SystemPermissionType.CREATE,
-            SystemPermissionType.EDIT,
-            SystemPermissionType.DELETE,
-            SystemPermissionType.VIEW,
-            SystemPermissionType.INVITE,
-          ]
-        : await Promise.resolve().then(async () => {
-            const recordPermissions = await checkSystemPermissionsService(
-              `${diskId}` as SystemResourceID,
-              requesterApiKey.user_id,
-              org_id
-            );
-            const tablePermissions = await checkSystemPermissionsService(
-              `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-              requesterApiKey.user_id,
-              org_id
-            );
-            return Array.from(
-              new Set([...recordPermissions, ...tablePermissions])
-            );
-          }),
+      permission_previews,
     };
     // Redaction logic
     if (
@@ -1166,21 +1064,11 @@ export async function deleteDiskHandler(
 
     const diskId = body.id;
 
-    const hasDeletePermission = await Promise.resolve().then(async () => {
-      const recordPermissions = await checkSystemPermissionsService(
-        `${diskId}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      const tablePermissions = await checkSystemPermissionsService(
-        `TABLE_${SystemTableValueEnum.DISKS}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      return (
-        recordPermissions.includes(SystemPermissionType.DELETE) ||
-        tablePermissions.includes(SystemPermissionType.DELETE)
-      );
+    const hasDeletePermission = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.DISKS}`,
+      resourceId: `${diskId}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
     });
 
     // Check delete permission if not owner

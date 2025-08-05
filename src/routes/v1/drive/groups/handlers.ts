@@ -22,6 +22,8 @@ import {
   GroupRole,
   GroupMemberPreview,
   GroupInviteeTypeEnum,
+  IPaginatedResponse,
+  SortDirection,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -47,7 +49,7 @@ interface GetGroupParams extends OrgIdParams {
 interface ListGroupsBody {
   filters?: string;
   page_size?: number;
-  direction?: "ASC" | "DESC";
+  direction?: SortDirection;
   cursor?: string;
 }
 
@@ -181,27 +183,19 @@ export async function getGroupHandler(
     ); // Checks group_invites
 
     const canViewGroupRecordViaPermissions = (
-      await checkSystemPermissions(
-        groupId as SystemResourceID, // GroupID is a SystemRecordIDEnum
-        currentUserId,
-        orgId
-      )
-    ).includes(SystemPermissionType.VIEW);
-
-    const canViewGroupsTableViaPermissions = (
-      await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: `${groupId}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.VIEW);
 
     if (
       !isOrgOwner &&
       !isGroupAdminStatus &&
       !isGroupMemberStatus &&
-      !canViewGroupRecordViaPermissions &&
-      !canViewGroupsTableViaPermissions
+      !canViewGroupRecordViaPermissions
     ) {
       return reply
         .status(403)
@@ -268,11 +262,12 @@ export async function getGroupHandler(
     } // End of for loop
 
     // PERMIT: Get permission previews for the current user on this group record
-    let permissionPreviews = await checkSystemPermissions(
-      groupId as SystemResourceID, // GroupID is a SystemRecordIDEnum
-      currentUserId,
-      orgId
-    );
+    let permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+      resourceId: `${groupId}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: orgId,
+    });
 
     const isAdmin = await isGroupAdmin(currentUserId, groupId, orgId);
 
@@ -309,11 +304,11 @@ export async function listGroupsHandler(
   reply: FastifyReply
 ): Promise<void> {
   try {
-    const requesterApiKey = await authenticateRequest(
-      request,
-      "drive",
-      request.params.org_id
-    );
+    const { org_id } = request.params;
+    const requestBody = request.body || {};
+
+    // 1. Authenticate the request
+    const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
         .status(401)
@@ -321,223 +316,104 @@ export async function listGroupsHandler(
           createApiResponse(undefined, { code: 401, message: "Unauthorized" })
         );
     }
+    const requesterUserId = requesterApiKey.user_id;
 
-    const body = request.body || {};
-    const pageSize = body.page_size || 50;
-    const direction = body.direction || "DESC";
-    const cursor = body.cursor;
-    const currentUserId = requesterApiKey.user_id;
-    const orgId = request.params.org_id as DriveID;
-
-    // PERMIT: Check if the user is the org owner, or has VIEW permission on the Groups table.
-    const isOrgOwner =
-      (
-        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId;
-
-    const canViewGroupsTable = (
-      await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
-        currentUserId,
-        orgId
-      )
-    ).includes(SystemPermissionType.VIEW);
-
-    if (!isOrgOwner && !canViewGroupsTable) {
-      // If user doesn't have general table view permission,
-      // we still need to check groups they are a member of.
-      // This is implicit in the full Rust logic via checkSystemPermissions,
-      // but for list, we perform a broader filter.
-      // For now, if no table permission, only return groups they are a member of.
-      let memberGroupsQuery = `
-          SELECT DISTINCT g.*
-          FROM groups g
-          JOIN group_invites gi ON g.id = gi.group_id
-          WHERE gi.invitee_id = ? AND gi.invitee_type = ?
-          AND gi.active_from <= ? AND (gi.expires_at <= 0 OR gi.expires_at > ?)
-        `;
-      const memberGroupsParams: any[] = [
-        currentUserId,
-        GroupInviteeTypeEnum.USER,
-        Date.now(),
-        Date.now(),
-      ];
-
-      let memberGroupsCountQuery = `
-        SELECT COUNT(DISTINCT g.id) AS total
-        FROM groups g
-        JOIN group_invites gi ON g.id = gi.group_id
-        WHERE gi.invitee_id = ? AND gi.invitee_type = ?
-        AND gi.active_from <= ? AND (gi.expires_at <= 0 OR gi.expires_at > ?)
-      `;
-      const memberGroupsCountParams: any[] = [
-        currentUserId,
-        GroupInviteeTypeEnum.USER,
-        Date.now(),
-        Date.now(),
-      ];
-
-      if (cursor) {
-        memberGroupsQuery += ` AND g.created_at ${direction === "ASC" ? ">" : "<"} ?`;
-        memberGroupsParams.push(cursor);
-      }
-      memberGroupsQuery += ` ORDER BY g.created_at ${direction} LIMIT ?`;
-      memberGroupsParams.push(pageSize + 1);
-
-      const memberGroups = await db.queryDrive(
-        orgId,
-        memberGroupsQuery,
-        memberGroupsParams
-      );
-      const memberGroupsTotalResult = await db.queryDrive(
-        orgId,
-        memberGroupsCountQuery,
-        memberGroupsCountParams
-      );
-      const memberGroupsTotal = memberGroupsTotalResult[0]?.total || 0;
-
-      const hasMoreMemberGroups = memberGroups.length > pageSize;
-      if (hasMoreMemberGroups) {
-        memberGroups.pop();
-      }
-
-      const memberGroupsFE = await Promise.all(
-        memberGroups.map(async (groupData: Group) => {
-          const groupObj = await getGroupById(groupData.id, orgId); // Get full group object
-          const memberPreviews: GroupMemberPreview[] = [];
-          if (groupObj) {
-            // Should always exist if retrieved from DB
-            // Populate member previews from group_invites for this group
-            for (const inviteId of [
-              ...new Set([
-                ...groupObj.admin_invites,
-                ...groupObj.member_invites,
-              ]),
-            ]) {
-              const invite = await getGroupInviteById(inviteId, orgId);
-
-              if (!invite) {
-                continue;
-              }
-
-              let inviteeName: string = "";
-              let inviteeAvatar: string | null = null;
-              let lastOnlineMs: number = 0;
-
-              if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
-                const contactInfo = await db.queryDrive(
-                  orgId,
-                  "SELECT name, avatar, last_online_ms FROM contacts WHERE id = ?",
-                  [invite.invitee_id]
-                );
-                const contact = contactInfo[0];
-
-                if (contact) {
-                  inviteeName = contact.name;
-                  inviteeAvatar = contact.avatar;
-                  lastOnlineMs = contact.last_online_ms;
-                } else {
-                  inviteeName = `Unknown User (${invite.invitee_id})`;
-                  inviteeAvatar = null;
-                  lastOnlineMs = 0;
-                }
-              } else if (invite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
-                // Handled by initial defaults
-              } else if (
-                invite.invitee_id.startsWith(
-                  IDPrefixEnum.PlaceholderGroupInviteeID
-                )
-              ) {
-                // Handled by initial defaults
-              }
-
-              memberPreviews.push({
-                user_id: invite.invitee_id as UserID,
-                name: inviteeName,
-                note: invite.note,
-                avatar: inviteeAvatar || undefined,
-                group_id: invite.group_id,
-                is_admin: invite.role === GroupRole.ADMIN,
-                invite_id: invite.id,
-                last_online_ms: lastOnlineMs,
-              });
-            }
-          }
-
-          const permissionPreviews = await checkSystemPermissions(
-            groupData.id as SystemResourceID,
-            currentUserId,
-            orgId
-          );
-
-          return {
-            ...groupData,
-            member_previews: memberPreviews,
-            permission_previews: permissionPreviews,
-          };
+    // 2. Validate request body
+    const pageSize = requestBody.page_size || 50;
+    if (pageSize === 0 || pageSize > 1000) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: page_size - Page size must be between 1 and 1000",
         })
       );
-
-      const nextCursorMemberGroups =
-        hasMoreMemberGroups && memberGroups.length > 0
-          ? memberGroups[memberGroups.length - 1].created_at.toString()
-          : null;
-
-      return reply.status(200).send(
-        createApiResponse({
-          items: memberGroupsFE,
-          page_size: pageSize,
-          total: memberGroupsTotal,
-          direction,
-          cursor: nextCursorMemberGroups,
+    }
+    if (requestBody.filters && requestBody.filters.length > 256) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: filters - Filters must be 256 characters or less",
+        })
+      );
+    }
+    if (requestBody.cursor && requestBody.cursor.length > 256) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: cursor - Cursor must be 256 characters or less",
         })
       );
     }
 
-    // Full access (owner or has table permission)
-    let query = `
-      SELECT id, name, owner, avatar, public_note, private_note, created_at, last_modified_at, drive_id, endpoint_url, external_id, external_payload
-      FROM groups g
-      WHERE 1=1
-    `;
-    const params: any[] = [];
+    // 3. Construct the dynamic SQL query
+    const direction = requestBody.direction || SortDirection.DESC;
+    const filters = requestBody.filters || "";
 
-    if (cursor) {
-      query += ` AND g.created_at ${direction === "ASC" ? ">" : "<"} ?`;
-      params.push(cursor);
+    let query = `SELECT * FROM groups`;
+    const queryParams: any[] = [];
+    const whereClauses: string[] = [];
+
+    if (filters) {
+      // Assuming a simple filter on the group's name
+      whereClauses.push(`(name LIKE ?)`);
+      queryParams.push(`%${filters}%`);
     }
 
-    query += ` ORDER BY g.created_at ${direction} LIMIT ?`;
-    params.push(pageSize + 1); // Get one extra to check if there are more
-
-    const groups = await db.queryDrive(orgId, query, params);
-
-    const hasMore = groups.length > pageSize;
-    if (hasMore) {
-      groups.pop(); // Remove the extra item
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(" AND ")}`;
     }
 
-    // Get total count
-    const countResult = await db.queryDrive(
-      orgId,
-      "SELECT COUNT(*) as total FROM groups"
-    );
-    const total = countResult[0]?.total || 0;
+    query += ` ORDER BY created_at ${direction}`;
 
-    // Convert to GroupFE format
-    const groupsFE = await Promise.all(
-      groups.map(async (groupData: Group) => {
-        const groupObj = await getGroupById(groupData.id, orgId); // Get full group object
+    let offset = 0;
+    if (requestBody.cursor) {
+      offset = parseInt(requestBody.cursor, 10);
+      if (isNaN(offset)) {
+        return reply.status(400).send(
+          createApiResponse(undefined, {
+            code: 400,
+            message: "Invalid cursor format",
+          })
+        );
+      }
+    }
+
+    query += ` LIMIT ? OFFSET ?`;
+    queryParams.push(pageSize, offset);
+
+    // 4. Execute the query
+    const rawGroups = await db.queryDrive(org_id, query, queryParams);
+
+    // 5. Process and filter groups based on permissions
+    const processedGroups: GroupFE[] = [];
+
+    for (const group of rawGroups) {
+      const groupRecordResourceId: string = `${group.id}`;
+
+      const permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: groupRecordResourceId,
+        granteeId: requesterUserId,
+        orgId: org_id,
+      });
+
+      if (permissions.includes(SystemPermissionType.VIEW)) {
+        // Build the member previews for each group
+        const groupObj = await getGroupById(group.id, org_id);
         const memberPreviews: GroupMemberPreview[] = [];
         if (groupObj) {
-          for (const inviteId of [
-            ...new Set([...groupObj.admin_invites, ...groupObj.member_invites]),
-          ]) {
-            const invite = await getGroupInviteById(inviteId, orgId);
+          const inviteIds = new Set([
+            ...groupObj.admin_invites,
+            ...groupObj.member_invites,
+          ]);
 
-            if (!invite) {
-              continue;
-            }
+          for (const inviteId of inviteIds) {
+            const invite = await getGroupInviteById(inviteId, org_id);
+
+            if (!invite) continue;
 
             let inviteeName: string = "";
             let inviteeAvatar: string | null = null;
@@ -545,7 +421,7 @@ export async function listGroupsHandler(
 
             if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
               const contactInfo = await db.queryDrive(
-                orgId,
+                org_id,
                 "SELECT name, avatar, last_online_ms FROM contacts WHERE id = ?",
                 [invite.invitee_id]
               );
@@ -560,17 +436,21 @@ export async function listGroupsHandler(
                 lastOnlineMs = 0;
               }
             } else if (invite.invitee_id === GroupInviteeTypeEnum.PUBLIC) {
-              // Handled by initial defaults
+              inviteeName = "Public";
+              inviteeAvatar = null;
+              lastOnlineMs = 0;
             } else if (
               invite.invitee_id.startsWith(
                 IDPrefixEnum.PlaceholderGroupInviteeID
               )
             ) {
-              // Handled by initial defaults
+              inviteeName = "Placeholder";
+              inviteeAvatar = null;
+              lastOnlineMs = 0;
             }
 
             memberPreviews.push({
-              user_id: invite.invitee_id as UserID,
+              user_id: invite.invitee_id,
               name: inviteeName,
               note: invite.note,
               avatar: inviteeAvatar || undefined,
@@ -582,32 +462,27 @@ export async function listGroupsHandler(
           }
         }
 
-        const permissionPreviews = await checkSystemPermissions(
-          groupData.id as SystemResourceID,
-          currentUserId,
-          orgId
-        );
-
-        return {
-          ...groupData,
+        processedGroups.push({
+          ...(group as Group),
           member_previews: memberPreviews,
-          permission_previews: permissionPreviews,
-        };
-      })
-    );
+          permission_previews: permissions,
+        });
+      }
+    }
 
+    // 6. Handle pagination and total count
     const nextCursor =
-      hasMore && groups.length > 0
-        ? groups[groups.length - 1].created_at.toString()
-        : null;
+      processedGroups.length < pageSize ? null : (offset + pageSize).toString();
+
+    const totalCountToReturn = processedGroups.length;
 
     return reply.status(200).send(
-      createApiResponse({
-        items: groupsFE,
-        page_size: pageSize,
-        total,
-        direction,
-        cursor: nextCursor,
+      createApiResponse<IPaginatedResponse<GroupFE>>({
+        items: processedGroups,
+        page_size: processedGroups.length,
+        total: totalCountToReturn,
+        direction: direction,
+        cursor: nextCursor || undefined,
       })
     );
   } catch (error) {
@@ -660,11 +535,11 @@ export async function createGroupHandler(
         await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
       )[0]?.owner_id === currentUserId;
     const canCreateGroup = (
-      await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.CREATE);
 
     if (!isOrgOwner && !canCreateGroup) {
@@ -788,11 +663,11 @@ export async function createGroupHandler(
     }
 
     // PERMIT: Get permission previews for the current user on the newly created group record
-    const permissionPreviews = await checkSystemPermissions(
-      group.id as SystemResourceID,
-      currentUserId,
-      orgId
-    );
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+      granteeId: requesterApiKey.user_id,
+      orgId: orgId,
+    });
 
     const groupFE: GroupFE = {
       ...group,
@@ -870,11 +745,12 @@ export async function updateGroupHandler(
     );
 
     const canEditGroupViaPermissions = (
-      await checkSystemPermissions(
-        group.id as SystemResourceID,
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: `${group.id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.EDIT);
 
     if (!isOrgOwner && !isGroupAdminStatus && !canEditGroupViaPermissions) {
@@ -995,11 +871,12 @@ export async function updateGroupHandler(
     }
 
     // PERMIT: Get permission previews for the current user on the updated group record
-    const permissionPreviews = await checkSystemPermissions(
-      updatedGroup.id as SystemResourceID,
-      currentUserId,
-      orgId
-    );
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+      resourceId: `${updatedGroup.id}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: orgId,
+    });
 
     const groupFE: GroupFE = {
       ...updatedGroup,
@@ -1066,11 +943,12 @@ export async function deleteGroupHandler(
     );
 
     const canDeleteGroupViaPermissions = (
-      await checkSystemPermissions(
-        group.id as SystemResourceID,
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: `${group.id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.DELETE);
 
     if (!isOrgOwner && !isGroupAdminStatus && !canDeleteGroupViaPermissions) {
@@ -1168,7 +1046,7 @@ export async function validateGroupMemberHandler(
     };
 
     if (isMember) {
-      return reply.status(200).send(createApiResponse(responseData));
+      return reply.status(200).send(responseData);
     } else {
       return reply.status(403).send(
         createApiResponse(undefined, {

@@ -24,16 +24,14 @@ import {
   SearchCategoryEnum,
   SortDirection,
   SystemPermissionType, // Import SystemPermissionType
-  SystemTableValueEnum, // Import SystemTableValueEnum
+  SystemTableValueEnum,
+  SystemResourceID, // Import SystemTableValueEnum
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 import { DriveID, UserID, IDPrefixEnum } from "@officexapp/types";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
-import {
-  checkSystemPermissions,
-  checkPermissionsTableAccess,
-} from "../../../../services/permissions/system"; // Import permission checks
+import { checkSystemPermissions } from "../../../../services/permissions/system"; // Import permission checks
 import { getFactorySnapshot } from "../../../../services/snapshot/factory";
 import {
   DriveStateSnapshot,
@@ -64,12 +62,14 @@ export async function aboutDriveHandler(
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    // PERMIT: Implement permission checks using `checkPermissionsTableAccess`
-    const hasViewPermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.VIEW,
-      org_id
-    );
+    const hasViewPermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+        resourceId: `${org_id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.VIEW);
 
     if (!isOwner && !hasViewPermission) {
       request.log.warn(
@@ -326,11 +326,14 @@ export async function reindexDriveHandler(
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
     // PERMIT: Implement permission checks using `checkPermissionsTableAccess`
-    const hasEditPermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.EDIT,
-      org_id
-    );
+    const hasEditPermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+        resourceId: `${org_id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.VIEW);
 
     if (!isOwner && !hasEditPermission) {
       return reply
@@ -414,11 +417,14 @@ export async function externalIdDriveHandler(
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
     // PERMIT: Implement permission checks using `checkPermissionsTableAccess`
-    const hasViewPermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.VIEW,
-      org_id
-    );
+    const hasViewPermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+        resourceId: `${org_id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.VIEW);
 
     if (!isOwner && !hasViewPermission) {
       return reply
@@ -1142,12 +1148,13 @@ export async function inboxDriveHandler(
     }
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    // PERMIT: Implement permission checks.
-    const hasCreatePermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.CREATE,
-      org_id
-    );
+    const hasCreatePermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.INBOX}`,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.CREATE);
 
     if (!isOwner && !hasCreatePermission) {
       return reply

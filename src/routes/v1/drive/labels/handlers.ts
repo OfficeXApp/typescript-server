@@ -37,7 +37,6 @@ import { getDriveOwnerId, OrgIdParams } from "../../types";
 // Import the actual permission checking functions
 import {
   checkSystemPermissions,
-  checkSystemResourcePermissionsLabels,
   redactLabelValue,
 } from "../../../../services/permissions/system";
 import {
@@ -141,30 +140,23 @@ async function castLabelToLabelFE(
   // Get user's system permissions for this label record
   const labelSystemResourceId = `${label.id}`;
 
-  const recordPermissions = await checkSystemPermissions(
-    labelSystemResourceId,
-    requesterUserId,
-    orgId
-  );
-  const tablePermissions = await checkSystemPermissions(
-    `TABLE_${SystemTableValueEnum.LABELS}`,
-    requesterUserId,
-    orgId
-  );
+  const permissions = await checkSystemPermissions({
+    resourceTable: `TABLE_${SystemTableValueEnum.LABELS}`,
+    resourceId: `${label.id}` as SystemResourceID,
+    granteeId: requesterUserId,
+    orgId: orgId,
+  });
   // Also include label-specific permissions
-  const labelPrefixPermissions = await checkSystemResourcePermissionsLabels(
-    `TABLE_${SystemTableValueEnum.LABELS}`,
-    requesterUserId,
-    label.value,
-    orgId
-  );
+  const labelPrefixPermissions: SystemPermissionType[] = [];
+  //  await _checkSystemResourcePermissionsLabels(
+  //   `TABLE_${SystemTableValueEnum.LABELS}`,
+  //   requesterUserId,
+  //   label.value,
+  //   orgId
+  // );
 
   const permissionPreviews: SystemPermissionType[] = Array.from(
-    new Set([
-      ...recordPermissions,
-      ...tablePermissions,
-      ...labelPrefixPermissions,
-    ])
+    new Set([...permissions, ...labelPrefixPermissions])
   );
 
   // Fetch associated resources from junction tables
@@ -364,36 +356,29 @@ export async function getLabelHandler(
 
     // Permissions check: If not owner, explicitly check view permissions.
     if (!isOwner) {
-      const tablePermissions = await checkSystemPermissions(
-        // SystemResourceID for a table: TABLE_TABLE_NAME
-        `TABLE_${SystemTableValueEnum.LABELS}`,
-        requesterApiKey.user_id,
-        org_id
-      );
+      const tablePermissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.LABELS}`,
+        resourceId: `${label.id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      });
 
       const labelRecordId = `${IDPrefixEnum.LabelID}${label.id}`;
 
-      const resourcePermissions = await checkSystemPermissions(
-        // SystemResourceID for a record: RecordID_UUID
-        labelRecordId,
-        requesterApiKey.user_id,
-        org_id
-      );
-
-      const labelPrefixPermissions = await checkSystemResourcePermissionsLabels(
-        // The resource here is implicitly the Labels table, but with a label value filter.
-        // Rust's `check_system_resource_permissions_labels` takes SystemResourceID
-        // and checks metadata type `Labels` with `LabelStringValuePrefix`.
-        // A common pattern is to check against the general table (LABELS) for label-specific rules.
-        `TABLE_${SystemTableValueEnum.LABELS}`,
-        requesterApiKey.user_id,
-        label.value,
-        org_id
-      );
+      const labelPrefixPermissions: SystemPermissionType[] = [];
+      //  = await _checkSystemResourcePermissionsLabels(
+      //   // The resource here is implicitly the Labels table, but with a label value filter.
+      //   // Rust's `check_system_resource_permissions_labels` takes SystemResourceID
+      //   // and checks metadata type `Labels` with `LabelStringValuePrefix`.
+      //   // A common pattern is to check against the general table (LABELS) for label-specific rules.
+      //   `TABLE_${SystemTableValueEnum.LABELS}`,
+      //   requesterApiKey.user_id,
+      //   label.value,
+      //   org_id
+      // );
 
       if (
         !tablePermissions.includes(SystemPermissionType.VIEW) &&
-        !resourcePermissions.includes(SystemPermissionType.VIEW) &&
         !labelPrefixPermissions.includes(SystemPermissionType.VIEW)
       ) {
         return reply
@@ -478,13 +463,14 @@ export async function listLabelsHandler(
     const prefixFilter = requestBody.filters?.prefix?.toLowerCase() || "";
 
     // Check table-level permission for the prefix (using checkSystemResourcePermissionsLabels for prefix-specific permissions)
-    const tablePermissionsForPrefix =
-      await checkSystemResourcePermissionsLabels(
-        `TABLE_${SystemTableValueEnum.LABELS}`, // Check against the Labels table
-        requesterApiKey.user_id,
-        prefixFilter, // Use the prefix filter here
-        org_id
-      );
+    const tablePermissionsForPrefix: SystemPermissionType[] = [];
+    //  =
+    //   await _checkSystemResourcePermissionsLabels(
+    //     `TABLE_${SystemTableValueEnum.LABELS}`, // Check against the Labels table
+    //     requesterApiKey.user_id,
+    //     prefixFilter, // Use the prefix filter here
+    //     org_id
+    //   );
     const hasTablePermission = tablePermissionsForPrefix.includes(
       SystemPermissionType.VIEW
     );
@@ -694,11 +680,11 @@ export async function createLabelHandler(
 
     // Check create permission if not owner
     if (!isOwner) {
-      const tablePermissions = await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.LABELS}`, // SystemResourceID for Labels table
-        requesterApiKey.user_id,
-        org_id
-      );
+      const tablePermissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.LABELS}`,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      });
 
       if (!tablePermissions.includes(SystemPermissionType.CREATE)) {
         return reply
@@ -888,30 +874,25 @@ export async function updateLabelHandler(
 
     // Check update permission if not owner
     if (!isOwner) {
-      const tablePermissions = await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.LABELS}`, // SystemResourceID for Labels table
-        requesterApiKey.user_id,
-        org_id
-      );
+      const permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.LABELS}`,
+        resourceId: `${labelId}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      });
 
       const labelRecordId = `${labelId}`;
 
-      const resourcePermissions = await checkSystemPermissions(
-        labelRecordId,
-        requesterApiKey.user_id,
-        org_id
-      );
-
-      const labelPrefixPermissions = await checkSystemResourcePermissionsLabels(
-        `TABLE_${SystemTableValueEnum.LABELS}`,
-        requesterApiKey.user_id,
-        existingLabel.value,
-        org_id
-      );
+      const labelPrefixPermissions: SystemPermissionType[] = [];
+      //  = await _checkSystemResourcePermissionsLabels(
+      //   `TABLE_${SystemTableValueEnum.LABELS}`,
+      //   requesterApiKey.user_id,
+      //   existingLabel.value,
+      //   org_id
+      // );
 
       if (
-        !tablePermissions.includes(SystemPermissionType.EDIT) &&
-        !resourcePermissions.includes(SystemPermissionType.EDIT) &&
+        !permissions.includes(SystemPermissionType.EDIT) &&
         !labelPrefixPermissions.includes(SystemPermissionType.EDIT)
       ) {
         return reply
@@ -1295,30 +1276,19 @@ export async function deleteLabelHandler(
 
     // Check delete permission if not owner
     if (!isOwner) {
-      const tablePermissions = await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.LABELS}`, // SystemResourceID for Labels table
-        requesterApiKey.user_id,
-        org_id
-      );
+      const permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.LABELS}`,
+        resourceId: `${labelId}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      });
 
       const labelRecordId = `${labelId}`;
 
-      const resourcePermissions = await checkSystemPermissions(
-        labelRecordId,
-        requesterApiKey.user_id,
-        org_id
-      );
-
-      const labelPrefixPermissions = await checkSystemResourcePermissionsLabels(
-        `TABLE_${SystemTableValueEnum.LABELS}`,
-        requesterApiKey.user_id,
-        labelValue,
-        org_id
-      );
+      const labelPrefixPermissions: SystemPermissionType[] = [];
 
       if (
-        !tablePermissions.includes(SystemPermissionType.DELETE) &&
-        !resourcePermissions.includes(SystemPermissionType.DELETE) &&
+        !permissions.includes(SystemPermissionType.DELETE) &&
         !labelPrefixPermissions.includes(SystemPermissionType.DELETE)
       ) {
         return reply
@@ -1624,11 +1594,12 @@ export async function labelResourceHandler(
     // Check permissions if not owner
     if (!isOwner) {
       // Check table-level permissions for 'Labels'
-      const tablePermissions = await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.LABELS}`, // SystemResourceID for Labels table
-        requesterApiKey.user_id,
-        org_id
-      );
+      const permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.LABELS}`,
+        resourceId: `${labelId}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      });
 
       // Construct the SystemResourceID for the specific resource being labeled/unlabeled
       let resourceSystemId: SystemResourceID;
@@ -1639,25 +1610,22 @@ export async function labelResourceHandler(
         resourceSystemId = actualResourceId; // For other record types, the `resourceIdString` (e.g., "FileID_xyz") is already the correct SystemResourceID.
       }
 
-      const resourceBeingLabeledPermissions = await checkSystemPermissions(
-        resourceSystemId, // The full resource ID string (e.g., "FileID_xyz")
-        requesterApiKey.user_id,
-        org_id
-      );
+      const resourceBeingLabeledPermissions: SystemPermissionType[] = [];
 
       // Check label-specific permissions on the target resource (if applicable, e.g. permission to label a file)
       // The Rust code's `check_system_resource_permissions_labels` is used here.
-      const labelSpecificResourcePermissions =
-        await checkSystemResourcePermissionsLabels(
-          resourceSystemId, // Resource being labeled
-          requesterApiKey.user_id,
-          labelValue, // The label being added/removed
-          org_id
-        );
+      const labelSpecificResourcePermissions: SystemPermissionType[] = [];
+      //  =
+      //   await _checkSystemResourcePermissionsLabels(
+      //     resourceSystemId, // Resource being labeled
+      //     requesterApiKey.user_id,
+      //     labelValue, // The label being added/removed
+      //     org_id
+      //   );
 
       if (
         !(
-          tablePermissions.includes(SystemPermissionType.EDIT) ||
+          permissions.includes(SystemPermissionType.EDIT) ||
           resourceBeingLabeledPermissions.includes(SystemPermissionType.EDIT) ||
           labelSpecificResourcePermissions.includes(SystemPermissionType.EDIT)
         )

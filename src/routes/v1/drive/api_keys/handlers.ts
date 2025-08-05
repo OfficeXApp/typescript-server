@@ -13,11 +13,12 @@ import {
   SystemPermissionType,
   ApiKeyValue,
   FactoryApiKey,
+  SystemTableValueEnum,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
-import { checkPermissionsTableAccess } from "../../../../services/permissions/system";
+import { checkSystemPermissions } from "../../../../services/permissions/system";
 
 // Type definitions for route params
 interface GetApiKeyParams extends OrgIdParams {
@@ -209,7 +210,8 @@ export async function listApiKeysHandler(
     // Get all API keys (matching Rust implementation)
     const apiKeys = await db.queryDrive(
       request.params.org_id,
-      "SELECT * FROM api_keys ORDER BY created_at DESC"
+      "SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
+      [request.params.user_id]
     );
 
     if (!apiKeys || apiKeys.length === 0) {
@@ -221,8 +223,22 @@ export async function listApiKeysHandler(
       );
     }
 
+    // check each api key has view permission
+    const authorizedApiKeys: ApiKey[] = [];
+    for (const apiKey of apiKeys) {
+      const hasViewPermission = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.API_KEYS}`,
+        resourceId: apiKey.id,
+        granteeId: requesterApiKey.user_id,
+        orgId: request.params.org_id,
+      });
+      if (hasViewPermission) {
+        authorizedApiKeys.push(apiKey);
+      }
+    }
+
     const redactedApiKeys = await Promise.all(
-      (apiKeys as any[]).map((key) => {
+      (authorizedApiKeys as any[]).map((key) => {
         // Augment each key to conform to the ApiKey type
         const fullKey: ApiKey = {
           ...(key as any),
@@ -288,11 +304,14 @@ export async function createApiKeyHandler(
         createBody.user_id !== requesterApiKey.user_id
       ) {
         // If a non-owner tries to create a key for someone else, check for CREATE permission
-        const hasCreatePermission = await checkPermissionsTableAccess(
-          requesterApiKey.user_id,
-          SystemPermissionType.CREATE,
-          org_id
-        );
+        const hasCreatePermission = (
+          await checkSystemPermissions({
+            resourceTable: `TABLE_${SystemTableValueEnum.API_KEYS}`,
+            granteeId: requesterApiKey.user_id,
+            orgId: org_id,
+          })
+        ).includes(SystemPermissionType.CREATE);
+
         if (!hasCreatePermission) {
           return reply.status(403).send(
             createApiResponse(undefined, {

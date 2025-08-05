@@ -231,19 +231,12 @@ export async function castToDirectoryPermissionFE(
       : `Granter: ${permission.granted_by}`;
 
   // Get permission previews for the current user on this permission record
-  const recordPermissions = await checkSystemPermissions(
-    permission.id as SystemResourceID, // SystemPermissionID is a SystemResourceID
-    currentUserId,
-    orgId
-  );
-  const tablePermissions = await checkSystemPermissions(
-    `TABLE_${SystemTableValueEnum.PERMISSIONS}` as SystemResourceID,
-    currentUserId,
-    orgId
-  );
-  const permissionPreviews = Array.from(
-    new Set([...recordPermissions, ...tablePermissions])
-  );
+  const permissionPreviews = await checkSystemPermissions({
+    resourceTable: `TABLE_${SystemTableValueEnum.PERMISSIONS}`,
+    resourceId: `${permission.id}` as SystemResourceID,
+    granteeId: currentUserId,
+    orgId: orgId,
+  });
 
   // Clip resource_path
   const fullPath = permission.resource_path;

@@ -52,6 +52,7 @@ import {
   SystemPermissionID,
   GenerateID,
   SystemPermissionFE,
+  SystemResourceID,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { v4 as uuidv4 } from "uuid";
@@ -69,7 +70,9 @@ import {
   getFolderMetadata,
 } from "../../../../services/directory/drive";
 import {
+  castIdToTable,
   castToSystemPermissionFE,
+  checkSystemPermissions,
   mapDbRowToSystemPermission,
 } from "../../../../services/permissions/system";
 import { authenticateRequest } from "../../../../services/auth";
@@ -694,122 +697,6 @@ export async function redeemDirectoryPermission(
 // --- System Permission Core Logic ---
 
 /**
- * Checks what kind of permission a specific user has on a specific system resource.
- * This function effectively combines and evaluates all relevant system permissions
- * (direct, group-based, public).
- * @param resourceId The ID of the system resource (e.g., "TABLE_DRIVES", "RECORD_DriveID_xyz").
- * @param granteeId The ID of the user or group to check permissions for (e.g., "UserID*...", "GroupID*...", "PUBLIC").
- * @param orgId The drive ID.
- * @returns A list of unique SystemPermissionType enums that the grantee has.
- */
-export async function getSystemPermissionsForRecord(
-  resourceId: string, // This is SystemResourceID in Rust, but mapped to string here.
-  granteeId: GranteeID,
-  orgId: string
-): Promise<SystemPermissionType[]> {
-  const allPermissions = new Set<SystemPermissionType>();
-  const currentTime = Date.now();
-
-  const isOwner =
-    (await getDriveOwnerId(orgId)) ===
-    (granteeId.startsWith(USER_ID_PREFIX) ? granteeId : "");
-  if (isOwner) {
-    // Owner has all permissions on all system resources
-    return [
-      SystemPermissionType.CREATE,
-      SystemPermissionType.EDIT,
-      SystemPermissionType.DELETE,
-      SystemPermissionType.VIEW,
-      SystemPermissionType.INVITE,
-    ];
-  }
-
-  // Determine resource_type ('Table' or 'Record') and resource_identifier
-  let resourceType: string;
-  let resourceIdentifier: string;
-
-  if (resourceId.startsWith("TABLE_")) {
-    resourceType = "Table";
-    resourceIdentifier = resourceId;
-  } else if (resourceId.startsWith("RECORD_")) {
-    resourceType = "Record";
-    resourceIdentifier = resourceId;
-  } else {
-    // Fallback or throw for unknown system resource IDs
-    console.warn(
-      `Unknown SystemResourceID format: ${resourceId}. Treating as unknown.`
-    );
-    resourceType = "Unknown";
-    resourceIdentifier = resourceId;
-  }
-
-  const rows = await db.queryDrive(
-    orgId,
-    `SELECT
-        ps.id, ps.resource_type, ps.resource_identifier, ps.grantee_type, ps.grantee_id,
-        ps.granted_by, GROUP_CONCAT(pst.permission_type) AS permission_types_list,
-        ps.begin_date_ms, ps.expiry_date_ms, ps.note, ps.created_at, ps.last_modified_at,
-        ps.redeem_code, ps.from_placeholder_grantee, ps.metadata_type, ps.metadata_content,
-        ps.external_id, ps.external_payload,
-        GROUP_CONCAT(psl.label_id) AS labels_list
-    FROM permissions_system ps
-    LEFT JOIN permissions_system_types pst ON ps.id = pst.permission_id
-    LEFT JOIN permission_system_labels psl ON ps.id = psl.permission_id
-    WHERE ps.resource_type = ? AND ps.resource_identifier = ?
-    GROUP BY ps.id;`,
-    [resourceType, resourceIdentifier]
-  );
-
-  for (const row of rows) {
-    const permission = mapDbRowToSystemPermission(row);
-
-    if (
-      (permission.expiry_date_ms > 0 &&
-        permission.expiry_date_ms <= currentTime) ||
-      (permission.begin_date_ms > 0 && permission.begin_date_ms > currentTime)
-    ) {
-      continue;
-    }
-
-    let applies = false;
-    const permissionGrantedTo = permission.granted_to;
-
-    if (permissionGrantedTo === PUBLIC_GRANTEE_ID_STRING) {
-      applies = true;
-    } else if (
-      granteeId.startsWith(USER_ID_PREFIX) &&
-      permissionGrantedTo.startsWith(USER_ID_PREFIX)
-    ) {
-      applies = granteeId === permissionGrantedTo;
-    } else if (
-      granteeId.startsWith(GROUP_ID_PREFIX) &&
-      permissionGrantedTo.startsWith(GROUP_ID_PREFIX)
-    ) {
-      applies = granteeId === permissionGrantedTo;
-    } else if (
-      granteeId.startsWith(USER_ID_PREFIX) &&
-      permissionGrantedTo.startsWith(GROUP_ID_PREFIX)
-    ) {
-      applies = await isUserInGroup(
-        granteeId as UserID,
-        permissionGrantedTo as GroupID,
-        orgId
-      );
-    } else if (
-      granteeId.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX) && // Placeholder for system permissions also
-      permissionGrantedTo.startsWith(PLACEHOLDER_GRANTEE_ID_PREFIX)
-    ) {
-      applies = granteeId === permissionGrantedTo;
-    }
-
-    if (applies) {
-      permission.permission_types.forEach((type) => allPermissions.add(type));
-    }
-  }
-  return Array.from(allPermissions);
-}
-
-/**
  * Retrieves a system permission by its ID.
  * @param orgId The drive ID.
  * @param permissionId The ID of the permission to retrieve.
@@ -849,11 +736,12 @@ export async function getSystemPermissionById(
     const isOwner = (await getDriveOwnerId(orgId)) === requesterId;
     const canAccess =
       (
-        await getSystemPermissionsForRecord(
-          `RECORD_Permission_${permissionId}`,
-          requesterId,
-          orgId
-        )
+        await checkSystemPermissions({
+          resourceTable: `TABLE_${SystemTableValueEnum.PERMISSIONS}`,
+          resourceId: `${permissionId}` as SystemResourceID,
+          granteeId: requesterId,
+          orgId: orgId,
+        })
       ).includes(SystemPermissionType.VIEW) || isOwner;
     if (!canAccess) {
       return null;
@@ -895,17 +783,6 @@ export async function listSystemPermissions(options: {
   );
 
   const isOwner = (await getDriveOwnerId(orgId)) === requesterId;
-  const canListPermissions = (
-    await getSystemPermissionsForRecord(
-      `TABLE_${SystemTableValueEnum.PERMISSIONS}`,
-      requesterId,
-      orgId
-    )
-  ).includes(SystemPermissionType.VIEW);
-
-  if (!isOwner && !canListPermissions) {
-    return { items: [], total: 0, authorized: false };
-  }
 
   let query = `
     SELECT
@@ -977,17 +854,17 @@ export async function listSystemPermissions(options: {
 
   for (let i = 0; i < rows.length && i < pageSize; i++) {
     const rawPerm = mapDbRowToSystemPermission(rows[i]);
-    const canAccessRecord =
-      (
-        await getSystemPermissionsForRecord(
-          `RECORD_Permission_${rawPerm.id}`,
-          requesterId,
-          orgId
-        )
-      ).includes(SystemPermissionType.VIEW) || isOwner;
-    if (canAccessRecord) {
-      items.push(await castToSystemPermissionFE(rawPerm, requesterId, orgId));
+
+    const permissions = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.PERMISSIONS}`,
+      granteeId: requesterId,
+      orgId: orgId,
+    });
+
+    if (!isOwner && !permissions.includes(SystemPermissionType.VIEW)) {
+      continue;
     }
+    items.push(await castToSystemPermissionFE(rawPerm, requesterId, orgId));
   }
 
   if (rows.length > pageSize) {
@@ -1006,19 +883,7 @@ export async function listSystemPermissions(options: {
  */
 export async function createSystemPermission(
   orgId: string,
-  data: {
-    id?: SystemPermission["id"];
-    resource_id: string; // This is SystemResourceID in Rust, but string here.
-    granted_to?: GranteeID;
-    permission_types: SystemPermissionType[];
-    begin_date_ms?: number;
-    expiry_date_ms?: number;
-    note?: string;
-    metadata?: PermissionMetadata;
-    external_id?: string;
-    external_payload?: string;
-    redeem_code?: string;
-  },
+  data: IRequestCreateSystemPermission,
   requesterId: UserID
 ): Promise<SystemPermissionFE> {
   // Note: Returns SystemPermissionFE
@@ -1026,8 +891,9 @@ export async function createSystemPermission(
   const currentTime = Date.now();
 
   const { type: granteeType, id: granteeUUID } = parseGranteeIDForDb(
-    data.granted_to || PUBLIC_GRANTEE_ID_STRING
+    data.granted_to || `${GenerateID.PlaceholderPermissionGrantee()}`
   );
+  const redeem_code = data.granted_to ? null : `REDEEM_${Date.now() * 1000}`;
 
   let resourceType: string;
   let resourceIdentifier: string;
@@ -1075,7 +941,7 @@ export async function createSystemPermission(
       data.note || "",
       currentTime,
       currentTime,
-      data.redeem_code || null,
+      redeem_code,
       null, // from_placeholder_grantee is null on creation
       metadataType,
       metadataContent,
@@ -1121,19 +987,7 @@ export async function createSystemPermission(
  */
 export async function updateSystemPermission(
   orgId: string,
-  data: {
-    id: SystemPermissionID;
-    resource_id?: string;
-    granted_to?: GranteeID;
-    permission_types?: SystemPermissionType[];
-    begin_date_ms?: number;
-    expiry_date_ms?: number;
-    note?: string;
-    metadata?: PermissionMetadata;
-    external_id?: string;
-    external_payload?: string;
-    redeem_code?: string;
-  },
+  data: IRequestUpdateSystemPermission,
   requesterId: UserID
 ): Promise<any | null> {
   // Note: Returns SystemPermissionFE
@@ -1200,10 +1054,6 @@ export async function updateSystemPermission(
     if (data.external_payload !== undefined) {
       updateFields.push("external_payload = ?");
       updateParams.push(data.external_payload);
-    }
-    if (data.redeem_code !== undefined) {
-      updateFields.push("redeem_code = ?");
-      updateParams.push(data.redeem_code);
     }
 
     if (updateFields.length > 0) {
@@ -1286,13 +1136,8 @@ export async function deleteSystemPermission(
  */
 export async function redeemSystemPermission(
   orgId: string,
-  data: {
-    permission_id: SystemPermission["id"];
-    user_id: UserID;
-    redeem_code: string;
-    note?: string;
-    requesterId: UserID;
-  }
+  data: IRequestRedeemSystemPermission,
+  requesterId: UserID
 ): Promise<{ permission?: any; error?: string }> {
   // Note: Returns SystemPermissionFE
   const currentTime = Date.now();
@@ -1300,7 +1145,7 @@ export async function redeemSystemPermission(
   const existingPermission = await getSystemPermissionById(
     orgId,
     data.permission_id,
-    data.requesterId,
+    requesterId,
     true
   );
 
@@ -1323,12 +1168,6 @@ export async function redeemSystemPermission(
     existingPermission.expiry_date_ms <= currentTime
   ) {
     return { error: "Permission has expired" };
-  }
-  if (
-    existingPermission.begin_date_ms > 0 &&
-    existingPermission.begin_date_ms > currentTime
-  ) {
-    return { error: "Permission is not yet active" };
   }
 
   // 1. Run the synchronous transaction to update the database.
@@ -1363,7 +1202,7 @@ export async function redeemSystemPermission(
   const updatedPermission = await getSystemPermissionById(
     orgId,
     data.permission_id,
-    data.requesterId,
+    requesterId,
     true
   );
 
@@ -1375,7 +1214,7 @@ export async function redeemSystemPermission(
   return {
     permission: await castToSystemPermissionFE(
       updatedPermission,
-      data.requesterId,
+      requesterId,
       orgId
     ),
   };
@@ -1413,7 +1252,7 @@ export async function getDirectoryPermissionsHandler(
         requesterId,
         org_id
       );
-      reply.send({
+      reply.status(200).send({
         ok: { data: permissionFE } as IResponseGetDirectoryPermission["ok"],
       });
     } else {
@@ -1480,7 +1319,7 @@ export async function listDirectoryPermissionsHandler(
       return;
     }
 
-    reply.send({
+    reply.status(200).send({
       ok: {
         data: {
           items: result.items,
@@ -1524,7 +1363,7 @@ export async function createDirectoryPermissionsHandler(
       data,
       requesterId
     );
-    reply.status(201).send({
+    reply.status(200).send({
       ok: {
         data: { permission: createdPermissionFE },
       } as IResponseCreateDirectoryPermission["ok"],
@@ -1564,7 +1403,7 @@ export async function updateDirectoryPermissionsHandler(
       requesterId
     );
     if (updatedPermissionFE) {
-      reply.send({
+      reply.status(200).send({
         ok: {
           data: { permission: updatedPermissionFE },
         } as IResponseUpdateDirectoryPermission["ok"],
@@ -1612,7 +1451,7 @@ export async function deleteDirectoryPermissionsHandler(
       requesterId
     );
     if (deletedId) {
-      reply.send({
+      reply.status(200).send({
         ok: {
           data: { deleted_id: deletedId },
         } as IResponseDeleteDirectoryPermission["ok"],
@@ -1672,7 +1511,7 @@ export async function checkDirectoryPermissionsHandler(
       org_id
     );
 
-    reply.send({
+    reply.status(200).send({
       ok: {
         data: { resource_id, grantee_id, permissions },
       } as IResponseCheckDirectoryPermissions["ok"],
@@ -1711,7 +1550,7 @@ export async function redeemDirectoryPermissionsHandler(
       requesterId,
     });
     if (result.permission) {
-      reply.send({
+      reply.status(200).send({
         ok: {
           data: { permission: result.permission },
         } as IResponseRedeemDirectoryPermission["ok"],
@@ -1764,7 +1603,7 @@ export async function getSystemPermissionsHandler(
         requesterId,
         org_id
       );
-      reply.send({
+      reply.status(200).send({
         ok: { data: permissionFE } as IResponseGetSystemPermission["ok"],
       });
     } else {
@@ -1820,7 +1659,7 @@ export async function listSystemPermissionsHandler(
       return;
     }
 
-    reply.send({
+    reply.status(200).send({
       ok: {
         data: {
           items: result.items,
@@ -1864,7 +1703,7 @@ export async function createSystemPermissionsHandler(
       data,
       requesterId
     );
-    reply.status(201).send({
+    reply.status(200).send({
       ok: {
         data: { permission: createdPermissionFE },
       } as IResponseCreateSystemPermission["ok"],
@@ -1904,7 +1743,7 @@ export async function updateSystemPermissionsHandler(
       requesterId
     );
     if (updatedPermissionFE) {
-      reply.send({
+      reply.status(200).send({
         ok: {
           data: updatedPermissionFE,
         } as IResponseUpdateSystemPermission["ok"],
@@ -1952,7 +1791,7 @@ export async function deleteSystemPermissionsHandler(
       requesterId
     );
     if (deletedId) {
-      reply.send({
+      reply.status(200).send({
         ok: {
           data: { deleted_id: deletedId },
         } as IResponseDeleteSystemPermission["ok"],
@@ -2004,12 +1843,27 @@ export async function checkSystemPermissionsHandler(
       return;
     }
 
-    const permissions = await getSystemPermissionsForRecord(
-      resource_id,
-      grantee_id,
-      org_id
-    );
-    reply.send({
+    const permissions: SystemPermissionType[] = [];
+
+    if (resource_id.startsWith("TABLE_")) {
+      const _permissions = await checkSystemPermissions({
+        resourceTable: resource_id as `TABLE_${SystemTableValueEnum}`,
+        granteeId: grantee_id,
+        orgId: org_id,
+      });
+      permissions.push(..._permissions);
+    } else {
+      const tableSlug = castIdToTable(resource_id);
+      const _permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${tableSlug}`,
+        resourceId: `${resource_id}` as SystemResourceID,
+        granteeId: grantee_id,
+        orgId: org_id,
+      });
+      permissions.push(..._permissions);
+    }
+
+    reply.status(200).send({
       ok: {
         data: { resource_id, grantee_id, permissions },
       } as IResponseCheckSystemPermissions["ok"],
@@ -2043,12 +1897,9 @@ export async function redeemSystemPermissionsHandler(
   const requesterId = requesterApiKey.user_id;
 
   try {
-    const result = await redeemSystemPermission(org_id, {
-      ...data,
-      requesterId,
-    });
+    const result = await redeemSystemPermission(org_id, data, requesterId);
     if (result.permission) {
-      reply.send({
+      reply.status(200).send({
         ok: {
           data: result.permission,
         } as IResponseRedeemSystemPermission["ok"],
