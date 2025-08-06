@@ -2,7 +2,17 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import { DriveID, UserID } from "@officexapp/types";
+import {
+  DriveID,
+  IErrorResponse,
+  IRequestSearchDrive,
+  IResponseSearchDrive,
+  SearchCategoryEnum,
+  SearchResult,
+  SearchSortByEnum,
+  SortDirection,
+  UserID,
+} from "@officexapp/types";
 
 const DATA_DIR = process.env.DATA_DIR || "/data";
 
@@ -99,6 +109,162 @@ export const db = {
       stmt.run(...(params || []));
     } finally {
       database.close();
+    }
+  },
+
+  /**
+   * Performs a fuzzy text search on the specified drive database.
+   *
+   * @param driveId The ID of the drive to search within.
+   * @param payload The search request payload containing query, categories, pagination, and sorting options.
+   * @returns A promise that resolves with the search results.
+   */
+  fuzzySearch: async (
+    driveId: string,
+    payload: IRequestSearchDrive
+  ): Promise<IResponseSearchDrive | IErrorResponse> => {
+    const {
+      query,
+      categories,
+      page_size = 20, // Default page size
+      cursor,
+      sort_by = SearchSortByEnum.RELEVANCE, // Default sort by relevance
+      direction = SortDirection.DESC, // Default sort direction
+    } = payload;
+
+    const dbPath = getDriveDbPath(driveId);
+    const dbDir = path.dirname(dbPath);
+    ensureDirectorySync(dbDir);
+
+    const database = new Database(dbPath);
+    try {
+      configureDatabase(database);
+
+      // --- Build the WHERE clause for categories ---
+      let categoryWhereClause = "";
+      const queryParams: any[] = [`${query}`]; // Start with the FTS query parameter
+
+      if (
+        categories &&
+        categories.length > 0 &&
+        !categories.includes(SearchCategoryEnum.ALL)
+      ) {
+        // Filter by specific categories
+        const placeholders = categories.map(() => "?").join(", ");
+        categoryWhereClause = `AND category IN (${placeholders})`;
+        queryParams.push(...categories);
+      }
+
+      // --- Build the ORDER BY clause ---
+      let orderByClause = "";
+      switch (sort_by) {
+        case SearchSortByEnum.RELEVANCE:
+        case SearchSortByEnum.SCORE:
+          // FTS5's rank function provides relevance scoring
+          orderByClause = `ORDER BY rank ${direction}`;
+          break;
+        case SearchSortByEnum.ALPHABETICAL:
+          orderByClause = `ORDER BY title COLLATE NOCASE ${direction}`;
+          break;
+        case SearchSortByEnum.CREATED_AT:
+          orderByClause = `ORDER BY created_at ${direction}`;
+          break;
+        case SearchSortByEnum.UPDATED_AT:
+          orderByClause = `ORDER BY updated_at ${direction}`;
+          break;
+        default:
+          orderByClause = `ORDER BY rank ${direction}`; // Default to relevance
+          break;
+      }
+
+      // --- Handle Pagination (LIMIT and OFFSET) ---
+      const limit = Math.max(1, Math.min(page_size, 1000)); // Ensure page_size is within bounds
+      let offset = 0;
+      if (cursor) {
+        // Assuming cursor is a string representation of the offset for simplicity
+        const parsedCursor = parseInt(cursor, 10);
+        if (!isNaN(parsedCursor) && parsedCursor >= 0) {
+          offset = parsedCursor;
+        }
+      }
+
+      // --- Construct the main search query ---
+      const searchSql = `
+        SELECT
+            resource_id,
+            title,
+            preview,
+            category,
+            metadata,
+            created_at,
+            updated_at,
+            searchable_string,
+            rank
+        FROM search_fts
+        WHERE search_fts MATCH ? ${categoryWhereClause}
+        ${orderByClause}
+        LIMIT ? OFFSET ?;
+      `;
+
+      // Add limit and offset to query parameters
+      const finalSearchParams = [...queryParams, limit, offset];
+
+      const stmt = database.prepare(searchSql);
+      const results = stmt.all(...finalSearchParams);
+
+      // --- Map results to SearchResult interface ---
+      const items: SearchResult[] = results.map((row: any) => ({
+        resource_id: row.resource_id,
+        title: row.title,
+        preview: row.preview,
+        score: row.rank, // Map FTS5's rank to SearchResult's score
+        category: row.category,
+        metadata: row.metadata,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        // searchable_string is not part of the public SearchResult interface,
+        // but it's useful for debugging or internal use if needed.
+      }));
+
+      // --- Get total count for pagination metadata ---
+      const countSql = `
+        SELECT COUNT(*) as total
+        FROM search_fts
+        WHERE search_fts MATCH ? ${categoryWhereClause};
+      `;
+      const countParams = [...queryParams]; // Use the same query params as the search
+
+      const totalResult = database.prepare(countSql).get(...countParams) as {
+        total: number;
+      };
+      const total = totalResult.total;
+
+      // --- Calculate next cursor ---
+      const nextCursor =
+        offset + items.length < total
+          ? String(offset + items.length)
+          : undefined;
+
+      return {
+        ok: {
+          data: {
+            items,
+            page_size: limit,
+            total,
+            direction,
+            cursor: nextCursor,
+          },
+        },
+      };
+    } catch (error: any) {
+      console.error("Error in fuzzySearch:", error);
+      // Return a failure response in case of an error
+      return {
+        err: {
+          code: 500,
+          message: error.message || "Internal server error.",
+        },
+      };
     }
   },
 };

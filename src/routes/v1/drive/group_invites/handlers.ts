@@ -22,6 +22,7 @@ import {
   SystemPermissionType,
   DriveID,
   GroupInviteeTypeEnum,
+  SortDirection,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -35,7 +36,8 @@ import {
   getGroupInviteById,
   isGroupAdmin,
   addGroupMember,
-  removeMemberFromGroup, // Added for consistency
+  removeMemberFromGroup,
+  isUserInGroup, // Added for consistency
 } from "../../../../services/groups";
 
 interface GetGroupInviteParams extends OrgIdParams {
@@ -141,11 +143,12 @@ export async function getGroupInviteHandler(
     );
 
     const canViewInviteViaPermissions = (
-      await checkSystemPermissions(
-        invite.id as SystemResourceID, // GroupInviteID is a SystemRecordIDEnum
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: `${invite.group_id}` as SystemResourceID,
+        granteeId: currentUserId,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.VIEW);
 
     if (
@@ -195,11 +198,12 @@ export async function getGroupInviteHandler(
     }
 
     // PERMIT: Get permission previews for the current user on this group invite record
-    const permissionPreviews = await checkSystemPermissions(
-      invite.id as SystemResourceID,
-      currentUserId,
-      orgId
-    );
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+      resourceId: `${invite.group_id}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: orgId,
+    });
 
     const inviteFE: GroupInviteFE = {
       ...invite,
@@ -243,7 +247,7 @@ export async function listGroupInvitesHandler(
 
     const body = request.body;
     const pageSize = body.page_size || 50;
-    const direction = body.direction || "DESC";
+    const direction = body.direction || SortDirection.DESC;
     const currentUserId = requesterApiKey.user_id;
     const orgId = request.params.org_id as DriveID;
 
@@ -259,27 +263,15 @@ export async function listGroupInvitesHandler(
       );
     }
 
-    // PERMIT: Check if requester is the org owner, a group admin, or has VIEW permission on the Groups table.
-    const isOrgOwner =
-      (
-        await db.queryDrive(orgId, "SELECT owner_id FROM about_drive LIMIT 1")
-      )[0]?.owner_id === currentUserId;
+    const permissions = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+      resourceId: group.id,
+      granteeId: currentUserId,
+      orgId: orgId,
+    });
+    const isPartOfGroup = await isUserInGroup(currentUserId, group.id, orgId);
 
-    const isGroupAdminStatus = await isGroupAdmin(
-      currentUserId,
-      group.id,
-      orgId
-    );
-
-    const canViewGroupsTable = (
-      await checkSystemPermissions(
-        `TABLE_${SystemTableValueEnum.GROUPS}` as SystemResourceID,
-        currentUserId,
-        orgId
-      )
-    ).includes(SystemPermissionType.VIEW);
-
-    if (!isOrgOwner && !isGroupAdminStatus && !canViewGroupsTable) {
+    if (!permissions.includes(SystemPermissionType.VIEW) && !isPartOfGroup) {
       return reply.status(403).send(
         createApiResponse(undefined, {
           code: 403,
@@ -344,10 +336,11 @@ export async function listGroupInvitesHandler(
         }
 
         // PERMIT: Get permission previews for the current user on each group invite record
-        const permissionPreviews = await checkSystemPermissions(
-          invite.id as SystemResourceID,
-          currentUserId,
-          orgId
+        const permissionPreviews = Array.from(
+          new Set<SystemPermissionType>([
+            ...permissions,
+            SystemPermissionType.VIEW,
+          ])
         );
 
         return {
@@ -461,11 +454,12 @@ export async function createGroupInviteHandler(
     );
 
     const canInviteToGroupViaPermissions = (
-      await checkSystemPermissions(
-        group.id as SystemResourceID,
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: `${group.id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.INVITE);
 
     if (!isOrgOwner && !isGroupAdminStatus && !canInviteToGroupViaPermissions) {
@@ -600,11 +594,11 @@ export async function createGroupInviteHandler(
     }
 
     // PERMIT: Get permission previews for the current user on the newly created invite record
-    const permissionPreviews = await checkSystemPermissions(
-      invite.id as SystemResourceID,
-      currentUserId,
-      orgId
-    );
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+      granteeId: requesterApiKey.user_id,
+      orgId: orgId,
+    });
 
     const inviteFE: GroupInviteFE = {
       ...invite,
@@ -692,11 +686,12 @@ export async function updateGroupInviteHandler(
     );
 
     const canEditInviteViaPermissions = (
-      await checkSystemPermissions(
-        invite.id as SystemResourceID,
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: `${invite.group_id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.EDIT);
 
     if (
@@ -776,11 +771,12 @@ export async function updateGroupInviteHandler(
     }
 
     // PERMIT: Get permission previews for the current user on the updated invite record
-    const permissionPreviews = await checkSystemPermissions(
-      updatedInvite.id as SystemResourceID,
-      currentUserId,
-      orgId
-    );
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+      resourceId: `${updatedInvite.group_id}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: orgId,
+    });
 
     let inviteeName = "";
     let inviteeAvatar = undefined;
@@ -892,11 +888,12 @@ export async function deleteGroupInviteHandler(
     );
 
     const canDeleteInviteViaPermissions = (
-      await checkSystemPermissions(
-        invite.id as SystemResourceID,
-        currentUserId,
-        orgId
-      )
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.GROUPS}`,
+        resourceId: `${invite.group_id}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: orgId,
+      })
     ).includes(SystemPermissionType.DELETE);
 
     if (
@@ -1104,18 +1101,6 @@ export async function redeemGroupInviteHandler(
         );
       }
 
-      // PERMIT: Get permission previews for the current user on the newly redeemed invite record
-      const permissionPreviews = await checkSystemPermissions(
-        newInvite.id as SystemResourceID,
-        currentUserId,
-        orgId
-      );
-
-      const groupInfo = await db.queryDrive(
-        orgId,
-        "SELECT name, avatar FROM groups WHERE id = ?",
-        [newInvite.group_id]
-      );
       let inviteeName = "";
       let inviteeAvatar = undefined;
       if (newInvite.invitee_id.startsWith(IDPrefixEnum.User)) {
@@ -1210,18 +1195,6 @@ export async function redeemGroupInviteHandler(
         );
       }
 
-      // PERMIT: Get permission previews for the current user on the updated invite record
-      const permissionPreviews = await checkSystemPermissions(
-        updatedInvite.id as SystemResourceID,
-        currentUserId,
-        orgId
-      );
-
-      const groupInfo = await db.queryDrive(
-        orgId,
-        "SELECT name, avatar FROM groups WHERE id = ?",
-        [updatedInvite.group_id]
-      );
       let inviteeName = "";
       let inviteeAvatar = undefined;
       if (updatedInvite.invitee_id.startsWith(IDPrefixEnum.User)) {
@@ -1286,18 +1259,6 @@ export async function redeemGroupInviteHandler(
         );
       }
 
-      // PERMIT: Get permission previews for the current user on the redeemed invite record
-      const permissionPreviews = await checkSystemPermissions(
-        redeemedInvite.id as SystemResourceID,
-        currentUserId,
-        orgId
-      );
-
-      const groupInfo = await db.queryDrive(
-        orgId,
-        "SELECT name, avatar FROM groups WHERE id = ?",
-        [redeemedInvite.group_id]
-      );
       let inviteeName = "";
       let inviteeAvatar = undefined;
       if (redeemedInvite.invitee_id.startsWith(IDPrefixEnum.User)) {

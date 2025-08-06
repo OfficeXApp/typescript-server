@@ -45,17 +45,8 @@ import {
   validateUserId,
 } from "../../../../services/validation";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
-import {
-  checkSystemPermissions,
-  checkPermissionsTableAccess,
-  mapDbRowToSystemPermission,
-} from "../../../../services/permissions/system";
-import { PUBLIC_GRANTEE_ID_STRING } from "../../../../services/permissions/directory";
-import {
-  getGroupById,
-  isUserOnLocalGroup, // Added for local group membership check
-  getGroupInviteById, // Added for fetching group invite details
-} from "../../../../services/groups"; // Import group services
+import { checkSystemPermissions } from "../../../../services/permissions/system";
+import { getGroupById } from "../../../../services/groups";
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {
@@ -83,21 +74,14 @@ async function redactContact(
     `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
 
   // Retrieve permissions for the specific contact record
-  const recordPermissions = await checkSystemPermissions(
-    recordResourceId,
-    requesterUserId, // Check permissions for the requester
-    orgId
-  );
-  // Retrieve permissions for the 'CONTACTS' table
-  const tablePermissions = await checkSystemPermissions(
-    tableResourceId,
-    requesterUserId, // Check permissions for the requester
-    orgId
-  );
+  const permissions = await checkSystemPermissions({
+    resourceTable: `TABLE_${SystemTableValueEnum.CONTACTS}`,
+    resourceId: recordResourceId,
+    granteeId: requesterUserId,
+    orgId: orgId,
+  });
 
-  const permissionPreviews = Array.from(
-    new Set([...recordPermissions, ...tablePermissions])
-  );
+  const permissionPreviews = Array.from(new Set([...permissions]));
   redactedContact.permission_previews = permissionPreviews;
 
   redactedContact.labels = contact.labels;
@@ -228,24 +212,14 @@ export async function getContactHandler(
 
     const recordResourceId: SystemResourceID =
       `${plainContactId}` as SystemResourceID;
-    const contactRecordPermissions = await checkSystemPermissions(
-      recordResourceId,
-      requesterApiKey.user_id,
-      org_id
-    );
-
-    const contactsTableResourceId: SystemResourceID =
-      `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
-    const contactsTablePermissions = await checkSystemPermissions(
-      contactsTableResourceId,
-      requesterApiKey.user_id,
-      org_id
-    );
-
-    const hasViewPermission =
-      isOwner ||
-      contactRecordPermissions.includes(SystemPermissionType.VIEW) ||
-      contactsTablePermissions.includes(SystemPermissionType.VIEW);
+    const hasViewPermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.CONTACTS}`,
+        resourceId: recordResourceId,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.VIEW);
 
     if (!hasViewPermission) {
       return reply
@@ -326,48 +300,6 @@ export async function listContactsHandler(
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    const hasViewTablePermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.VIEW,
-      org_id
-    );
-
-    if (!hasViewTablePermission && !isOwner) {
-      return reply.status(200).send(
-        createApiResponse<IResponseListContacts["ok"]["data"]>({
-          items: [],
-          page_size: 0,
-          total: 0,
-          direction: direction,
-          cursor: undefined,
-        })
-      );
-    }
-
-    let totalCountResult;
-    try {
-      totalCountResult = await db.queryDrive(
-        org_id,
-        `SELECT COUNT(*) AS count FROM contacts ${filters ? `WHERE name LIKE '%${filters}%' OR email LIKE '%${filters}%' OR icp_principal LIKE '%${filters}%'` : ""}`
-      );
-    } catch (e) {
-      request.log.error("Error querying total contacts count:", e);
-      totalCountResult = [{ count: 0 }];
-    }
-    const totalCount = totalCountResult[0].count;
-
-    if (totalCount === 0) {
-      return reply.status(200).send(
-        createApiResponse<IResponseListContacts["ok"]["data"]>({
-          items: [],
-          page_size: 0,
-          total: 0,
-          direction: direction,
-          cursor: undefined,
-        })
-      );
-    }
-
     let query = `SELECT * FROM contacts`;
     const queryParams: any[] = [];
     let whereClauses: string[] = [];
@@ -403,9 +335,20 @@ export async function listContactsHandler(
     const rawContacts = await db.queryDrive(org_id, query, queryParams);
 
     const processedContacts: ContactFE[] = [];
-    if (hasViewTablePermission || isOwner) {
-      for (const contact of rawContacts) {
-        contact.id = `${contact.id}` as UserID;
+
+    for (const contact of rawContacts) {
+      const contactRecordResourceId: SystemResourceID =
+        `${contact.id}` as SystemResourceID;
+      const hasViewPermission = (
+        await checkSystemPermissions({
+          resourceTable: `TABLE_${SystemTableValueEnum.CONTACTS}`,
+          resourceId: contactRecordResourceId,
+          granteeId: requesterApiKey.user_id,
+          orgId: org_id,
+        })
+      ).includes(SystemPermissionType.VIEW);
+
+      if (hasViewPermission) {
         processedContacts.push(
           await redactContact(
             contact as Contact,
@@ -413,28 +356,6 @@ export async function listContactsHandler(
             org_id
           )
         );
-      }
-    } else {
-      for (const contact of rawContacts) {
-        contact.id = `${contact.id}` as UserID;
-
-        const contactRecordResourceId: SystemResourceID =
-          `${contact.id}` as SystemResourceID;
-        const contactRecordPermissions = await checkSystemPermissions(
-          contactRecordResourceId,
-          requesterApiKey.user_id,
-          org_id
-        );
-
-        if (contactRecordPermissions.includes(SystemPermissionType.VIEW)) {
-          processedContacts.push(
-            await redactContact(
-              contact as Contact,
-              requesterApiKey.user_id,
-              org_id
-            )
-          );
-        }
       }
     }
 
@@ -626,11 +547,21 @@ export async function createContactHandler(
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    const hasCreatePermission = await checkPermissionsTableAccess(
-      requesterApiKey.user_id,
-      SystemPermissionType.CREATE,
-      org_id
-    );
+    console.log(`
+      await checkSystemPermissions({
+        resourceTable: TABLE_${SystemTableValueEnum.CONTACTS},
+        granteeId: ${requesterApiKey.user_id},
+        orgId: ${org_id},
+      })
+      `);
+
+    const hasCreatePermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.CONTACTS}`,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.CREATE);
 
     if (!hasCreatePermission) {
       return reply
@@ -925,29 +856,14 @@ export async function updateContactHandler(
     const existingContact = contacts[0] as Contact;
     existingContact.id = `${existingContact.id}` as UserID;
 
-    const ownerId = await getDriveOwnerId(org_id);
-    const isOwner = requesterApiKey.user_id === ownerId;
-
-    const recordResourceId: SystemResourceID =
-      `${plainContactId}` as SystemResourceID;
-    const contactRecordPermissions = await checkSystemPermissions(
-      recordResourceId,
-      requesterApiKey.user_id,
-      org_id
-    );
-
-    const contactsTableResourceId: SystemResourceID =
-      `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
-    const contactsTablePermissions = await checkSystemPermissions(
-      contactsTableResourceId,
-      requesterApiKey.user_id,
-      org_id
-    );
-
-    const hasEditPermission =
-      isOwner ||
-      contactRecordPermissions.includes(SystemPermissionType.EDIT) ||
-      contactsTablePermissions.includes(SystemPermissionType.EDIT);
+    const hasEditPermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.CONTACTS}`,
+        resourceId: `${plainContactId}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.EDIT);
 
     if (!hasEditPermission) {
       return reply
@@ -1089,29 +1005,17 @@ export async function deleteContactHandler(
     const existingContact = contacts[0] as Contact;
     existingContact.id = `${existingContact.id}` as UserID;
 
-    const ownerId = await getDriveOwnerId(org_id);
-    const isOwner = requesterApiKey.user_id === ownerId;
-
     const recordResourceId: SystemResourceID =
       `${plainContactId}` as SystemResourceID;
-    const contactRecordPermissions = await checkSystemPermissions(
-      recordResourceId,
-      requesterApiKey.user_id,
-      org_id
-    );
 
-    const contactsTableResourceId: SystemResourceID =
-      `TABLE_${SystemTableValueEnum.CONTACTS}` as SystemResourceID;
-    const contactsTablePermissions = await checkSystemPermissions(
-      contactsTableResourceId,
-      requesterApiKey.user_id,
-      org_id
-    );
-
-    const hasDeletePermission =
-      isOwner ||
-      contactRecordPermissions.includes(SystemPermissionType.DELETE) ||
-      contactsTablePermissions.includes(SystemPermissionType.DELETE);
+    const hasDeletePermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.CONTACTS}`,
+        resourceId: recordResourceId,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.DELETE);
 
     if (!hasDeletePermission) {
       return reply

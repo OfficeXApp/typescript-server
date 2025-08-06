@@ -1,0 +1,27 @@
+name: Postman REST API CI Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test_api_with_newman:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Create .env file from secret
+        # This uses your GitHub secret to create the .env file for Docker Compose.
+        run: echo "${{ secrets.CI_ENV_FILE }}" > .env
+        shell: bash
+
+      - name: Run Docker Compose with Newman tests
+        # This single command starts all services, waits for the app to be healthy,
+        # runs the newman tests, and exits with Newman's status code.
+        run: docker compose up --build --exit-code-from newman

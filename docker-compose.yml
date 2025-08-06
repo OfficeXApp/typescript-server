@@ -1,5 +1,4 @@
-# docker-compose.yml - For Cloudflare/RepoCloud.io delegated SSL or local development
-# (This is your original default docker-compose.yml)
+# docker-compose.yml - For local development and automated CI testing
 version: "3.8"
 
 services:
@@ -7,20 +6,34 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      # This mapping is for the 3rd party delegated SSL scenario (e.g., Cloudflare forwarding to host port 80)
+      # This mapping is for the 3rd party delegated SSL scenario (e.g., Cloudflare)
       - "80:${PORT:-8888}"
-      # This mapping is for direct local development access from your frontend
-      - "${PORT:-8888}:${PORT:-8888}" # Maps host port 8888 to container port 8888
-
-    environment:
-      - NODE_ENV=development # Often useful to set to development for this file
-      - DATA_DIR=/data
-      - PORT=${PORT:-8888} # Pass the port to your application's environment
-      - SERVER_DOMAIN=${SERVER_DOMAIN}
-      - SANITY_CHECK_ENV=${SANITY_CHECK_ENV}
+      # This mapping is for direct local development access
+      - "${PORT:-8888}:${PORT:-8888}"
+    env_file:
+      - ./.env
 
     volumes:
       - app_data:/data
+
+    # NEW: Healthcheck for the app service to ensure it's ready before tests run.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8888}/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  newman:
+    image: postman/newman:latest
+    depends_on:
+      app:
+        condition: service_healthy
+    volumes:
+      - ./:/etc/newman
+    env_file:
+      - ./.env
+    command: ["run", "postman/postman-rest-api.json"]
 
 volumes:
   app_data:

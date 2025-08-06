@@ -33,9 +33,8 @@ import {
   updateExternalIDMapping,
 } from "../../../../services/external";
 import {
-  checkSystemPermissions as checkSystemPermissionsService,
-  canUserAccessSystemPermission as canUserAccessSystemPermissionService,
   redactLabelValue,
+  checkSystemPermissions,
 } from "../../../../services/permissions/system";
 import { GetJobRunParams } from ".";
 
@@ -83,19 +82,13 @@ export async function getJobRunHandler(
           SystemPermissionType.INVITE,
         ]
       : await Promise.resolve().then(async () => {
-          const recordPermissions = await checkSystemPermissionsService(
-            `${jobRunId}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          const tablePermissions = await checkSystemPermissionsService(
-            `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID, // Assuming JOB_RUNS exists in SystemTableValueEnum
-            requesterApiKey.user_id,
-            org_id
-          );
-          return Array.from(
-            new Set([...recordPermissions, ...tablePermissions])
-          );
+          const permissions = await checkSystemPermissions({
+            resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+            resourceId: `${jobRun.id}` as SystemResourceID,
+            granteeId: requesterApiKey.user_id,
+            orgId: org_id,
+          });
+          return Array.from(new Set([...permissions]));
         });
 
     const jobRunFE: JobRunFE = {
@@ -151,8 +144,9 @@ export async function listJobRunsHandler(
 ): Promise<void> {
   try {
     const { org_id } = request.params;
-    const body = request.body;
+    const requestBody = request.body;
 
+    // 1. Authenticate the request
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
       return reply
@@ -161,44 +155,62 @@ export async function listJobRunsHandler(
           createApiResponse(undefined, { code: 401, message: "Unauthorized" })
         );
     }
+    const requesterUserId = requesterApiKey.user_id;
 
-    const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
-
-    const validation = validateListJobRunsRequest(body);
-    if (!validation.valid) {
+    // 2. Validate request body
+    const pageSize = requestBody.page_size || 50;
+    if (pageSize === 0 || pageSize > 1000) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: validation.error!,
+          message:
+            "Validation error: page_size - Page size must be between 1 and 1000",
+        })
+      );
+    }
+    if (requestBody.filters && requestBody.filters.length > 256) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: filters - Filters must be 256 characters or less",
+        })
+      );
+    }
+    if (requestBody.cursor && requestBody.cursor.length > 256) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: cursor - Cursor must be 256 characters or less",
         })
       );
     }
 
-    const hasTablePermission = await checkSystemPermissionsService(
-      `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID,
-      requesterApiKey.user_id,
-      org_id
-    ).then((perms) => perms.includes(SystemPermissionType.VIEW));
+    // 3. Construct the dynamic SQL query
+    const direction = requestBody.direction || SortDirection.DESC;
+    const filters = requestBody.filters || "";
 
-    if (!isOwner && !hasTablePermission) {
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
+    let query = `SELECT * FROM job_runs`;
+    const queryParams: any[] = [];
+    const whereClauses: string[] = [];
+
+    if (filters) {
+      // Assuming a simple filter on the job_run's name or some other field
+      // NOTE: This part needs to be implemented based on the actual schema
+      whereClauses.push(`(some_field LIKE ?)`);
+      queryParams.push(`%${filters}%`);
     }
 
-    let sql = `SELECT * FROM job_runs`;
-    const params: any[] = [];
-    const orderBy =
-      body.direction === SortDirection.DESC
-        ? "created_at DESC"
-        : "created_at ASC";
-    const pageSize = body.page_size || 50;
-    let offset = 0;
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(" AND ")}`;
+    }
 
-    if (body.cursor) {
-      offset = parseInt(body.cursor, 10);
+    query += ` ORDER BY created_at ${direction}`;
+
+    let offset = 0;
+    if (requestBody.cursor) {
+      offset = parseInt(requestBody.cursor, 10);
       if (isNaN(offset)) {
         return reply.status(400).send(
           createApiResponse(undefined, {
@@ -209,85 +221,46 @@ export async function listJobRunsHandler(
       }
     }
 
-    // TODO: Implement filtering based on `body.filters`
-    if (body.filters && body.filters.length > 0) {
-      request.log.warn(
-        `[TODO: FEATURE] Filtering by '${body.filters}' for JobRuns is not yet implemented.`
-      );
-    }
+    query += ` LIMIT ? OFFSET ?`;
+    queryParams.push(pageSize, offset);
 
-    sql += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
-    params.push(pageSize + 1, offset);
+    // 4. Execute the query
+    const rawJobRuns = await db.queryDrive(org_id, query, queryParams);
 
-    const allJobRuns = await db.queryDrive(org_id, sql, params);
+    // 5. Process and filter job runs based on permissions
+    const processedJobRuns: JobRunFE[] = [];
 
-    let itemsToReturn: JobRun[] = [];
-    let nextCursor: string | null = null;
-    let totalCount = 0;
+    for (const jobRun of rawJobRuns) {
+      const jobRunRecordResourceId: string = `${jobRun.id}`;
 
-    if (allJobRuns.length > pageSize) {
-      nextCursor = (offset + pageSize).toString();
-      itemsToReturn = allJobRuns.slice(0, pageSize) as JobRun[];
-    } else {
-      itemsToReturn = allJobRuns as JobRun[];
-    }
+      const permissions = await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+        resourceId: jobRunRecordResourceId,
+        granteeId: requesterUserId,
+        orgId: org_id,
+      });
 
-    if (isOwner || hasTablePermission) {
-      const totalResult = await db.queryDrive(
-        org_id,
-        "SELECT COUNT(*) as count FROM job_runs"
-      );
-      totalCount = totalResult[0].count;
-    } else {
-      totalCount = itemsToReturn.length;
-      if (nextCursor) {
-        totalCount += 1;
-      }
-    }
-
-    const redactedJobRuns = await Promise.all(
-      itemsToReturn.map(async (jobRun) => {
+      if (permissions.includes(SystemPermissionType.VIEW)) {
         const jobRunFE: JobRunFE = {
-          ...jobRun,
+          ...(jobRun as JobRun),
           labels: [],
-          related_resources: [], // Ensure related_resources is an empty array
-          permission_previews: isOwner
-            ? [
-                SystemPermissionType.CREATE,
-                SystemPermissionType.EDIT,
-                SystemPermissionType.DELETE,
-                SystemPermissionType.VIEW,
-                SystemPermissionType.INVITE,
-              ]
-            : await Promise.resolve().then(async () => {
-                const recordPermissions = await checkSystemPermissionsService(
-                  `${jobRun.id}` as SystemResourceID,
-                  requesterApiKey.user_id,
-                  org_id
-                );
-                const tablePermissions = await checkSystemPermissionsService(
-                  `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID,
-                  requesterApiKey.user_id,
-                  org_id
-                );
-                return Array.from(
-                  new Set([...recordPermissions, ...tablePermissions])
-                );
-              }),
+          related_resources: [],
+          permission_previews: permissions,
         };
 
-        const isVendorOfJob = requesterApiKey.user_id === jobRun.vendor_id;
-        const hasCurrentTableViewPermission =
-          jobRunFE.permission_previews.includes(SystemPermissionType.VIEW);
+        // Redaction logic based on ownership and permissions
+        const isVendorOfJob = requesterUserId === jobRun.vendor_id;
+        const hasEditPermission = permissions.includes(
+          SystemPermissionType.EDIT
+        );
 
-        if (!isVendorOfJob && !hasCurrentTableViewPermission) {
+        if (!isVendorOfJob && !hasEditPermission) {
           jobRunFE.notes = "";
-        }
-        if (!isVendorOfJob && !hasCurrentTableViewPermission) {
           jobRunFE.vendor_notes = "";
           jobRunFE.tracer = undefined;
         }
 
+        // Fetch and redact labels
         const listJobRunLabelsRaw = await db.queryDrive(
           org_id,
           `SELECT T2.value FROM job_run_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.job_run_id = ?`,
@@ -296,26 +269,32 @@ export async function listJobRunsHandler(
         jobRunFE.labels = (
           await Promise.all(
             listJobRunLabelsRaw.map((row: any) =>
-              redactLabelValue(org_id, row.value, requesterApiKey.user_id)
+              redactLabelValue(org_id, row.value, requesterUserId)
             )
           )
         ).filter((label): label is string => label !== null);
 
-        // Removed job_run_related_resources query
+        processedJobRuns.push(jobRunFE);
+      }
+    }
 
-        return jobRunFE;
+    // 6. Handle pagination and total count
+    const nextCursor =
+      processedJobRuns.length < pageSize
+        ? null
+        : (offset + pageSize).toString();
+
+    const totalCountToReturn = processedJobRuns.length;
+
+    return reply.status(200).send(
+      createApiResponse<IPaginatedResponse<JobRunFE>>({
+        items: processedJobRuns,
+        page_size: processedJobRuns.length,
+        total: totalCountToReturn,
+        direction: direction,
+        cursor: nextCursor || undefined,
       })
     );
-
-    const responseData: IPaginatedResponse<JobRunFE> = {
-      items: redactedJobRuns,
-      page_size: itemsToReturn.length,
-      total: totalCount,
-      direction: body.direction || SortDirection.ASC,
-      cursor: nextCursor || undefined,
-    };
-
-    return reply.status(200).send(createApiResponse(responseData));
   } catch (error) {
     request.log.error("Error in listJobRunsHandler:", error);
     return reply.status(500).send(
@@ -356,11 +335,11 @@ export async function createJobRunHandler(
       );
     }
 
-    const userPermissions = await checkSystemPermissionsService(
-      `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID,
-      requesterApiKey.user_id,
-      org_id
-    );
+    const userPermissions = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
+    });
 
     const hasCreatePermission =
       isOwner || userPermissions.includes(SystemPermissionType.CREATE);
@@ -387,7 +366,7 @@ export async function createJobRunHandler(
         insertJobRunStmt.run(
           jobRunId,
           body.template_id || null,
-          body.vendor_name,
+          body.vendor_name || "Unknown Vendor",
           body.vendor_id,
           body.status || JobRunStatus.REQUESTED, // Default status if not provided
           body.description || null,
@@ -462,29 +441,11 @@ export async function createJobRunHandler(
       await claimUUID(org_id, newJobRun.id);
     }
 
-    const permissionPreviews = isOwner
-      ? [
-          SystemPermissionType.CREATE,
-          SystemPermissionType.EDIT,
-          SystemPermissionType.DELETE,
-          SystemPermissionType.VIEW,
-          SystemPermissionType.INVITE,
-        ]
-      : await Promise.resolve().then(async () => {
-          const recordPermissions = await checkSystemPermissionsService(
-            `${jobRunId}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          const tablePermissions = await checkSystemPermissionsService(
-            `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          return Array.from(
-            new Set([...recordPermissions, ...tablePermissions])
-          );
-        });
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
+    });
 
     const jobRunFE: JobRunFE = {
       ...newJobRun,
@@ -578,21 +539,11 @@ export async function updateJobRunHandler(
     }
     const existingJobRun = existingJobRuns[0] as JobRun;
 
-    const hasEditPermission = await Promise.resolve().then(async () => {
-      const recordPermissions = await checkSystemPermissionsService(
-        `${jobRunId}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      const tablePermissions = await checkSystemPermissionsService(
-        `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      return (
-        recordPermissions.includes(SystemPermissionType.EDIT) ||
-        tablePermissions.includes(SystemPermissionType.EDIT)
-      );
+    const hasEditPermission = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+      resourceId: `${jobRunId}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
     });
 
     if (!isOwner && !hasEditPermission) {
@@ -731,29 +682,12 @@ export async function updateJobRunHandler(
     );
     const updatedJobRun = updatedJobRuns[0] as JobRun;
 
-    const permissionPreviews = isOwner
-      ? [
-          SystemPermissionType.CREATE,
-          SystemPermissionType.EDIT,
-          SystemPermissionType.DELETE,
-          SystemPermissionType.VIEW,
-          SystemPermissionType.INVITE,
-        ]
-      : await Promise.resolve().then(async () => {
-          const recordPermissions = await checkSystemPermissionsService(
-            `${jobRunId}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          const tablePermissions = await checkSystemPermissionsService(
-            `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID,
-            requesterApiKey.user_id,
-            org_id
-          );
-          return Array.from(
-            new Set([...recordPermissions, ...tablePermissions])
-          );
-        });
+    const permissionPreviews = await checkSystemPermissions({
+      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+      resourceId: `${jobRunId}` as SystemResourceID,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
+    });
 
     const jobRunFE: JobRunFE = {
       ...updatedJobRun,
@@ -831,22 +765,14 @@ export async function deleteJobRunHandler(
 
     const jobRunId = body.id;
 
-    const hasDeletePermission = await Promise.resolve().then(async () => {
-      const recordPermissions = await checkSystemPermissionsService(
-        `${jobRunId}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      const tablePermissions = await checkSystemPermissionsService(
-        `TABLE_${SystemTableValueEnum.JOB_RUNS}` as SystemResourceID,
-        requesterApiKey.user_id,
-        org_id
-      );
-      return (
-        recordPermissions.includes(SystemPermissionType.DELETE) ||
-        tablePermissions.includes(SystemPermissionType.DELETE)
-      );
-    });
+    const hasDeletePermission = (
+      await checkSystemPermissions({
+        resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+        resourceId: `${jobRunId}` as SystemResourceID,
+        granteeId: requesterApiKey.user_id,
+        orgId: org_id,
+      })
+    ).includes(SystemPermissionType.DELETE);
 
     if (!isOwner && !hasDeletePermission) {
       return reply

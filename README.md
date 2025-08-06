@@ -50,6 +50,10 @@ $ docker compose logs -f
 # clear and restart, wipe volumes
 $ docker compose down --volumes
 
+# refresh without wiping volumes
+$ docker compose down && docker compose up --build -d && docker compose logs -f
+
+
 # or restart fresh
 $ docker compose down --volumes && docker compose up --build -d && docker compose logs -f
 ```
@@ -89,10 +93,18 @@ $ docker compose down
 $ docker compose down --volumes
 ```
 
-Convinence restart
+Convinence hard restart (wipes out volumes)
 
 ```sh
 $ docker compose down --volumes && docker compose up --build -d && docker compose logs -f
+```
+
+## Testing
+
+```sh
+npm install -g newman
+
+newman run postman/postman-rest-api.json
 ```
 
 ## Production
