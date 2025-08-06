@@ -240,6 +240,8 @@ export async function listDirectoryHandler(
   const listRequest = request.body;
   const userApiKey = await authenticateRequest(request, "drive", driveId);
 
+  console.log(`body == ${JSON.stringify(listRequest)}`);
+
   if (!userApiKey) {
     return reply
       .status(401)
@@ -252,6 +254,7 @@ export async function listDirectoryHandler(
 
     // If disk_id is provided and no folder_id/path, it means "root shortcuts of user"
     if (listRequest.disk_id && !targetFolderId && !listRequest.path) {
+      console.log(`fetch_root_shortcuts_of_user`);
       const shortcutResponse = await fetch_root_shortcuts_of_user(
         driveId,
         listRequest,

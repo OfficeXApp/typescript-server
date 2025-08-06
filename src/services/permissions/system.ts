@@ -139,10 +139,14 @@ export async function checkSystemPermissions({
   const currentTime = Date.now();
 
   console.log(`>>> checkSystemPermissions >>> currentTime`, currentTime);
+  console.log(
+    `>>> grantee_id=${granteeId}, resourceTable=${resourceTable}, resourceId=${resourceId}, orgId=${orgId}`
+  );
 
   // if its owner, return all permissions
   const ownerId = await getDriveOwnerId(orgId);
   if (granteeId === ownerId) {
+    console.log(`granteeId === ownerId`);
     return [
       SystemPermissionType.CREATE,
       SystemPermissionType.VIEW,

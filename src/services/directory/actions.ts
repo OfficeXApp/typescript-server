@@ -738,7 +738,7 @@ export async function pipeAction(
             payload.name
           ) + "/";
 
-        await db.queryDrive(
+        await db.runDrive(
           driveId,
           "UPDATE folders SET name = ?, full_directory_path = ?, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?",
           [payload.name, newPath, Date.now(), userId, payload.id]
@@ -786,7 +786,7 @@ export async function pipeAction(
 
       if (updateFields.length > 0) {
         const query = `UPDATE folders SET ${updateFields.join(", ")}, last_updated_date_ms = ?, last_updated_by = ? WHERE id = ?`;
-        await db.queryDrive(driveId, query, [
+        await db.runDrive(driveId, query, [
           ...updateValues,
           Date.now(),
           userId,

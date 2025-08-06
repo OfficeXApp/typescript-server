@@ -27,6 +27,7 @@ import {
   DiskTypeEnum,
   DiskID,
   FileVersionID,
+  Disk,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../database";
 import * as internals from "./internals";
@@ -43,7 +44,7 @@ import { generate_s3_upload_url } from "../disks/aws_s3"; // Assuming these are 
 async function get_disk_from_db(
   driveId: DriveID,
   diskId: DiskID
-): Promise<any> {
+): Promise<Disk> {
   const [disk] = await db.queryDrive(
     driveId,
     "SELECT * FROM disks WHERE id = ?",
@@ -97,6 +98,8 @@ export async function createFile(
 
   const disk = await get_disk_from_db(driveId, disk_id);
   if (!disk) throw new Error("Disk not found.");
+
+  console.log(`Disk type: ${disk.disk_type}`);
 
   if (
     disk.disk_type !== DiskTypeEnum.AwsBucket &&
@@ -177,7 +180,7 @@ export async function createFile(
         // If existing file is newer, return it and generate upload URL for it
         let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
         if (disk.disk_type === DiskTypeEnum.AwsBucket) {
-          const awsAuth = JSON.parse(disk.auth_json);
+          const awsAuth = JSON.parse(disk.auth_json || "");
           const result = await generate_s3_upload_url(
             existingFile.id,
             existingFile.extension,
@@ -191,7 +194,7 @@ export async function createFile(
           if (result.ok) uploadResponse = result.ok;
           else throw new Error(result.err);
         } else if (disk.disk_type === DiskTypeEnum.StorjWeb3) {
-          const storjAuth = JSON.parse(disk.auth_json);
+          const storjAuth = JSON.parse(disk.auth_json || "");
           const result = await generate_s3_upload_url(
             existingFile.id,
             existingFile.extension,
@@ -319,12 +322,19 @@ export async function createFile(
     );
 
     // Update parent folder's file_uuids list
-    const parentFolder = tx.prepare("SELECT file_uuids FROM folders WHERE id = ?").get(parent_folder_uuid) as { file_uuids: string | null };
+    const parentFolder = tx
+      .prepare("SELECT file_uuids FROM folders WHERE id = ?")
+      .get(parent_folder_uuid) as { file_uuids: string | null };
     if (parentFolder) {
-      const fileUuids = parentFolder.file_uuids ? JSON.parse(parentFolder.file_uuids) : [];
+      const fileUuids = parentFolder.file_uuids
+        ? JSON.parse(parentFolder.file_uuids)
+        : [];
       if (!fileUuids.includes(fileRecord.id)) {
         fileUuids.push(fileRecord.id);
-        tx.prepare("UPDATE folders SET file_uuids = ? WHERE id = ?").run(JSON.stringify(fileUuids), parent_folder_uuid);
+        tx.prepare("UPDATE folders SET file_uuids = ? WHERE id = ?").run(
+          JSON.stringify(fileUuids),
+          parent_folder_uuid
+        );
       }
     }
   });
@@ -332,7 +342,7 @@ export async function createFile(
   let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
   if (fileRecord.upload_status === UploadStatus.QUEUED) {
     if (disk.disk_type === DiskTypeEnum.AwsBucket) {
-      const awsAuth = JSON.parse(disk.auth_json);
+      const awsAuth = JSON.parse(disk.auth_json || "");
       const result = await generate_s3_upload_url(
         fileRecord.id,
         fileRecord.extension,
@@ -346,7 +356,7 @@ export async function createFile(
       if (result.ok) uploadResponse = result.ok;
       else throw new Error(result.err);
     } else if (disk.disk_type === DiskTypeEnum.StorjWeb3) {
-      const storjAuth = JSON.parse(disk.auth_json);
+      const storjAuth = JSON.parse(disk.auth_json || "");
       const result = await generate_s3_upload_url(
         fileRecord.id,
         fileRecord.extension,
@@ -447,13 +457,20 @@ export async function createFolder(
   );
 
   // Update parent folder's subfolder_uuids list
-  dbHelpers.transaction('drive', driveId, (tx: Database) => {
-    const parent = tx.prepare("SELECT subfolder_uuids FROM folders WHERE id = ?").get(parent_folder_uuid) as { subfolder_uuids: string | null };
+  dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    const parent = tx
+      .prepare("SELECT subfolder_uuids FROM folders WHERE id = ?")
+      .get(parent_folder_uuid) as { subfolder_uuids: string | null };
     if (parent) {
-      const subfolderUuids = parent.subfolder_uuids ? JSON.parse(parent.subfolder_uuids) : [];
+      const subfolderUuids = parent.subfolder_uuids
+        ? JSON.parse(parent.subfolder_uuids)
+        : [];
       if (!subfolderUuids.includes(folder.id)) {
         subfolderUuids.push(folder.id);
-        tx.prepare("UPDATE folders SET subfolder_uuids = ? WHERE id = ?").run(JSON.stringify(subfolderUuids), parent_folder_uuid);
+        tx.prepare("UPDATE folders SET subfolder_uuids = ? WHERE id = ?").run(
+          JSON.stringify(subfolderUuids),
+          parent_folder_uuid
+        );
       }
     }
   });
@@ -1462,8 +1479,6 @@ export async function getFolderMetadata(
   }
 
   const row = rows[0];
-
-  console.log(`yo big dawg!`, row);
 
   return {
     id: row.id as FolderID,
