@@ -366,7 +366,7 @@ export async function createJobRunHandler(
         insertJobRunStmt.run(
           jobRunId,
           body.template_id || null,
-          body.vendor_name,
+          body.vendor_name || "Unknown Vendor",
           body.vendor_id,
           body.status || JobRunStatus.REQUESTED, // Default status if not provided
           body.description || null,

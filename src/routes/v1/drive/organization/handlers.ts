@@ -25,7 +25,8 @@ import {
   SortDirection,
   SystemPermissionType, // Import SystemPermissionType
   SystemTableValueEnum,
-  SystemResourceID, // Import SystemTableValueEnum
+  SystemResourceID,
+  IErrorResponse, // Import SystemTableValueEnum
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
@@ -245,53 +246,12 @@ export async function searchDriveHandler(
       );
     }
 
-    // DRIVE: Implement actual search logic using SQLite FTS (Full-Text Search) or similar.
-    // This would involve querying 'files', 'folders', 'contacts', etc., based on `categories`.
-    // For now, return mock search results.
-    const mockSearchResults: IResponseSearchDrive["ok"]["data"]["items"] = [
-      {
-        title: `Coming Soon - ${searchRequest.query}`,
-        preview: "Search will be available in next 10 days",
-        score: 0.9,
-        resource_id: "FileID_mock_file_1",
-        category: SearchCategoryEnum.FILES,
-        created_at: Date.now() - 50000,
-        updated_at: Date.now() - 10000,
-      },
-      {
-        title: `Coming Soon - ${searchRequest.query}`,
-        preview: "Search will be available in next 10 days",
-        score: 0.8,
-        resource_id: "FolderID_mock_folder_1",
-        category: SearchCategoryEnum.FOLDERS,
-        created_at: Date.now() - 60000,
-        updated_at: Date.now() - 5000,
-      },
-    ];
-
-    // Apply pagination and sorting as per request
-    const pageSize = searchRequest.page_size || 50;
-    const startIndex = searchRequest.cursor
-      ? parseInt(searchRequest.cursor, 10)
-      : 0;
-    const paginatedResults = mockSearchResults.slice(
-      startIndex,
-      startIndex + pageSize
-    );
-    const nextCursor =
-      startIndex + pageSize < mockSearchResults.length
-        ? (startIndex + pageSize).toString()
-        : undefined;
-
-    const responseData: IResponseSearchDrive["ok"]["data"] = {
-      items: paginatedResults,
-      page_size: paginatedResults.length,
-      total: mockSearchResults.length,
-      direction: searchRequest.direction || SortDirection.ASC, // Defaulting to ASC
-      cursor: nextCursor,
-    };
-
-    reply.status(200).send(createApiResponse(responseData));
+    const searchResults = await db.fuzzySearch(org_id, searchRequest);
+    if ((searchResults as IResponseSearchDrive).ok) {
+      return reply.status(200).send(searchResults);
+    } else {
+      return reply.status(500).send(searchResults);
+    }
   } catch (error) {
     request.log.error("Error in searchDriveHandler:", error);
     reply.status(500).send(
@@ -346,37 +306,11 @@ export async function reindexDriveHandler(
     const reindexRequest = request.body;
     const forceReindex = reindexRequest.force || false;
 
-    // DRIVE: Implement actual reindexing logic. This would involve iterating
-    // through files, folders, contacts, etc., and updating their search indices.
-    // For now, just mock the reindex process.
-    const lastIndexTime = 0; // DRIVE: Fetch from a persistent store, e.g., 'about_drive' or a separate search-specific table
-    const currentTime = Date.now(); // Milliseconds
-
-    if (
-      !forceReindex &&
-      lastIndexTime > 0 &&
-      currentTime - lastIndexTime < 5 * 60 * 1000
-    ) {
-      return reply.status(429).send(
-        createApiResponse(undefined, {
-          code: 429,
-          message:
-            "Reindex was performed recently. Use 'force: true' to override.",
-        })
-      );
-    }
-
-    const indexedCount = 1234; // Mock value for number of items indexed
-
-    // DRIVE: Update the last_indexed_ms in the `about_drive` table
-    await db.queryDrive(org_id, `UPDATE about_drive SET last_indexed_ms = ?`, [
-      currentTime,
-    ]);
-
+    // SQLite always keeps our index up to date
     const responseData: IResponseReindexDrive["ok"]["data"] = {
       success: true,
-      timestamp_ms: currentTime,
-      indexed_count: indexedCount,
+      timestamp_ms: Date.now(),
+      indexed_count: 0,
     };
 
     reply.status(200).send(createApiResponse(responseData));

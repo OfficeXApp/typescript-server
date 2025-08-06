@@ -613,7 +613,7 @@ export async function redeemDirectoryPermission(
   const existingPermission = await getDirectoryPermissionById(
     orgId,
     data.permission_id,
-    data.requesterId,
+    data.user_id,
     true
   );
 

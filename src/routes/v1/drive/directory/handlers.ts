@@ -114,10 +114,7 @@ async function fetch_root_shortcuts_of_user(
     GROUP BY pd.id, pd.resource_type, pd.resource_id, pd.resource_path, pd.begin_date_ms, pd.expiry_date_ms, pd.inheritable
     ORDER BY pd.last_modified_at DESC;
   `,
-    [
-      userId.replace(IDPrefixEnum.User, ""),
-      userId.replace(IDPrefixEnum.User, ""),
-    ] // Remove prefix for DB storage
+    [userId, userId]
   );
 
   const now = Date.now(); // Current time in milliseconds for expiry check

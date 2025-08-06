@@ -130,7 +130,7 @@ CREATE TABLE folders (
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id) ON DELETE SET NULL,
-    FOREIGN KEY(disk_id) REFERENCES disks(id),
+    FOREIGN KEY(disk_id) REFERENCES disks(id) ON DELETE CASCADE,
     FOREIGN KEY(drive_id) REFERENCES drives(id),
     FOREIGN KEY(shortcut_to) REFERENCES folders(id) ON DELETE SET NULL
 );
@@ -164,7 +164,7 @@ CREATE TABLE files (
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(parent_folder_id) REFERENCES folders(id),
-    FOREIGN KEY(disk_id) REFERENCES disks(id),
+    FOREIGN KEY(disk_id) REFERENCES disks(id) ON DELETE CASCADE,
     FOREIGN KEY(drive_id) REFERENCES drives(id),
     FOREIGN KEY(shortcut_to) REFERENCES files(id) ON DELETE SET NULL
 );
@@ -503,6 +503,184 @@ CREATE TABLE uuid_claimed (
     uuid TEXT PRIMARY KEY NOT NULL,
     claimed INTEGER NOT NULL DEFAULT 1 -- 1 for true (claimed), 0 for false
 );
+
+
+
+-- FTS5 Virtual Table for fuzzy text searching
+CREATE VIRTUAL TABLE search_fts USING fts5(
+  searchable_string,
+  title,
+  preview,
+  resource_id,
+  category,
+  metadata,
+  created_at,
+  updated_at,
+  tokenize='trigram'
+);
+
+-- Shadow table for fast lookups between resource_id and FTS rowid
+CREATE TABLE fts_lookup (
+    resource_id TEXT PRIMARY KEY,
+    fts_rowid INTEGER
+);
+
+
+-- Files Triggers
+CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
+  INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
+  VALUES (new.name || ' ' || new.full_directory_path || ' ' || new.id, new.name, new.full_directory_path, new.id, 'FILES', new.external_payload, new.created_at, new.last_updated_date_ms);
+  INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
+END;
+
+CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
+  UPDATE search_fts SET
+    searchable_string = new.name || ' ' || new.full_directory_path || ' ' || new.id,
+    title = new.name,
+    preview = new.full_directory_path,
+    updated_at = new.last_updated_date_ms,
+    metadata = new.external_payload
+  WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
+END;
+
+CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
+  DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
+  DELETE FROM fts_lookup WHERE resource_id = old.id;
+END;
+
+-- Folders Triggers
+CREATE TRIGGER folders_ai AFTER INSERT ON folders BEGIN
+  INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
+  VALUES (new.name || ' ' || new.full_directory_path || ' ' || new.id, new.name, new.full_directory_path, new.id, 'FOLDERS', new.external_payload, new.created_at, new.last_updated_date_ms);
+  INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
+END;
+
+CREATE TRIGGER folders_au AFTER UPDATE ON folders BEGIN
+  UPDATE search_fts SET
+    searchable_string = new.name || ' ' || new.full_directory_path || '' || new.id,
+    title = new.name,
+    preview = new.full_directory_path,
+    updated_at = new.last_updated_date_ms,
+    metadata = new.external_payload
+  WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
+END;
+
+CREATE TRIGGER folders_ad AFTER DELETE ON folders BEGIN
+  DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
+  DELETE FROM fts_lookup WHERE resource_id = old.id;
+END;
+
+-- Contacts Triggers
+CREATE TRIGGER contacts_ai AFTER INSERT ON contacts BEGIN
+  INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
+  VALUES (new.name || ' ' || new.email || ' ' || new.id || ' ' || new.evm_public_address, new.name, new.email, new.id, 'CONTACTS', new.external_payload, new.created_at, new.last_online_ms);
+  INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
+END;
+
+CREATE TRIGGER contacts_au AFTER UPDATE ON contacts BEGIN
+  UPDATE search_fts SET
+    searchable_string = new.name || ' ' || new.email || ' ' || new.id || ' ' || new.evm_public_address,
+    title = new.name,
+    preview = new.email,
+    updated_at = new.last_online_ms,
+    metadata = new.external_payload
+  WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
+END;
+
+CREATE TRIGGER contacts_ad AFTER DELETE ON contacts BEGIN
+  DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
+  DELETE FROM fts_lookup WHERE resource_id = old.id;
+END;
+
+
+-- Disks Triggers
+CREATE TRIGGER disks_ai AFTER INSERT ON disks BEGIN
+  INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
+  VALUES (new.name || ' ' || new.disk_type || ' ' || new.id, new.name, new.disk_type, new.id, 'DISKS', new.external_payload, new.created_at, new.created_at);
+  INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
+END;
+
+CREATE TRIGGER disks_au AFTER UPDATE ON disks BEGIN
+  UPDATE search_fts SET
+    searchable_string = new.name || ' ' || new.disk_type || ' ' || new.id,
+    title = new.name,
+    preview = new.disk_type,
+    updated_at = new.created_at,
+    metadata = new.external_payload
+  WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
+END;
+
+CREATE TRIGGER disks_ad AFTER DELETE ON disks BEGIN
+  DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
+  DELETE FROM fts_lookup WHERE resource_id = old.id;
+END;
+
+
+-- Drives Triggers
+CREATE TRIGGER drives_ai AFTER INSERT ON drives BEGIN
+  INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
+  VALUES (new.name || ' ' || new.id || ' ' || new.endpoint_url, new.name, new.endpoint_url, new.id, 'DRIVES', new.external_payload, new.created_at, new.created_at);
+  INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
+END;
+
+CREATE TRIGGER drives_au AFTER UPDATE ON drives BEGIN
+  UPDATE search_fts SET
+    searchable_string = new.name || ' ' || new.id || ' ' || new.endpoint_url,
+    title = new.name,
+    preview = new.endpoint_url,
+    updated_at = new.created_at,
+    metadata = new.external_payload
+  WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
+END;
+
+CREATE TRIGGER drives_ad AFTER DELETE ON drives BEGIN
+  DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
+  DELETE FROM fts_lookup WHERE resource_id = old.id;
+END;
+
+-- Groups Triggers
+CREATE TRIGGER groups_ai AFTER INSERT ON groups BEGIN
+  INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
+  VALUES (new.name || ' ' || new.id || ' ' || new.endpoint_url, new.name, new.endpoint_url, new.id, 'GROUPS', new.external_payload, new.created_at, new.last_modified_at);
+  INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
+END;
+
+CREATE TRIGGER groups_au AFTER UPDATE ON groups BEGIN
+  UPDATE search_fts SET
+    searchable_string = new.name || ' ' || new.id || ' ' || new.endpoint_url,
+    title = new.name,
+    preview = new.endpoint_url,
+    updated_at = new.last_modified_at,
+    metadata = new.external_payload
+  WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
+END;
+
+CREATE TRIGGER groups_ad AFTER DELETE ON groups BEGIN
+  DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
+  DELETE FROM fts_lookup WHERE resource_id = old.id;
+END;
+
+-- Job Runs Triggers
+CREATE TRIGGER job_runs_ai AFTER INSERT ON job_runs BEGIN
+  INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
+  VALUES (new.title || ' ' || new.subtitle || ' ' || new.vendor_name || ' ' || new.id, new.title, new.vendor_name, new.id, 'JOB_RUNS', new.external_payload, new.created_at, new.last_updated_at);
+  INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
+END;
+
+CREATE TRIGGER job_runs_au AFTER UPDATE ON job_runs BEGIN
+  UPDATE search_fts SET
+    searchable_string = new.title || ' ' || new.subtitle || ' ' || new.vendor_name || ' ' || new.id,
+    title = new.title,
+    preview = new.vendor_name,
+    updated_at = new.last_updated_at,
+    metadata = new.external_payload
+  WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
+END;
+
+CREATE TRIGGER job_runs_ad AFTER DELETE ON job_runs BEGIN
+  DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
+  DELETE FROM fts_lookup WHERE resource_id = old.id;
+END;
 
 -- =============================================
 -- Indexes for Performance

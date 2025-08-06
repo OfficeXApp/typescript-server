@@ -4727,7 +4727,57 @@
 			]
 		},
 		{
-			"name": "⛔️ drive/:org_id/disks/delete",
+			"name": "drive/:org_id/disks/delete",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Response status code is 200\", function () {",
+							"    pm.expect(pm.response.code).to.eql(200);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response time is less than 200ms\", function () {",
+							"    pm.expect(pm.response.responseTime).to.be.below(200);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response has the required fields\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData.ok).to.exist.and.to.be.an('object');",
+							"    pm.expect(responseData.ok.data).to.exist.and.to.be.an('object');",
+							"    ",
+							"    pm.expect(responseData.ok.data).to.have.property('id').that.is.a('string');",
+							"    pm.expect(responseData.ok.data).to.have.property('deleted').that.is.a('boolean');",
+							"});",
+							"",
+							"",
+							"pm.test(\"Deleted field must be a boolean\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData.ok.data).to.have.property('deleted').that.is.a('boolean');",
+							"});",
+							"",
+							"",
+							"pm.test(\"The id must be a non-empty string\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData.ok).to.exist;",
+							"    pm.expect(responseData.ok.data).to.exist;",
+							"    pm.expect(responseData.ok.data.id).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
 			"request": {
 				"method": "POST",
 				"header": [
@@ -7633,6 +7683,192 @@
 			"response": []
 		},
 		{
+			"name": "drive/:org_id/organization/search",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Response status code is 200\", function () {",
+							"    pm.expect(pm.response.code).to.equal(200);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response time is less than 200ms\", function () {",
+							"    pm.expect(pm.response.responseTime).to.be.below(200);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response schema matches expected structure\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData.ok).to.exist.and.to.be.an('object');",
+							"    pm.expect(responseData.ok.data).to.exist.and.to.be.an('object');",
+							"    pm.expect(responseData.ok.data.items).to.exist.and.to.be.an('array');",
+							"",
+							"    responseData.ok.data.items.forEach(item => {",
+							"        pm.expect(item).to.be.an('object');",
+							"        pm.expect(item).to.have.all.keys('resource_id', 'title', 'preview', 'score', 'category', 'metadata', 'created_at', 'updated_at');",
+							"        pm.expect(item.resource_id).to.be.a('string');",
+							"        pm.expect(item.title).to.be.a('string');",
+							"        pm.expect(item.preview).to.be.a('string');",
+							"        pm.expect(item.score).to.be.a('number');",
+							"        pm.expect(item.category).to.be.a('string');",
+							"        pm.expect(item.metadata).to.satisfy(value => value === null || typeof value === 'object');",
+							"        pm.expect(item.created_at).to.be.a('number');",
+							"        pm.expect(item.updated_at).to.be.a('number');",
+							"    });",
+							"",
+							"    pm.expect(responseData.ok.data.page_size).to.be.a('number');",
+							"    pm.expect(responseData.ok.data.total).to.be.a('number');",
+							"    pm.expect(responseData.ok.data.direction).to.be.a('string');",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response contains 'items' array with expected fields\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData.ok).to.exist;",
+							"    pm.expect(responseData.ok.data).to.exist;",
+							"    pm.expect(responseData.ok.data.items).to.be.an('array');",
+							"",
+							"    responseData.ok.data.items.forEach(item => {",
+							"        pm.expect(item).to.be.an('object');",
+							"        pm.expect(item).to.have.all.keys('resource_id', 'title', 'preview', 'score', 'category', 'created_at', 'updated_at');",
+							"        pm.expect(item.resource_id).to.be.a('string');",
+							"        pm.expect(item.title).to.be.a('string');",
+							"        pm.expect(item.preview).to.be.a('string');",
+							"        pm.expect(item.score).to.be.a('number');",
+							"        pm.expect(item.category).to.be.a('string');",
+							"        pm.expect(item.created_at).to.be.a('number');",
+							"        pm.expect(item.updated_at).to.be.a('number');",
+							"    });",
+							"});",
+							"",
+							"",
+							"pm.test(\"Score is a non-negative integer\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData.ok).to.exist;",
+							"    pm.expect(responseData.ok.data).to.exist;",
+							"    pm.expect(responseData.ok.data.items).to.be.an('array').that.is.not.empty;",
+							"",
+							"    responseData.ok.data.items.forEach(function(item) {",
+							"        pm.expect(item.score).to.be.a('number').and.to.be.at.least(0, \"Score should be a non-negative integer\");",
+							"    });",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{auth_token}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"query\": \"cool\"\n//   \"categories\": [\n//     \"FILES\"\n//   ],\n//   \"page_size\": 50,\n//   \"cursor_up\": \"string\",\n//   \"cursor_down\": \"string\",\n//   \"sort_by\": \"CREATED_AT\",\n//   \"direction\": \"ASC\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/organization/search",
+					"host": [
+						"{{ServerEndpoint}}"
+					],
+					"path": [
+						"v1",
+						"drive",
+						"{{org_id}}",
+						"organization",
+						"search"
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "sample response",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{vault:bearer-token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"query\": \"string\",\n  \"categories\": [\n    \"FILES\"\n  ],\n  \"page_size\": 50,\n  \"cursor_up\": \"string\",\n  \"cursor_down\": \"string\",\n  \"sort_by\": \"CREATED_AT\",\n  \"direction\": \"ASC\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/organization/search",
+							"host": [
+								"{{ServerEndpoint}}"
+							],
+							"path": [
+								"v1",
+								"drive",
+								"{{org_id}}",
+								"organization",
+								"search"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "access-control-allow-origin",
+							"value": "*"
+						},
+						{
+							"key": "content-type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "content-length",
+							"value": "487"
+						},
+						{
+							"key": "Date",
+							"value": "Thu, 24 Jul 2025 10:33:29 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=72"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"ok\": {\n        \"data\": {\n            \"items\": [\n                {\n                    \"title\": \"Coming Soon - string\",\n                    \"preview\": \"Search will be available in next 10 days\",\n                    \"score\": 0.9,\n                    \"resource_id\": \"FileID_mock_file_1\",\n                    \"category\": \"FILES\",\n                    \"created_at\": 1753353159096,\n                    \"updated_at\": 1753353199096\n                },\n                {\n                    \"title\": \"Coming Soon - string\",\n                    \"preview\": \"Search will be available in next 10 days\",\n                    \"score\": 0.8,\n                    \"resource_id\": \"FolderID_mock_folder_1\",\n                    \"category\": \"FOLDERS\",\n                    \"created_at\": 1753353149096,\n                    \"updated_at\": 1753353204096\n                }\n            ],\n            \"page_size\": 2,\n            \"total\": 2,\n            \"direction\": \"ASC\"\n        }\n    }\n}"
+				}
+			]
+		},
+		{
 			"name": "drive/:org_id/directory/list | sanity check",
 			"event": [
 				{
@@ -9111,7 +9347,7 @@
 			"response": []
 		},
 		{
-			"name": "drive/:org_id/directory/action | batch operation",
+			"name": "drive/:org_id/directory/action | batch create file folder",
 			"event": [
 				{
 					"listen": "test",
@@ -9188,7 +9424,7 @@
 			"response": []
 		},
 		{
-			"name": "drive/:org_id/permissions/directory/create | file",
+			"name": "drive/:org_id/permissions/directory/create | permit file",
 			"event": [
 				{
 					"listen": "test",
@@ -9369,7 +9605,7 @@
 			]
 		},
 		{
-			"name": "drive/:org_id/permissions/directory/create | folder",
+			"name": "drive/:org_id/permissions/directory/create | permit folder",
 			"event": [
 				{
 					"listen": "test",
@@ -9765,6 +10001,110 @@
 						"{{org_id}}",
 						"directory",
 						"action"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "drive/:org_id/directory/list | SHARED WITH ME",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Response status code is 200\", function () {",
+							"    pm.expect(pm.response.code).to.equal(200);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response time is less than 200ms\", function () {",
+							"    pm.expect(pm.response.responseTime).to.be.below(200);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response matches expected schema for folders and files\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    ",
+							"    // Test for folders array schema",
+							"    pm.expect(responseData.folders).to.be.an('array');",
+							"    responseData.folders.forEach(folder => {",
+							"        pm.expect(folder).to.be.an('object');",
+							"        // Assuming folders can have a name and an id",
+							"        pm.expect(folder).to.have.all.keys('name', 'id'); // Adjust keys based on actual schema",
+							"        pm.expect(folder.name).to.be.a('string').and.to.have.lengthOf.at.least(1);",
+							"        pm.expect(folder.id).to.be.a('string').and.to.have.lengthOf.at.least(1);",
+							"    });",
+							"    ",
+							"    // Test for files array schema",
+							"    pm.expect(responseData.files).to.be.an('array');",
+							"    responseData.files.forEach(file => {",
+							"        pm.expect(file).to.be.an('object');",
+							"        // Assuming files can have a name and an id",
+							"        pm.expect(file).to.have.all.keys('name', 'id'); // Adjust keys based on actual schema",
+							"        pm.expect(file.name).to.be.a('string').and.to.have.lengthOf.at.least(1);",
+							"        pm.expect(file.id).to.be.a('string').and.to.have.lengthOf.at.least(1);",
+							"    });",
+							"});",
+							"",
+							"",
+							"pm.test(\"Breadcrumbs array contains required fields\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    ",
+							"    responseData.breadcrumbs.forEach(breadcrumb => {",
+							"        pm.expect(breadcrumb).to.have.property('resource_id').that.is.a('string');",
+							"        pm.expect(breadcrumb).to.have.property('resource_name').that.is.a('string');",
+							"    });",
+							"});",
+							"",
+							"",
+							"pm.test(\"Total files and total folders are non-negative integers\", function () {",
+							"    const responseData = pm.response.json();",
+							"    ",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData.total_files).to.be.a('number').and.to.be.at.least(0);",
+							"    pm.expect(responseData.total_folders).to.be.a('number').and.to.be.at.least(0);",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{foreign_friend_api_key}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"disk_id\": \"{{disk_id}}\",\n//   \"path\": \"\",\n  \"filters\": \"\",\n  \"page_size\": 50,\n  \"direction\": \"ASC\"\n//   \"cursor\": \"\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/directory/list",
+					"host": [
+						"{{ServerEndpoint}}"
+					],
+					"path": [
+						"v1",
+						"drive",
+						"{{org_id}}",
+						"directory",
+						"list"
 					]
 				}
 			},
@@ -10536,110 +10876,6 @@
 			]
 		},
 		{
-			"name": "⛔️ drive/:org_id/directory/list | SHARED WITH ME",
-			"event": [
-				{
-					"listen": "test",
-					"script": {
-						"exec": [
-							"pm.test(\"Response status code is 200\", function () {",
-							"    pm.expect(pm.response.code).to.equal(200);",
-							"});",
-							"",
-							"",
-							"pm.test(\"Response time is less than 200ms\", function () {",
-							"    pm.expect(pm.response.responseTime).to.be.below(200);",
-							"});",
-							"",
-							"",
-							"pm.test(\"Response matches expected schema for folders and files\", function () {",
-							"    const responseData = pm.response.json();",
-							"    ",
-							"    pm.expect(responseData).to.be.an('object');",
-							"    ",
-							"    // Test for folders array schema",
-							"    pm.expect(responseData.folders).to.be.an('array');",
-							"    responseData.folders.forEach(folder => {",
-							"        pm.expect(folder).to.be.an('object');",
-							"        // Assuming folders can have a name and an id",
-							"        pm.expect(folder).to.have.all.keys('name', 'id'); // Adjust keys based on actual schema",
-							"        pm.expect(folder.name).to.be.a('string').and.to.have.lengthOf.at.least(1);",
-							"        pm.expect(folder.id).to.be.a('string').and.to.have.lengthOf.at.least(1);",
-							"    });",
-							"    ",
-							"    // Test for files array schema",
-							"    pm.expect(responseData.files).to.be.an('array');",
-							"    responseData.files.forEach(file => {",
-							"        pm.expect(file).to.be.an('object');",
-							"        // Assuming files can have a name and an id",
-							"        pm.expect(file).to.have.all.keys('name', 'id'); // Adjust keys based on actual schema",
-							"        pm.expect(file.name).to.be.a('string').and.to.have.lengthOf.at.least(1);",
-							"        pm.expect(file.id).to.be.a('string').and.to.have.lengthOf.at.least(1);",
-							"    });",
-							"});",
-							"",
-							"",
-							"pm.test(\"Breadcrumbs array contains required fields\", function () {",
-							"    const responseData = pm.response.json();",
-							"    ",
-							"    pm.expect(responseData).to.be.an('object');",
-							"    ",
-							"    responseData.breadcrumbs.forEach(breadcrumb => {",
-							"        pm.expect(breadcrumb).to.have.property('resource_id').that.is.a('string');",
-							"        pm.expect(breadcrumb).to.have.property('resource_name').that.is.a('string');",
-							"    });",
-							"});",
-							"",
-							"",
-							"pm.test(\"Total files and total folders are non-negative integers\", function () {",
-							"    const responseData = pm.response.json();",
-							"    ",
-							"    pm.expect(responseData).to.be.an('object');",
-							"    pm.expect(responseData.total_files).to.be.a('number').and.to.be.at.least(0);",
-							"    pm.expect(responseData.total_folders).to.be.a('number').and.to.be.at.least(0);",
-							"});",
-							""
-						],
-						"type": "text/javascript",
-						"packages": {}
-					}
-				}
-			],
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Authorization",
-						"value": "Bearer {{foreign_friend_api_key}}",
-						"type": "text"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"disk_id\": \"{{disk_id}}\",\n//   \"path\": \"\",\n  \"filters\": \"\",\n  \"page_size\": 50,\n  \"direction\": \"ASC\"\n//   \"cursor\": \"\"\n}",
-					"options": {
-						"raw": {
-							"language": "json"
-						}
-					}
-				},
-				"url": {
-					"raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/directory/list",
-					"host": [
-						"{{ServerEndpoint}}"
-					],
-					"path": [
-						"v1",
-						"drive",
-						"{{org_id}}",
-						"directory",
-						"list"
-					]
-				}
-			},
-			"response": []
-		},
-		{
 			"name": "drive/:org_id/permissions/directory/create | placeholder",
 			"event": [
 				{
@@ -10767,7 +11003,7 @@
 			]
 		},
 		{
-			"name": "⛔️ drive/:org_id/permissions/directory/redeem",
+			"name": "drive/:org_id/permissions/directory/redeem",
 			"event": [
 				{
 					"listen": "test",
@@ -10913,7 +11149,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"resource_id\": \"{{directory_permit_id}}\",\n  \"grantee_id\": \"{{foreign_friend_user_id}}\"\n}",
+					"raw": "{\n  \"resource_id\": \"{{folder_id}}\",\n  \"grantee_id\": \"{{foreign_friend_user_id}}\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
