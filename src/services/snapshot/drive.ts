@@ -33,8 +33,8 @@ import {
   IFactorySpawnHistoryRecord,
   GranteeID,
   GroupInviteeID,
-  JobRunID,
-  JobRun, // Import GroupInviteeID for more specific typing
+  PurchaseID,
+  Purchase, // Import GroupInviteeID for more specific typing
 } from "@officexapp/types";
 import { dbHelpers } from "../database"; // Assuming dbHelpers is correctly implemented
 import { SystemTableValueEnum, SystemRecordIDEnum } from "@officexapp/types"; // Adjust path if needed
@@ -126,9 +126,9 @@ export interface DriveStateSnapshot {
   WEBHOOKS_BY_ID_HASHTABLE: Record<WebhookID, Webhook>;
   WEBHOOKS_BY_TIME_LIST: WebhookID[];
 
-  // Job Runs
-  JOB_RUNS_BY_ID_HASHTABLE: Record<JobRunID, JobRun>;
-  JOB_RUNS_BY_TIME_LIST: JobRunID[];
+  // Purchases
+  PURCHASES_BY_ID_HASHTABLE: Record<PurchaseID, Purchase>;
+  PURCHASES_BY_TIME_LIST: PurchaseID[];
 }
 
 /**
@@ -556,10 +556,13 @@ export async function getDriveSnapshot(
       "id"
     );
 
-    // --- Job Runs ---
-    const JOB_RUNS_BY_ID_HASHTABLE = fetchAllToRecord<JobRun>("job_runs", "id");
-    const JOB_RUNS_BY_TIME_LIST = fetchIdList(
-      "job_runs ORDER BY created_at ASC",
+    // --- Purchases ---
+    const PURCHASES_BY_ID_HASHTABLE = fetchAllToRecord<Purchase>(
+      "purchases",
+      "id"
+    );
+    const PURCHASES_BY_TIME_LIST = fetchIdList(
+      "purchases ORDER BY created_at ASC",
       "id"
     );
 
@@ -616,8 +619,8 @@ export async function getDriveSnapshot(
       WEBHOOKS_BY_ID_HASHTABLE,
       WEBHOOKS_BY_TIME_LIST,
 
-      JOB_RUNS_BY_ID_HASHTABLE,
-      JOB_RUNS_BY_TIME_LIST,
+      PURCHASES_BY_ID_HASHTABLE,
+      PURCHASES_BY_TIME_LIST,
     };
   });
 }

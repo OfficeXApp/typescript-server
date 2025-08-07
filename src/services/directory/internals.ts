@@ -167,7 +167,7 @@ export async function translatePathToId(
       name: folderData.name,
       parent_folder_uuid: folderData.parent_folder_id,
       subfolder_uuids: subfolderUuids,
-      file_uuids: fileUuids,
+      file_uuids: fileUuids || [],
       full_directory_path: folderData.full_directory_path,
       labels: [], // Labels are hydrated above, but this line assigns empty array. FIX ME if labels need to be included.
       created_by: folderData.created_by,

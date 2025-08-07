@@ -60,4 +60,4 @@ EXPOSE 8888
 #   CMD curl -f http://localhost:8888/health || exit 1
 
 # Start the application
-CMD ["node", "dist/server.js"]
+CMD ["sh", "-c", "mkdir -p /data/drives && node dist/server.js"]

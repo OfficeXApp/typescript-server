@@ -70,6 +70,21 @@ export async function createFile(
     ...rest
   } = params;
 
+  // check if there is an existing file by id or path
+  let hasEditPermission = false;
+  if (params.id) {
+    const existingFile = await getFileMetadata(driveId, params.id);
+    if (existingFile) {
+      hasEditPermission = (
+        await checkDirectoryPermissions(
+          `${existingFile.id}` as DirectoryResourceID,
+          userId,
+          driveId
+        )
+      ).includes(DirectoryPermissionType.EDIT);
+    }
+  }
+
   // PERMIT: Add permission check for parent folder CREATE permission
   const parentFolderResourceId: DirectoryResourceID =
     `${parent_folder_uuid}` as DirectoryResourceID;
@@ -83,7 +98,7 @@ export async function createFile(
     `Requesting user ${userId} has create permission: ${hasCreatePermission}. meanwhile the owner of drive ${driveId} is ${isOwner}`
   );
 
-  if (!isOwner && !hasCreatePermission) {
+  if (!isOwner && !hasCreatePermission && !hasEditPermission) {
     throw new Error(
       `Permission denied: User ${userId} cannot create files in folder ${parent_folder_uuid}.`
     );
@@ -220,124 +235,215 @@ export async function createFile(
     }
   }
 
-  const fileRecord: FileRecord = {
-    id: fileIdToUse,
-    name: finalName,
-    parent_folder_uuid,
-    version_id: versionId,
-    file_version: fileVersion,
-    prior_version: priorVersion,
-    extension: extension,
-    full_directory_path: finalPath,
-    labels: params.labels || [],
-    created_by: userId,
-    created_at: now,
-    disk_id: disk_id,
-    disk_type: disk.disk_type,
-    file_size: file_size,
-    raw_url:
-      params.raw_url ??
-      internals.formatFileAssetPath(driveId, fileIdToUse, extension),
-    last_updated_date_ms: now,
-    last_updated_by: userId,
-    deleted: false,
-    drive_id: driveId,
-    expires_at: expires_at,
-    has_sovereign_permissions: params.has_sovereign_permissions ?? false,
-    upload_status: params.raw_url
-      ? UploadStatus.COMPLETED
-      : UploadStatus.QUEUED,
-    notes: params.notes,
-    shortcut_to: params.shortcut_to,
-    external_id: params.external_id,
-    external_payload: params.external_payload,
-  };
+  let fileRecord: FileRecord;
 
-  await dbHelpers.transaction("drive", driveId, (tx: Database) => {
-    // If replacing an existing file, update the old version's next_version
-    if (priorVersion) {
+  if (params.id && hasEditPermission) {
+    const existingRecord = await getFileMetadata(driveId, params.id);
+    if (!existingRecord) throw new Error("Existing file not found.");
+    fileRecord = {
+      ...existingRecord,
+      name: finalName,
+      parent_folder_uuid,
+      version_id: versionId,
+      file_version: fileVersion,
+      prior_version: priorVersion,
+      extension,
+      full_directory_path: finalPath,
+      created_by: userId,
+      created_at: now,
+      disk_id: disk_id,
+      disk_type: disk.disk_type,
+      file_size: file_size,
+      raw_url:
+        params.raw_url ??
+        internals.formatFileAssetPath(driveId, fileIdToUse, extension),
+      last_updated_date_ms: now,
+      last_updated_by: userId,
+      deleted: false,
+      drive_id: driveId,
+      expires_at: expires_at,
+      has_sovereign_permissions: params.has_sovereign_permissions ?? false,
+      upload_status: params.raw_url
+        ? UploadStatus.COMPLETED
+        : UploadStatus.QUEUED,
+      notes: params.notes || "",
+      external_id: params.external_id || "",
+      external_payload: params.external_payload || "",
+    };
+    console.log(`PRE_EXISTING_FILE_NOW_UPDATE:`, fileRecord);
+    await dbHelpers.transaction("drive", driveId, (tx: Database) => {
+      // update prior version
       tx.prepare(
         `UPDATE file_versions SET next_version_id = ? WHERE version_id = ?`
       ).run(versionId, priorVersion);
-    }
-    // Update the main file record
-    // Add 'deleted' and 'restore_trash_prior_folder_uuid' to the column list and values
-    tx.prepare(
-      `
-    INSERT OR REPLACE INTO files (
-      id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at,
-      disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, deleted,
-      drive_id, upload_status, expires_at, restore_trash_prior_folder_uuid,
-      has_sovereign_permissions, shortcut_to, notes, external_id, external_payload
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `
-    ).run(
-      fileRecord.id,
-      fileRecord.name,
-      fileRecord.parent_folder_uuid,
-      fileRecord.version_id,
-      fileRecord.extension,
-      fileRecord.full_directory_path,
-      fileRecord.created_by,
-      fileRecord.created_at,
-      fileRecord.disk_id,
-      fileRecord.disk_type,
-      fileRecord.file_size,
-      fileRecord.raw_url,
-      fileRecord.last_updated_date_ms,
-      fileRecord.last_updated_by,
-      fileRecord.deleted ? 1 : 0, // Value for 'deleted' (boolean to integer)
-      driveId,
-      fileRecord.upload_status,
-      fileRecord.expires_at,
-      fileRecord.restore_trash_prior_folder_uuid, // Value for 'restore_trash_prior_folder_uuid'
-      fileRecord.has_sovereign_permissions ? 1 : 0,
-      fileRecord.shortcut_to,
-      fileRecord.notes,
-      fileRecord.external_id,
-      fileRecord.external_payload
-    );
+      // create file
+      tx.prepare(
+        `UPDATE files SET name = ?, parent_folder_id = ?, version_id = ?, extension = ?, full_directory_path = ?, created_by = ?, created_at = ?, disk_id = ?, disk_type = ?, file_size = ?, raw_url = ?, last_updated_date_ms = ?, last_updated_by = ?, deleted = ?, drive_id = ?, expires_at = ?, has_sovereign_permissions = ?, notes = ?, external_id = ?, external_payload = ? WHERE id = ?`
+      ).run(
+        fileRecord.name,
+        fileRecord.parent_folder_uuid,
+        fileRecord.version_id,
+        fileRecord.extension,
+        fileRecord.full_directory_path,
+        fileRecord.created_by,
+        fileRecord.created_at,
+        fileRecord.disk_id,
+        fileRecord.disk_type,
+        fileRecord.file_size,
+        fileRecord.raw_url,
+        Date.now(),
+        userId,
+        fileRecord.deleted ? 1 : 0,
+        fileRecord.drive_id,
+        fileRecord.expires_at,
+        fileRecord.has_sovereign_permissions ? 1 : 0,
+        fileRecord.notes,
+        fileRecord.external_id,
+        fileRecord.external_payload,
+        fileRecord.id
+      );
+      // insert file_versions
+      tx.prepare(
+        `INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        versionId,
+        fileRecord.id,
+        fileRecord.name,
+        fileRecord.file_version,
+        fileRecord.prior_version,
+        fileRecord.extension,
+        userId,
+        Date.now(),
+        fileRecord.disk_id,
+        fileRecord.disk_type,
+        fileRecord.file_size,
+        fileRecord.raw_url,
+        fileRecord.notes
+      );
+    });
+  } else {
+    fileRecord = {
+      id: fileIdToUse,
+      name: finalName,
+      parent_folder_uuid,
+      version_id: versionId,
+      file_version: fileVersion,
+      prior_version: priorVersion,
+      extension: extension,
+      full_directory_path: finalPath,
+      labels: params.labels || [],
+      created_by: userId,
+      created_at: now,
+      disk_id: disk_id,
+      disk_type: disk.disk_type,
+      file_size: file_size,
+      raw_url:
+        params.raw_url ??
+        internals.formatFileAssetPath(driveId, fileIdToUse, extension),
+      last_updated_date_ms: now,
+      last_updated_by: userId,
+      deleted: false,
+      drive_id: driveId,
+      expires_at: expires_at,
+      has_sovereign_permissions: params.has_sovereign_permissions ?? false,
+      upload_status: params.raw_url
+        ? UploadStatus.COMPLETED
+        : UploadStatus.QUEUED,
+      notes: params.notes,
+      external_id: params.external_id,
+      external_payload: params.external_payload,
+    };
 
-    // Insert new version record
-    tx.prepare(
-      `
-        INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    ).run(
-      versionId,
-      fileRecord.id,
-      fileRecord.name,
-      fileRecord.file_version,
-      fileRecord.prior_version,
-      fileRecord.extension,
-      userId,
-      now,
-      fileRecord.disk_id,
-      fileRecord.disk_type,
-      fileRecord.file_size,
-      fileRecord.raw_url,
-      fileRecord.notes
-    );
-
-    // Update parent folder's file_uuids list
-    const parentFolder = tx
-      .prepare("SELECT file_uuids FROM folders WHERE id = ?")
-      .get(parent_folder_uuid) as { file_uuids: string | null };
-    if (parentFolder) {
-      const fileUuids = parentFolder.file_uuids
-        ? JSON.parse(parentFolder.file_uuids)
-        : [];
-      if (!fileUuids.includes(fileRecord.id)) {
-        fileUuids.push(fileRecord.id);
-        tx.prepare("UPDATE folders SET file_uuids = ? WHERE id = ?").run(
-          JSON.stringify(fileUuids),
-          parent_folder_uuid
-        );
+    await dbHelpers.transaction("drive", driveId, (tx: Database) => {
+      // If replacing an existing file, update the old version's next_version
+      if (priorVersion) {
+        tx.prepare(
+          `UPDATE file_versions SET next_version_id = ? WHERE version_id = ?`
+        ).run(versionId, priorVersion);
       }
-    }
-  });
+      // Update the main file record
+      // Add 'deleted' and 'restore_trash_prior_folder_uuid' to the column list and values
+      tx.prepare(
+        `
+      INSERT OR REPLACE INTO files (
+        id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at,
+        disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, deleted,
+        drive_id, upload_status, expires_at, restore_trash_prior_folder_uuid,
+        has_sovereign_permissions, notes, external_id, external_payload
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+      ).run(
+        fileRecord.id,
+        fileRecord.name,
+        fileRecord.parent_folder_uuid,
+        fileRecord.version_id,
+        fileRecord.extension,
+        fileRecord.full_directory_path,
+        fileRecord.created_by,
+        fileRecord.created_at,
+        fileRecord.disk_id,
+        fileRecord.disk_type,
+        fileRecord.file_size,
+        fileRecord.raw_url,
+        fileRecord.last_updated_date_ms,
+        fileRecord.last_updated_by,
+        fileRecord.deleted ? 1 : 0, // Value for 'deleted' (boolean to integer)
+        driveId,
+        fileRecord.upload_status,
+        fileRecord.expires_at,
+        fileRecord.restore_trash_prior_folder_uuid ?? "", // Value for 'restore_trash_prior_folder_uuid'
+        fileRecord.has_sovereign_permissions ? 1 : 0,
+        fileRecord.notes ?? "",
+        fileRecord.external_id ?? "",
+        fileRecord.external_payload ?? ""
+      );
+
+      // Insert new version record
+      tx.prepare(
+        `
+          INSERT INTO file_versions (version_id, file_id, name, file_version, prior_version_id, extension, created_by, created_at, disk_id, disk_type, file_size, raw_url, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `
+      ).run(
+        versionId,
+        fileRecord.id,
+        fileRecord.name,
+        fileRecord.file_version,
+        fileRecord.prior_version,
+        fileRecord.extension,
+        userId,
+        now,
+        fileRecord.disk_id,
+        fileRecord.disk_type,
+        fileRecord.file_size,
+        fileRecord.raw_url,
+        fileRecord.notes
+      );
+
+      // Update parent folder's file_uuids list
+      const parentFolder = tx
+        .prepare("SELECT file_uuids FROM folders WHERE id = ?")
+        .get(parent_folder_uuid) as { file_uuids: string | null };
+      if (parentFolder) {
+        const fileUuids = parentFolder.file_uuids
+          ? JSON.parse(parentFolder.file_uuids)
+          : [];
+        if (!fileUuids.includes(fileRecord.id)) {
+          fileUuids.push(fileRecord.id);
+          tx.prepare("UPDATE folders SET file_uuids = ? WHERE id = ?").run(
+            JSON.stringify(fileUuids),
+            parent_folder_uuid
+          );
+        }
+      }
+    });
+  }
+
+  // @ts-ignore
+  if (!fileRecord) {
+    throw new Error("Failed to create file record.");
+  }
 
   let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
   if (fileRecord.upload_status === UploadStatus.QUEUED) {
@@ -1502,7 +1608,7 @@ export async function getFolderMetadata(
     external_id: row.external_id,
     external_payload: row.external_payload,
     subfolder_uuids: row.subfolder_uuids as FolderID[],
-    file_uuids: row.file_uuids as FileID[],
+    file_uuids: (row.file_uuids as FileID[]) || [],
     labels: [],
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
@@ -1616,4 +1722,53 @@ export async function getFileMetadata(
     last_updated_date_ms: row.last_updated_date_ms,
     last_updated_by: row.last_updated_by,
   };
+}
+
+export async function requestFileOverwritePresignedUrl(
+  fileRecord: FileRecord,
+  driveId: DriveID
+) {
+  const disk = await get_disk_from_db(driveId, fileRecord.disk_id);
+  if (!disk) throw new Error("Disk not found.");
+
+  let uploadResponse: DiskUploadResponse = { url: "", fields: {} };
+
+  if (disk.disk_type === DiskTypeEnum.AwsBucket) {
+    const awsAuth = JSON.parse(disk.auth_json || "");
+    const result = await generate_s3_upload_url(
+      fileRecord.id,
+      fileRecord.extension,
+      awsAuth,
+      driveId,
+      BigInt(fileRecord.file_size),
+      BigInt(24 * 60 * 60),
+      fileRecord.disk_id,
+      fileRecord.name
+    );
+    if (result.ok) uploadResponse = result.ok;
+    else throw new Error(result.err);
+  } else if (disk.disk_type === DiskTypeEnum.StorjWeb3) {
+    const storjAuth = JSON.parse(disk.auth_json || "");
+    const result = await generate_s3_upload_url(
+      fileRecord.id,
+      fileRecord.extension,
+      storjAuth,
+      driveId,
+      BigInt(fileRecord.file_size),
+      BigInt(24 * 60 * 60),
+      fileRecord.disk_id,
+      fileRecord.name
+    );
+    if (result.ok) uploadResponse = result.ok;
+    else throw new Error(result.err);
+  } else if (disk.disk_type === DiskTypeEnum.IcpCanister) {
+    // ICP Canister handles uploads differently, no presigned URL needed
+    uploadResponse = { url: "", fields: {} };
+  } else {
+    throw new Error(
+      `Unsupported disk type for upload URL generation: ${disk.disk_type}`
+    );
+  }
+
+  return uploadResponse;
 }

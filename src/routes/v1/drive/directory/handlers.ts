@@ -483,8 +483,6 @@ export async function directoryActionHandler(
   const { actions } = request.body;
   const userApiKey = await authenticateRequest(request, "drive", driveId);
 
-  console.log(`---> userApiKey`, userApiKey);
-
   if (!userApiKey) {
     return reply
       .status(401)

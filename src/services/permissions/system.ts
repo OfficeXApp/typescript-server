@@ -578,8 +578,8 @@ export const castIdToTable = (id: SystemResourceID): SystemTableValueEnum => {
     return SystemTableValueEnum.WEBHOOKS;
   } else if (id.startsWith(IDPrefixEnum.LabelID)) {
     return SystemTableValueEnum.LABELS;
-  } else if (id.startsWith(IDPrefixEnum.JobRunID)) {
-    return SystemTableValueEnum.JOB_RUNS;
+  } else if (id.startsWith(IDPrefixEnum.PurchaseID)) {
+    return SystemTableValueEnum.PURCHASES;
   } else if (
     id.startsWith(IDPrefixEnum.DirectoryPermission) ||
     id.startsWith(IDPrefixEnum.SystemPermission)

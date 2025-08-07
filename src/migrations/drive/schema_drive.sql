@@ -317,14 +317,14 @@ CREATE TABLE webhooks (
     created_at INTEGER NOT NULL
 );
 
--- Table: job_runs
--- Description: Stores information about job runs.
-CREATE TABLE job_runs (
-    id TEXT PRIMARY KEY NOT NULL, -- Corresponds to JobRunID
+-- Table: purchases
+-- Description: Stores information about purchases.
+CREATE TABLE purchases (
+    id TEXT PRIMARY KEY NOT NULL, -- Corresponds to PurchaseID
     template_id TEXT,
     vendor_name TEXT NOT NULL,
     vendor_id TEXT NOT NULL, -- Corresponds to UserID
-    status TEXT NOT NULL, -- Corresponds to JobRunStatus enum
+    status TEXT NOT NULL, -- Corresponds to PurchaseStatus enum
     description TEXT,
     about_url TEXT,
     run_url TEXT,
@@ -483,11 +483,11 @@ CREATE TABLE label_labels (
     FOREIGN KEY(child_label_id) REFERENCES labels(id) ON DELETE CASCADE
 );
 
-CREATE TABLE job_run_labels (
-    job_run_id TEXT NOT NULL,
+CREATE TABLE purchase_labels (
+    purchase_id TEXT NOT NULL,
     label_id TEXT NOT NULL,
-    PRIMARY KEY (job_run_id, label_id),
-    FOREIGN KEY(job_run_id) REFERENCES job_runs(id) ON DELETE CASCADE,
+    PRIMARY KEY (purchase_id, label_id),
+    FOREIGN KEY(purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
     FOREIGN KEY(label_id) REFERENCES labels(id) ON DELETE CASCADE
 );
 
@@ -660,14 +660,14 @@ CREATE TRIGGER groups_ad AFTER DELETE ON groups BEGIN
   DELETE FROM fts_lookup WHERE resource_id = old.id;
 END;
 
--- Job Runs Triggers
-CREATE TRIGGER job_runs_ai AFTER INSERT ON job_runs BEGIN
+-- Purchases Triggers
+CREATE TRIGGER purchases_ai AFTER INSERT ON purchases BEGIN
   INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
-  VALUES (new.title || ' ' || new.subtitle || ' ' || new.vendor_name || ' ' || new.id, new.title, new.vendor_name, new.id, 'JOB_RUNS', new.external_payload, new.created_at, new.last_updated_at);
+  VALUES (new.title || ' ' || new.subtitle || ' ' || new.vendor_name || ' ' || new.id, new.title, new.vendor_name, new.id, 'PURCHASES', new.external_payload, new.created_at, new.last_updated_at);
   INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
 END;
 
-CREATE TRIGGER job_runs_au AFTER UPDATE ON job_runs BEGIN
+CREATE TRIGGER purchases_au AFTER UPDATE ON purchases BEGIN
   UPDATE search_fts SET
     searchable_string = new.title || ' ' || new.subtitle || ' ' || new.vendor_name || ' ' || new.id,
     title = new.title,
@@ -677,7 +677,7 @@ CREATE TRIGGER job_runs_au AFTER UPDATE ON job_runs BEGIN
   WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
 END;
 
-CREATE TRIGGER job_runs_ad AFTER DELETE ON job_runs BEGIN
+CREATE TRIGGER purchases_ad AFTER DELETE ON purchases BEGIN
   DELETE FROM search_fts WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = old.id);
   DELETE FROM fts_lookup WHERE resource_id = old.id;
 END;
@@ -715,6 +715,6 @@ CREATE INDEX idx_webhooks_event ON webhooks(event);
 CREATE INDEX idx_external_id_mappings ON external_id_mappings(external_id);
 CREATE INDEX idx_uuid_claimed ON uuid_claimed(uuid);
 
-CREATE INDEX idx_job_runs_vendor_id ON job_runs(vendor_id);
-CREATE INDEX idx_job_runs_status ON job_runs(status);
-CREATE INDEX idx_job_runs_created_at ON job_runs(created_at);
+CREATE INDEX idx_purchases_vendor_id ON purchases(vendor_id);
+CREATE INDEX idx_purchases_status ON purchases(status);
+CREATE INDEX idx_purchases_created_at ON purchases(created_at);

@@ -5,15 +5,15 @@ import {
   GenerateID,
   IDPrefixEnum,
   IPaginatedResponse,
-  IRequestCreateJobRun,
-  IRequestDeleteJobRun,
-  IRequestGetJobRun,
-  IRequestListJobRuns,
-  IRequestUpdateJobRun,
-  IResponseDeleteJobRun,
-  JobRun,
-  JobRunFE,
-  JobRunStatus,
+  IRequestCreatePurchase,
+  IRequestDeletePurchase,
+  IRequestGetPurchase,
+  IRequestListPurchases,
+  IRequestUpdatePurchase,
+  IResponseDeletePurchase,
+  Purchase,
+  PurchaseFE,
+  PurchaseStatus,
   SortDirection,
   SystemPermissionType,
   SystemResourceID,
@@ -36,14 +36,14 @@ import {
   redactLabelValue,
   checkSystemPermissions,
 } from "../../../../services/permissions/system";
-import { GetJobRunParams } from ".";
+import { GetPurchaseParams } from ".";
 
-export async function getJobRunHandler(
-  request: FastifyRequest<{ Params: GetJobRunParams }>,
+export async function getPurchaseHandler(
+  request: FastifyRequest<{ Params: GetPurchaseParams }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
-    const { org_id, job_run_id: jobRunId } = request.params;
+    const { org_id, purchase_id: purchaseId } = request.params;
 
     const requesterApiKey = await authenticateRequest(request, "drive", org_id);
     if (!requesterApiKey) {
@@ -56,22 +56,22 @@ export async function getJobRunHandler(
 
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    const jobRuns = await db.queryDrive(
+    const purchases = await db.queryDrive(
       org_id,
-      "SELECT * FROM job_runs WHERE id = ?",
-      [jobRunId]
+      "SELECT * FROM purchases WHERE id = ?",
+      [purchaseId]
     );
 
-    if (!jobRuns || jobRuns.length === 0) {
+    if (!purchases || purchases.length === 0) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
-          message: "JobRun not found",
+          message: "Purchase not found",
         })
       );
     }
 
-    const jobRun = jobRuns[0] as JobRun;
+    const purchase = purchases[0] as Purchase;
 
     const permissionPreviews = isOwner
       ? [
@@ -83,52 +83,52 @@ export async function getJobRunHandler(
         ]
       : await Promise.resolve().then(async () => {
           const permissions = await checkSystemPermissions({
-            resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
-            resourceId: `${jobRun.id}` as SystemResourceID,
+            resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
+            resourceId: `${purchase.id}` as SystemResourceID,
             granteeId: requesterApiKey.user_id,
             orgId: org_id,
           });
           return Array.from(new Set([...permissions]));
         });
 
-    const jobRunFE: JobRunFE = {
-      ...jobRun,
+    const purchaseFE: PurchaseFE = {
+      ...purchase,
       permission_previews: permissionPreviews,
       related_resources: [], // Ensure related_resources is an empty array as it's no longer used
     };
 
-    // Redaction logic based on Rust's JobRunFE::redacted
-    const isVendorOfJob = requesterApiKey.user_id === jobRun.vendor_id;
-    const hasTableViewPermission = jobRunFE.permission_previews.includes(
+    // Redaction logic based on Rust's PurchaseFE::redacted
+    const isVendorOfPurchase = requesterApiKey.user_id === purchase.vendor_id;
+    const hasTableViewPermission = purchaseFE.permission_previews.includes(
       SystemPermissionType.VIEW
     );
 
-    if (!isVendorOfJob && !hasTableViewPermission) {
-      jobRunFE.notes = "";
+    if (!isVendorOfPurchase && !hasTableViewPermission) {
+      purchaseFE.notes = "";
     }
-    if (!isVendorOfJob && !hasTableViewPermission) {
-      jobRunFE.vendor_notes = "";
-      jobRunFE.tracer = undefined;
+    if (!isVendorOfPurchase && !hasTableViewPermission) {
+      purchaseFE.vendor_notes = "";
+      purchaseFE.tracer = undefined;
     }
 
-    const jobRunLabelsRaw = await db.queryDrive(
+    const purchaseLabelsRaw = await db.queryDrive(
       org_id,
-      `SELECT T2.value FROM job_run_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.job_run_id = ?`,
-      [jobRun.id]
+      `SELECT T2.value FROM purchase_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.purchase_id = ?`,
+      [purchase.id]
     );
-    jobRunFE.labels = (
+    purchaseFE.labels = (
       await Promise.all(
-        jobRunLabelsRaw.map((row: any) =>
+        purchaseLabelsRaw.map((row: any) =>
           redactLabelValue(org_id, row.value, requesterApiKey.user_id)
         )
       )
     ).filter((label): label is string => label !== null);
 
-    // Removed job_run_related_resources query
+    // Removed purchase_related_resources query
 
-    return reply.status(200).send(createApiResponse(jobRunFE));
+    return reply.status(200).send(createApiResponse(purchaseFE));
   } catch (error) {
-    request.log.error("Error in getJobRunHandler:", error);
+    request.log.error("Error in getPurchaseHandler:", error);
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
@@ -138,8 +138,8 @@ export async function getJobRunHandler(
   }
 }
 
-export async function listJobRunsHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestListJobRuns }>,
+export async function listPurchasesHandler(
+  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestListPurchases }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -191,12 +191,12 @@ export async function listJobRunsHandler(
     const direction = requestBody.direction || SortDirection.DESC;
     const filters = requestBody.filters || "";
 
-    let query = `SELECT * FROM job_runs`;
+    let query = `SELECT * FROM purchases`;
     const queryParams: any[] = [];
     const whereClauses: string[] = [];
 
     if (filters) {
-      // Assuming a simple filter on the job_run's name or some other field
+      // Assuming a simple filter on the purchase's name or some other field
       // NOTE: This part needs to be implemented based on the actual schema
       whereClauses.push(`(some_field LIKE ?)`);
       queryParams.push(`%${filters}%`);
@@ -225,78 +225,78 @@ export async function listJobRunsHandler(
     queryParams.push(pageSize, offset);
 
     // 4. Execute the query
-    const rawJobRuns = await db.queryDrive(org_id, query, queryParams);
+    const rawPurchases = await db.queryDrive(org_id, query, queryParams);
 
-    // 5. Process and filter job runs based on permissions
-    const processedJobRuns: JobRunFE[] = [];
+    // 5. Process and filter purchases based on permissions
+    const processedPurchases: PurchaseFE[] = [];
 
-    for (const jobRun of rawJobRuns) {
-      const jobRunRecordResourceId: string = `${jobRun.id}`;
+    for (const purchase of rawPurchases) {
+      const purchaseRecordResourceId: string = `${purchase.id}`;
 
       const permissions = await checkSystemPermissions({
-        resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
-        resourceId: jobRunRecordResourceId,
+        resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
+        resourceId: purchaseRecordResourceId,
         granteeId: requesterUserId,
         orgId: org_id,
       });
 
       if (permissions.includes(SystemPermissionType.VIEW)) {
-        const jobRunFE: JobRunFE = {
-          ...(jobRun as JobRun),
+        const purchaseFE: PurchaseFE = {
+          ...(purchase as Purchase),
           labels: [],
           related_resources: [],
           permission_previews: permissions,
         };
 
         // Redaction logic based on ownership and permissions
-        const isVendorOfJob = requesterUserId === jobRun.vendor_id;
+        const isVendorOfPurchase = requesterUserId === purchase.vendor_id;
         const hasEditPermission = permissions.includes(
           SystemPermissionType.EDIT
         );
 
-        if (!isVendorOfJob && !hasEditPermission) {
-          jobRunFE.notes = "";
-          jobRunFE.vendor_notes = "";
-          jobRunFE.tracer = undefined;
+        if (!isVendorOfPurchase && !hasEditPermission) {
+          purchaseFE.notes = "";
+          purchaseFE.vendor_notes = "";
+          purchaseFE.tracer = undefined;
         }
 
         // Fetch and redact labels
-        const listJobRunLabelsRaw = await db.queryDrive(
+        const listPurchaseLabelsRaw = await db.queryDrive(
           org_id,
-          `SELECT T2.value FROM job_run_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.job_run_id = ?`,
-          [jobRun.id]
+          `SELECT T2.value FROM purchase_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.purchase_id = ?`,
+          [purchase.id]
         );
-        jobRunFE.labels = (
+        purchaseFE.labels = (
           await Promise.all(
-            listJobRunLabelsRaw.map((row: any) =>
+            listPurchaseLabelsRaw.map((row: any) =>
               redactLabelValue(org_id, row.value, requesterUserId)
             )
           )
         ).filter((label): label is string => label !== null);
 
-        processedJobRuns.push(jobRunFE);
+        processedPurchases.push(purchaseFE);
       }
     }
 
     // 6. Handle pagination and total count
     const nextCursor =
-      processedJobRuns.length < pageSize
+      processedPurchases.length < pageSize
         ? null
         : (offset + pageSize).toString();
 
-    const totalCountToReturn = processedJobRuns.length;
+    const totalCountToReturn = processedPurchases.length;
 
     return reply.status(200).send(
-      createApiResponse<IPaginatedResponse<JobRunFE>>({
-        items: processedJobRuns,
-        page_size: processedJobRuns.length,
+      createApiResponse<IPaginatedResponse<PurchaseFE>>({
+        items: processedPurchases,
+        page_size: processedPurchases.length,
         total: totalCountToReturn,
         direction: direction,
         cursor: nextCursor || undefined,
       })
     );
   } catch (error) {
-    request.log.error("Error in listJobRunsHandler:", error);
+    request.log.error("Error in listPurchasesHandler:", error);
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
@@ -306,8 +306,11 @@ export async function listJobRunsHandler(
   }
 }
 
-export async function createJobRunHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestCreateJobRun }>,
+export async function createPurchaseHandler(
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestCreatePurchase;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -325,7 +328,7 @@ export async function createJobRunHandler(
 
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    const validation = await validateCreateJobRunRequest(body, org_id);
+    const validation = await validateCreatePurchaseRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -336,7 +339,7 @@ export async function createJobRunHandler(
     }
 
     const userPermissions = await checkSystemPermissions({
-      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+      resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
       granteeId: requesterApiKey.user_id,
       orgId: org_id,
     });
@@ -352,23 +355,23 @@ export async function createJobRunHandler(
         );
     }
 
-    const jobRunId = body.id || GenerateID.JobRunID();
+    const purchaseId = body.id || GenerateID.PurchaseID();
     const now = Date.now();
 
-    const newJobRun: JobRun = await dbHelpers.transaction(
+    const newPurchase: Purchase = await dbHelpers.transaction(
       "drive",
       org_id,
       (database) => {
-        const insertJobRunStmt = database.prepare(
-          `INSERT INTO job_runs (id, template_id, vendor_name, vendor_id, status, description, about_url, billing_url, support_url, delivery_url, verification_url, installation_url, title, subtitle, pricing, vendor_notes, notes, created_at, updated_at, last_updated_at, tracer, external_id, external_payload)
+        const insertPurchaseStmt = database.prepare(
+          `INSERT INTO purchases (id, template_id, vendor_name, vendor_id, status, description, about_url, billing_url, support_url, delivery_url, verification_url, installation_url, title, subtitle, pricing, vendor_notes, notes, created_at, updated_at, last_updated_at, tracer, external_id, external_payload)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
-        insertJobRunStmt.run(
-          jobRunId,
+        insertPurchaseStmt.run(
+          purchaseId,
           body.template_id || null,
           body.vendor_name || "Unknown Vendor",
           body.vendor_id,
-          body.status || JobRunStatus.REQUESTED, // Default status if not provided
+          body.status || PurchaseStatus.REQUESTED, // Default status if not provided
           body.description || null,
           body.about_url || "",
           body.billing_url || null,
@@ -391,19 +394,19 @@ export async function createJobRunHandler(
 
         if (body.labels && body.labels.length > 0) {
           const insertLabelStmt = database.prepare(
-            `INSERT INTO job_run_labels (job_run_id, label_id) VALUES (?, ?)`
+            `INSERT INTO purchase_labels (purchase_id, label_id) VALUES (?, ?)`
           );
           for (const labelId of body.labels) {
-            insertLabelStmt.run(jobRunId, labelId);
+            insertLabelStmt.run(purchaseId, labelId);
           }
         }
 
-        const createdJobRun: JobRun = {
-          id: jobRunId,
+        const createdPurchase: Purchase = {
+          id: purchaseId,
           template_id: body.template_id,
           vendor_name: body.vendor_name || "",
           vendor_id: body.vendor_id || "",
-          status: body.status || JobRunStatus.REQUESTED,
+          status: body.status || PurchaseStatus.REQUESTED,
           description: body.description || "",
           about_url: body.about_url || "",
           billing_url: body.billing_url || "",
@@ -426,63 +429,64 @@ export async function createJobRunHandler(
           external_id: body.external_id,
           external_payload: body.external_payload,
         };
-        return createdJobRun;
+        return createdPurchase;
       }
     );
 
     await updateExternalIDMapping(
       org_id,
       undefined,
-      newJobRun.external_id,
-      newJobRun.id
+      newPurchase.external_id,
+      newPurchase.id
     );
 
     if (!body.id) {
-      await claimUUID(org_id, newJobRun.id);
+      await claimUUID(org_id, newPurchase.id);
     }
 
     const permissionPreviews = await checkSystemPermissions({
-      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
+      resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
       granteeId: requesterApiKey.user_id,
       orgId: org_id,
     });
 
-    const jobRunFE: JobRunFE = {
-      ...newJobRun,
+    const purchaseFE: PurchaseFE = {
+      ...newPurchase,
       permission_previews: permissionPreviews,
     };
 
-    const isVendorOfJob = requesterApiKey.user_id === newJobRun.vendor_id;
-    const hasTableViewPermission = jobRunFE.permission_previews.includes(
+    const isVendorOfPurchase =
+      requesterApiKey.user_id === newPurchase.vendor_id;
+    const hasTableViewPermission = purchaseFE.permission_previews.includes(
       SystemPermissionType.VIEW
     );
 
-    if (!isVendorOfJob && !hasTableViewPermission) {
-      jobRunFE.notes = "";
+    if (!isVendorOfPurchase && !hasTableViewPermission) {
+      purchaseFE.notes = "";
     }
-    if (!isVendorOfJob && !hasTableViewPermission) {
-      jobRunFE.vendor_notes = "";
-      jobRunFE.tracer = undefined;
+    if (!isVendorOfPurchase && !hasTableViewPermission) {
+      purchaseFE.vendor_notes = "";
+      purchaseFE.tracer = undefined;
     }
 
-    const createJobRunLabelsRaw = await db.queryDrive(
+    const createPurchaseLabelsRaw = await db.queryDrive(
       org_id,
-      `SELECT T2.value FROM job_run_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.job_run_id = ?`,
-      [newJobRun.id]
+      `SELECT T2.value FROM purchase_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.purchase_id = ?`,
+      [newPurchase.id]
     );
-    jobRunFE.labels = (
+    purchaseFE.labels = (
       await Promise.all(
-        createJobRunLabelsRaw.map((row: any) =>
+        createPurchaseLabelsRaw.map((row: any) =>
           redactLabelValue(org_id, row.value, requesterApiKey.user_id)
         )
       )
     ).filter((label): label is string => label !== null);
 
-    jobRunFE.related_resources = []; // Ensure related_resources is empty
+    purchaseFE.related_resources = []; // Ensure related_resources is empty
 
-    return reply.status(200).send(createApiResponse(jobRunFE));
+    return reply.status(200).send(createApiResponse(purchaseFE));
   } catch (error) {
-    request.log.error("Error in createJobRunHandler:", error);
+    request.log.error("Error in createPurchaseHandler:", error);
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
@@ -492,8 +496,11 @@ export async function createJobRunHandler(
   }
 }
 
-export async function updateJobRunHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestUpdateJobRun }>,
+export async function updatePurchaseHandler(
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestUpdatePurchase;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -511,7 +518,7 @@ export async function updateJobRunHandler(
 
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    const validation = await validateUpdateJobRunRequest(body, org_id);
+    const validation = await validateUpdatePurchaseRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -521,27 +528,27 @@ export async function updateJobRunHandler(
       );
     }
 
-    const jobRunId = body.id;
+    const purchaseId = body.id;
 
-    const existingJobRuns = await db.queryDrive(
+    const existingPurchases = await db.queryDrive(
       org_id,
-      "SELECT * FROM job_runs WHERE id = ?",
-      [jobRunId]
+      "SELECT * FROM purchases WHERE id = ?",
+      [purchaseId]
     );
 
-    if (!existingJobRuns || existingJobRuns.length === 0) {
+    if (!existingPurchases || existingPurchases.length === 0) {
       return reply.status(404).send(
         createApiResponse(undefined, {
           code: 404,
-          message: "JobRun not found",
+          message: "Purchase not found",
         })
       );
     }
-    const existingJobRun = existingJobRuns[0] as JobRun;
+    const existingPurchase = existingPurchases[0] as Purchase;
 
     const hasEditPermission = await checkSystemPermissions({
-      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
-      resourceId: `${jobRunId}` as SystemResourceID,
+      resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
+      resourceId: `${purchaseId}` as SystemResourceID,
       granteeId: requesterApiKey.user_id,
       orgId: org_id,
     });
@@ -623,9 +630,9 @@ export async function updateJobRunHandler(
       values.push(body.external_id);
       await updateExternalIDMapping(
         org_id,
-        existingJobRun.external_id,
+        existingPurchase.external_id,
         body.external_id,
-        jobRunId
+        purchaseId
       );
     }
     if (body.external_payload !== undefined) {
@@ -655,76 +662,77 @@ export async function updateJobRunHandler(
 
     await dbHelpers.transaction("drive", org_id, (database) => {
       const stmt = database.prepare(
-        `UPDATE job_runs SET ${updates.join(", ")} WHERE id = ?`
+        `UPDATE purchases SET ${updates.join(", ")} WHERE id = ?`
       );
-      stmt.run(...values, jobRunId);
+      stmt.run(...values, purchaseId);
 
       // Handle labels
       if (body.labels !== undefined) {
         database
-          .prepare(`DELETE FROM job_run_labels WHERE job_run_id = ?`)
-          .run(jobRunId);
+          .prepare(`DELETE FROM purchase_labels WHERE purchase_id = ?`)
+          .run(purchaseId);
         if (body.labels.length > 0) {
           const insertLabelStmt = database.prepare(
-            `INSERT INTO job_run_labels (job_run_id, label_id) VALUES (?, ?)`
+            `INSERT INTO purchase_labels (purchase_id, label_id) VALUES (?, ?)`
           );
           for (const labelId of body.labels) {
-            insertLabelStmt.run(jobRunId, labelId);
+            insertLabelStmt.run(purchaseId, labelId);
           }
         }
       }
     });
 
-    const updatedJobRuns = await db.queryDrive(
+    const updatedPurchases = await db.queryDrive(
       org_id,
-      "SELECT * FROM job_runs WHERE id = ?",
-      [jobRunId]
+      "SELECT * FROM purchases WHERE id = ?",
+      [purchaseId]
     );
-    const updatedJobRun = updatedJobRuns[0] as JobRun;
+    const updatedPurchase = updatedPurchases[0] as Purchase;
 
     const permissionPreviews = await checkSystemPermissions({
-      resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
-      resourceId: `${jobRunId}` as SystemResourceID,
+      resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
+      resourceId: `${purchaseId}` as SystemResourceID,
       granteeId: requesterApiKey.user_id,
       orgId: org_id,
     });
 
-    const jobRunFE: JobRunFE = {
-      ...updatedJobRun,
+    const purchaseFE: PurchaseFE = {
+      ...updatedPurchase,
       permission_previews: permissionPreviews,
     };
 
-    const isVendorOfJob = requesterApiKey.user_id === updatedJobRun.vendor_id;
-    const hasTableViewPermission = jobRunFE.permission_previews.includes(
+    const isVendorOfPurchase =
+      requesterApiKey.user_id === updatedPurchase.vendor_id;
+    const hasTableViewPermission = purchaseFE.permission_previews.includes(
       SystemPermissionType.VIEW
     );
 
-    if (!isVendorOfJob && !hasTableViewPermission) {
-      jobRunFE.notes = "";
+    if (!isVendorOfPurchase && !hasTableViewPermission) {
+      purchaseFE.notes = "";
     }
-    if (!isVendorOfJob && !hasTableViewPermission) {
-      jobRunFE.vendor_notes = "";
-      jobRunFE.tracer = undefined;
+    if (!isVendorOfPurchase && !hasTableViewPermission) {
+      purchaseFE.vendor_notes = "";
+      purchaseFE.tracer = undefined;
     }
 
-    const updateJobRunLabelsRaw = await db.queryDrive(
+    const updatePurchaseLabelsRaw = await db.queryDrive(
       org_id,
-      `SELECT T2.value FROM job_run_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.job_run_id = ?`,
-      [updatedJobRun.id]
+      `SELECT T2.value FROM purchase_labels AS T1 JOIN labels AS T2 ON T1.label_id = T2.id WHERE T1.purchase_id = ?`,
+      [updatedPurchase.id]
     );
-    jobRunFE.labels = (
+    purchaseFE.labels = (
       await Promise.all(
-        updateJobRunLabelsRaw.map((row: any) =>
+        updatePurchaseLabelsRaw.map((row: any) =>
           redactLabelValue(org_id, row.value, requesterApiKey.user_id)
         )
       )
     ).filter((label): label is string => label !== null);
 
-    jobRunFE.related_resources = []; // Ensure related_resources is empty
+    purchaseFE.related_resources = []; // Ensure related_resources is empty
 
-    return reply.status(200).send(createApiResponse(jobRunFE));
+    return reply.status(200).send(createApiResponse(purchaseFE));
   } catch (error) {
-    request.log.error("Error in updateJobRunHandler:", error);
+    request.log.error("Error in updatePurchaseHandler:", error);
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
@@ -734,8 +742,11 @@ export async function updateJobRunHandler(
   }
 }
 
-export async function deleteJobRunHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestDeleteJobRun }>,
+export async function deletePurchaseHandler(
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestDeletePurchase;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -753,7 +764,7 @@ export async function deleteJobRunHandler(
 
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
-    const validation = validateDeleteJobRunRequest(body);
+    const validation = validateDeletePurchaseRequest(body);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -763,12 +774,12 @@ export async function deleteJobRunHandler(
       );
     }
 
-    const jobRunId = body.id;
+    const purchaseId = body.id;
 
     const hasDeletePermission = (
       await checkSystemPermissions({
-        resourceTable: `TABLE_${SystemTableValueEnum.JOB_RUNS}`,
-        resourceId: `${jobRunId}` as SystemResourceID,
+        resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
+        resourceId: `${purchaseId}` as SystemResourceID,
         granteeId: requesterApiKey.user_id,
         orgId: org_id,
       })
@@ -782,20 +793,20 @@ export async function deleteJobRunHandler(
         );
     }
 
-    const jobRunsToDelete = await db.queryDrive(
+    const purchasesToDelete = await db.queryDrive(
       org_id,
-      "SELECT external_id FROM job_runs WHERE id = ?",
-      [jobRunId]
+      "SELECT external_id FROM purchases WHERE id = ?",
+      [purchaseId]
     );
     const externalIdToDelete =
-      jobRunsToDelete.length > 0 ? jobRunsToDelete[0].external_id : null;
+      purchasesToDelete.length > 0 ? purchasesToDelete[0].external_id : null;
 
     await dbHelpers.transaction("drive", org_id, (database) => {
-      database.prepare("DELETE FROM job_runs WHERE id = ?").run(jobRunId);
+      database.prepare("DELETE FROM purchases WHERE id = ?").run(purchaseId);
       database
-        .prepare("DELETE FROM job_run_labels WHERE job_run_id = ?")
-        .run(jobRunId);
-      // Removed job_run_related_resources deletion
+        .prepare("DELETE FROM purchase_labels WHERE purchase_id = ?")
+        .run(purchaseId);
+      // Removed purchase_related_resources deletion
     });
 
     if (externalIdToDelete) {
@@ -803,18 +814,18 @@ export async function deleteJobRunHandler(
         org_id,
         externalIdToDelete,
         undefined,
-        jobRunId
+        purchaseId
       );
     }
 
-    const deletedData: IResponseDeleteJobRun["ok"]["data"] = {
-      id: jobRunId,
+    const deletedData: IResponseDeletePurchase["ok"]["data"] = {
+      id: purchaseId,
       deleted: true,
     };
 
     return reply.status(200).send(createApiResponse(deletedData));
   } catch (error) {
-    request.log.error("Error in deleteJobRunHandler:", error);
+    request.log.error("Error in deletePurchaseHandler:", error);
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,
@@ -824,25 +835,25 @@ export async function deleteJobRunHandler(
   }
 }
 
-async function validateCreateJobRunRequest(
-  body: IRequestCreateJobRun,
+async function validateCreatePurchaseRequest(
+  body: IRequestCreatePurchase,
   orgID: DriveID
 ): Promise<{
   valid: boolean;
   error?: string;
 }> {
   if (body.id) {
-    if (!body.id.startsWith(IDPrefixEnum.JobRunID)) {
+    if (!body.id.startsWith(IDPrefixEnum.PurchaseID)) {
       return {
         valid: false,
-        error: `JobRun ID must start with '${IDPrefixEnum.JobRunID}'.`,
+        error: `Purchase ID must start with '${IDPrefixEnum.PurchaseID}'.`,
       };
     }
     const alreadyClaimed = await isUUIDClaimed(orgID, body.id);
     if (alreadyClaimed) {
       return {
         valid: false,
-        error: `Provided JobRun ID '${body.id}' is already claimed.`,
+        error: `Provided Purchase ID '${body.id}' is already claimed.`,
       };
     }
   }
@@ -1000,8 +1011,8 @@ async function validateCreateJobRunRequest(
   return { valid: true };
 }
 
-async function validateUpdateJobRunRequest(
-  body: IRequestUpdateJobRun,
+async function validateUpdatePurchaseRequest(
+  body: IRequestUpdatePurchase,
   orgID: DriveID
 ): Promise<{
   valid: boolean;
@@ -1071,23 +1082,23 @@ async function validateUpdateJobRunRequest(
   return { valid: true };
 }
 
-function validateDeleteJobRunRequest(body: IRequestDeleteJobRun): {
+function validateDeletePurchaseRequest(body: IRequestDeletePurchase): {
   valid: boolean;
   error?: string;
 } {
   const is_valid = validateIdString(body.id);
   if (!is_valid) return { valid: false, error: "Invalid ID" };
 
-  if (!body.id.startsWith(IDPrefixEnum.JobRunID)) {
+  if (!body.id.startsWith(IDPrefixEnum.PurchaseID)) {
     return {
       valid: false,
-      error: `JobRun ID must start with '${IDPrefixEnum.JobRunID}'.`,
+      error: `Purchase ID must start with '${IDPrefixEnum.PurchaseID}'.`,
     };
   }
   return { valid: true };
 }
 
-function validateListJobRunsRequest(body: IRequestListJobRuns): {
+function validateListPurchasesRequest(body: IRequestListPurchases): {
   valid: boolean;
   error?: string;
 } {
