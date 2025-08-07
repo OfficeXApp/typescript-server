@@ -115,7 +115,7 @@ export async function authenticateRequest(
   if (authHeader) {
     if (authHeader.startsWith("Bearer ")) {
       btoaToken = authHeader.substring("Bearer ".length).trim();
-      debug_log("Found token in Authorization header");
+      // debug_log("Found token in Authorization header");
     } else {
       debug_log("Authorization header not in Bearer format");
     }

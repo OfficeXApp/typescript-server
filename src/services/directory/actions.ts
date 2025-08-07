@@ -17,6 +17,8 @@ import {
   UpdateFilePayload,
   UpdateFolderPayload,
   WebhookEventLabel,
+  UpdateFileResponse,
+  CreateFileResponse,
 } from "@officexapp/types";
 import {
   DriveID,
@@ -63,6 +65,7 @@ import {
   restoreFromTrash as driveRestoreFromTrash,
   getFileMetadata as driveGetFileMetadata,
   getFolderMetadata as driveGetFolderMetadata,
+  requestFileOverwritePresignedUrl,
 } from "./drive";
 import {
   fireDirectoryWebhook,
@@ -510,11 +513,12 @@ export async function pipeAction(
         );
       }
 
-      return {
+      const response_payload: CreateFileResponse = {
         file: await castFileToFE(fileRecord, userId, driveId),
         upload: uploadResponse,
         notes: "File created successfully",
       };
+      return response_payload;
     }
 
     // =========================================================================
@@ -701,7 +705,17 @@ export async function pipeAction(
       }
 
       const result = await castFileToFE(updatedFile, userId, driveId);
-      return result;
+
+      const upload = payload.request_presigned_url
+        ? await requestFileOverwritePresignedUrl(updatedFile, driveId)
+        : undefined;
+
+      const response_payload: UpdateFileResponse = {
+        file: result,
+        upload,
+        notes: "",
+      };
+      return response_payload;
     }
 
     case DirectoryActionEnum.UPDATE_FOLDER: {
