@@ -22,6 +22,9 @@ services:
     env_file:
       - ./.env
 
+    environment:
+      - DATA_DIR=/data
+
     volumes:
       - app_data:/data # Persistent data for your application
 
