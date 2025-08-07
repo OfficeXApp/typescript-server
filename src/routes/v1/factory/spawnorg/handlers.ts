@@ -798,8 +798,8 @@ export async function redeemGiftcardSpawnOrgHandler(
             drive_id, drive_name, canister_id, version, drive_state_checksum,
             timestamp_ns, owner_id, url_endpoint,
             transfer_owner_id, spawn_redeem_code, spawn_note,
-            nonce_uuid_generated, default_everyone_group_id -- Add this column
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` // Add a placeholder for the new column
+            nonce_uuid_generated, default_everyone_group_id 
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       insertAboutDriveStmt.run(
         driveId,
