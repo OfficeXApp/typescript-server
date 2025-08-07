@@ -3,7 +3,7 @@
 import {
   DriveID,
   ICPPrincipalString,
-  URLEndpoint,
+  HostURL,
   UserID,
   ExternalID,
   ApiKeyID,
@@ -52,7 +52,7 @@ export interface DriveStateSnapshot {
   CANISTER_ID: ICPPrincipalString;
   VERSION: string;
   OWNER_ID: UserID;
-  URL_ENDPOINT: URLEndpoint;
+  URL_ENDPOINT: HostURL;
   DRIVE_STATE_TIMESTAMP_NS: string; // Rust's u64 is bigint, represent as string
   EXTERNAL_ID_MAPPINGS: Record<ExternalID, string[]>; // Maps ExternalID to Vec<String>
   RECENT_DEPLOYMENTS: IFactorySpawnHistoryRecord[]; // Vec<IFactorySpawnHistoryRecord>
@@ -203,7 +203,7 @@ export async function getDriveSnapshot(
       drive_state_checksum: string;
       timestamp_ns: string;
       owner_id: UserID;
-      url_endpoint: URLEndpoint;
+      host_url: HostURL;
       transfer_owner_id: UserID;
       spawn_redeem_code: string;
       spawn_note: string;
@@ -571,7 +571,7 @@ export async function getDriveSnapshot(
       CANISTER_ID: aboutDrive.canister_id,
       VERSION: aboutDrive.version,
       OWNER_ID: aboutDrive.owner_id,
-      URL_ENDPOINT: aboutDrive.url_endpoint,
+      URL_ENDPOINT: aboutDrive.host_url,
       DRIVE_STATE_TIMESTAMP_NS: aboutDrive.timestamp_ns,
       EXTERNAL_ID_MAPPINGS,
       RECENT_DEPLOYMENTS, // MOCKED
@@ -647,7 +647,7 @@ export async function getDriveAbout(driveId: DriveID): Promise<{
   drive_state_checksum: string;
   timestamp_ns: string;
   owner_id: UserID;
-  url_endpoint: URLEndpoint;
+  host_url: HostURL;
   transfer_owner_id: UserID;
   spawn_redeem_code: string;
   spawn_note: string;
@@ -663,7 +663,7 @@ export async function getDriveAbout(driveId: DriveID): Promise<{
                     drive_state_checksum,
                     timestamp_ns,
                     owner_id,
-                    url_endpoint,
+                    host_url,
                     transfer_owner_id,
                     spawn_redeem_code,
                     spawn_note,
@@ -679,7 +679,7 @@ export async function getDriveAbout(driveId: DriveID): Promise<{
       drive_state_checksum: string;
       timestamp_ns: string;
       owner_id: UserID;
-      url_endpoint: URLEndpoint;
+      host_url: HostURL;
       transfer_owner_id: UserID;
       spawn_redeem_code: string;
       spawn_note: string;

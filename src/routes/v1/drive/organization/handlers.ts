@@ -29,7 +29,11 @@ import {
   IErrorResponse, // Import SystemTableValueEnum
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
-import { authenticateRequest, generateApiKey } from "../../../../services/auth";
+import {
+  authenticateRequest,
+  generateApiKey,
+  urlSafeBase64Encode,
+} from "../../../../services/auth";
 import { DriveID, UserID, IDPrefixEnum } from "@officexapp/types";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 import { checkSystemPermissions } from "../../../../services/permissions/system"; // Import permission checks
@@ -38,6 +42,7 @@ import {
   DriveStateSnapshot,
   getDriveSnapshot,
 } from "../../../../services/snapshot/drive";
+import { LOCAL_DEV_MODE } from "../../../../constants";
 
 /**
  * Handles the /organization/about route.
@@ -87,7 +92,7 @@ export async function aboutDriveHandler(
     const result = await db.queryDrive(
       org_id,
       `SELECT drive_id, drive_name, canister_id, version, drive_state_checksum,
-              timestamp_ns, owner_id, url_endpoint, transfer_owner_id,
+              timestamp_ns, owner_id, host_url, transfer_owner_id,
               spawn_redeem_code, spawn_note, nonce_uuid_generated
        FROM about_drive LIMIT 1`
     );
@@ -118,7 +123,7 @@ export async function aboutDriveHandler(
       organization_name: driveInfo.drive_name,
       organization_id: driveInfo.drive_id,
       owner: driveInfo.owner_id,
-      endpoint: driveInfo.url_endpoint,
+      host: driveInfo.host_url,
       canister_id: driveInfo.canister_id,
       daily_idle_cycle_burn_rate: dailyIdleCycleBurnRate,
       controllers: controllers,
@@ -957,7 +962,7 @@ export async function redeemOrganizationDriveHandler(
     // Get stored redeem code and spawn note from `about_drive` table
     const driveAboutInfo = await db.queryDrive(
       org_id,
-      `SELECT spawn_redeem_code, spawn_note, owner_id, url_endpoint FROM about_drive LIMIT 1`
+      `SELECT spawn_redeem_code, spawn_note, owner_id, host_url, drive_name FROM about_drive LIMIT 1`
     );
 
     if (driveAboutInfo.length === 0) {
@@ -972,7 +977,8 @@ export async function redeemOrganizationDriveHandler(
     const storedRedeemCode = driveAboutInfo[0].spawn_redeem_code;
     const spawnNote = driveAboutInfo[0].spawn_note;
     const driveOwnerId = driveAboutInfo[0].owner_id;
-    const driveEndpointUrl = driveAboutInfo[0].url_endpoint;
+    const driveEndpointUrl = driveAboutInfo[0].host_url;
+    const driveName = driveAboutInfo[0].drive_name;
 
     if (!storedRedeemCode || storedRedeemCode.length === 0) {
       return reply.status(400).send(
@@ -1039,13 +1045,29 @@ export async function redeemOrganizationDriveHandler(
 
     // Construct the admin login password
     const adminLoginPassword = `${org_id}:${adminApiKeyValue}@${driveEndpointUrl}`;
-
+    const auto_login_details = {
+      org_name: driveName,
+      org_id: org_id,
+      org_host: driveEndpointUrl,
+      profile_id: adminApiKeyId,
+      profile_name: "Admin",
+      profile_api_key: adminApiKeyValue,
+      profile_seed_phrase: undefined,
+    };
+    const auto_login_redeem_token = urlSafeBase64Encode(
+      JSON.stringify(auto_login_details)
+    );
+    const frontend_endpoint = LOCAL_DEV_MODE
+      ? "http://localhost:5173"
+      : "https://officex.app";
+    const autoLoginUrl = `${frontend_endpoint}/auto-login?token=${auto_login_redeem_token}`;
     const responseData: IResponseRedeemOrg["ok"]["data"] = {
       drive_id: org_id,
-      endpoint_url: driveEndpointUrl,
+      host_url: driveEndpointUrl,
       api_key: adminApiKeyValue,
       note: spawnNote,
       admin_login_password: adminLoginPassword,
+      auto_login_url: autoLoginUrl,
     };
 
     reply.status(200).send(createApiResponse(responseData));

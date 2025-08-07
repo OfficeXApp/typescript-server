@@ -78,7 +78,7 @@ function validateCreateRequest(body: IRequestCreateGroup): {
     };
   }
 
-  if (body.endpoint_url && body.endpoint_url.length > 4096) {
+  if (body.host_url && body.host_url.length > 4096) {
     return {
       valid: false,
       error: "Endpoint URL must be less than 4096 characters",
@@ -114,7 +114,7 @@ function validateUpdateRequest(body: IRequestUpdateGroup): {
     };
   }
 
-  if (body.endpoint_url !== undefined && body.endpoint_url.length > 4096) {
+  if (body.host_url !== undefined && body.host_url.length > 4096) {
     return {
       valid: false,
       error: "Endpoint URL must be less than 4096 characters",
@@ -557,7 +557,7 @@ export async function createGroupHandler(
     // Get drive info for defaults
     const driveInfo = await db.queryDrive(
       orgId,
-      "SELECT url_endpoint FROM about_drive LIMIT 1"
+      "SELECT host_url FROM about_drive LIMIT 1"
     );
     const driveData = driveInfo[0];
 
@@ -571,7 +571,7 @@ export async function createGroupHandler(
       created_at: now,
       last_modified_at: now,
       drive_id: orgId,
-      endpoint_url: body.endpoint_url || driveData?.url_endpoint || "",
+      host_url: body.host_url || driveData?.host_url || "",
       labels: [], // Labels explicitly ignored
       external_id: body.external_id,
       external_payload: body.external_payload,
@@ -585,7 +585,7 @@ export async function createGroupHandler(
       const groupStmt = database.prepare(
         `INSERT INTO groups (
           id, name, owner, avatar, private_note, public_note,
-          created_at, last_modified_at, drive_id, endpoint_url,
+          created_at, last_modified_at, drive_id, host_url,
           external_id, external_payload
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
@@ -599,7 +599,7 @@ export async function createGroupHandler(
         group.created_at,
         group.last_modified_at,
         group.drive_id,
-        group.endpoint_url,
+        group.host_url,
         group.external_id,
         group.external_payload
       );
@@ -782,9 +782,9 @@ export async function updateGroupHandler(
       updates.push("private_note = ?");
       values.push(body.private_note);
     }
-    if (body.endpoint_url !== undefined) {
-      updates.push("endpoint_url = ?");
-      values.push(body.endpoint_url);
+    if (body.host_url !== undefined) {
+      updates.push("host_url = ?");
+      values.push(body.host_url);
     }
     if (body.external_id !== undefined) {
       updates.push("external_id = ?");

@@ -9,7 +9,7 @@ import {
   UserID,
   GiftcardSpawnOrg,
   ICPPrincipalString,
-  URLEndpoint,
+  HostURL,
   FactoryApiKey, // Using FactoryApiKey as per your types, assuming factory_api_keys table maps to it
 } from "@officexapp/types";
 import { db } from "../database"; // Corrected: Use 'db' for query methods
@@ -23,7 +23,7 @@ export interface FactoryStateSnapshot {
   canister_id: ICPPrincipalString; // Corresponds to PublicKeyICP in Rust
   version: string;
   owner_id: UserID;
-  endpoint_url: URLEndpoint; // Corresponds to DriveRESTUrlEndpoint in Rust
+  host_url: HostURL; // Corresponds to DriveRESTHostURL in Rust
 
   // API keys state
   apikeys_by_value: Record<ApiKeyValue, ApiKeyID>;
@@ -46,7 +46,7 @@ interface AboutFactoryRecord {
   canister_id: ICPPrincipalString;
   version: string;
   owner_id: UserID;
-  endpoint_url: URLEndpoint;
+  host_url: HostURL;
 }
 
 /**
@@ -58,7 +58,7 @@ async function getSystemInfoForFactory(
 ): Promise<
   Pick<
     FactoryStateSnapshot,
-    "canister_id" | "version" | "owner_id" | "endpoint_url"
+    "canister_id" | "version" | "owner_id" | "host_url"
   >
 > {
   // query factory_admins for owner_id
@@ -69,7 +69,7 @@ async function getSystemInfoForFactory(
     canister_id: "DEFAULT_FACTORY_CANISTER_ID" as ICPPrincipalString,
     version: "OfficeX.NodeJS.Alpha.0.0.1",
     owner_id: owner_id,
-    endpoint_url: endpoint as URLEndpoint,
+    host_url: endpoint as HostURL,
   };
 }
 
@@ -206,7 +206,7 @@ async function getGiftcardSpawnOrgState(): Promise<
     `SELECT
         owner_id,
         drive_id,
-        endpoint,
+        host,
         version,
         note,
         giftcard_id,
@@ -293,7 +293,7 @@ export async function getFactorySnapshot(
     canister_id: factorySystemInfo.canister_id,
     version: factorySystemInfo.version,
     owner_id: factorySystemInfo.owner_id,
-    endpoint_url: factorySystemInfo.endpoint_url,
+    host_url: factorySystemInfo.host_url,
 
     // API keys state (from the factory database)
     apikeys_by_value: apikeys_by_value,

@@ -7,7 +7,7 @@ import {
   GroupInvite, // Assuming this is your TypeScript interface for GroupInvite
   GroupInviteeID, // Assuming this is your TypeScript type for GroupInviteeID
   IDPrefixEnum,
-  URLEndpoint,
+  HostURL,
   IResponseValidateGroupMember,
   GroupInviteID,
   GroupRole,
@@ -31,7 +31,7 @@ interface GroupDbRow {
   created_at: number;
   last_modified_at: number;
   drive_id: string; // DriveID (full prefixed string)
-  endpoint_url: string; // URLEndpoint
+  host_url: string; // HostURL
   external_id?: string;
   external_payload?: string;
 }
@@ -72,7 +72,7 @@ export async function getGroupById(
   const query = `
         SELECT
           id, name, owner, avatar, private_note, public_note,
-          created_at, last_modified_at, drive_id, endpoint_url,
+          created_at, last_modified_at, drive_id, host_url,
           external_id, external_payload
         FROM groups
         WHERE id = ?;
@@ -129,7 +129,7 @@ export async function getGroupById(
     created_at: row.created_at,
     last_modified_at: row.last_modified_at,
     drive_id: row.drive_id,
-    endpoint_url: row.endpoint_url as URLEndpoint,
+    host_url: row.host_url as HostURL,
     labels: [], // As requested, labels are ignored and blank array
     external_id: row.external_id,
     external_payload: row.external_payload,
@@ -310,17 +310,17 @@ export async function isUserInGroup(
 
   const localDriveInfo = await db.queryDrive(
     orgId,
-    `SELECT url_endpoint FROM about_drive LIMIT 1;`
+    `SELECT host_url FROM about_drive LIMIT 1;`
   );
   const localDriveEndpoint =
-    localDriveInfo.length > 0 ? localDriveInfo[0].url_endpoint : "";
+    localDriveInfo.length > 0 ? localDriveInfo[0].host_url : "";
 
-  if (group.endpoint_url === localDriveEndpoint) {
+  if (group.host_url === localDriveEndpoint) {
     // If it's our own drive's group, use local validation
     return isUserOnLocalGroup(userId, group, orgId);
   } else {
     // It's an external group, make HTTP call to their validate endpoint
-    const validationUrl = `${group.endpoint_url.replace(
+    const validationUrl = `${group.host_url.replace(
       /\/+$/,
       ""
     )}/groups/validate`;

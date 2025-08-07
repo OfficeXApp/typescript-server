@@ -49,7 +49,7 @@ CREATE TABLE factory_spawn_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id TEXT NOT NULL,                -- Corresponds to IFactorySpawnHistoryRecord.owner_id
     drive_id TEXT NOT NULL,                -- Corresponds to IFactorySpawnHistoryRecord.drive_id
-    endpoint TEXT NOT NULL,                -- Corresponds to IFactorySpawnHistoryRecord.endpoint
+    host TEXT NOT NULL,                -- Corresponds to IFactorySpawnHistoryRecord.host
     version TEXT NOT NULL,                 -- Corresponds to IFactorySpawnHistoryRecord.version
     note TEXT,                             -- Corresponds to IFactorySpawnHistoryRecord.note
     giftcard_id TEXT NOT NULL UNIQUE,      -- Corresponds to IFactorySpawnHistoryRecord.giftcard_id
