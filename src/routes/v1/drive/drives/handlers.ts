@@ -15,7 +15,7 @@ import {
   IPaginatedResponse,
   SystemPermissionType,
   SystemTableValueEnum,
-  URLEndpoint,
+  HostURL,
   UserID,
   ISuccessResponse,
   SortDirection,
@@ -348,7 +348,7 @@ export async function createDriveHandler(
       icp_principal,
       public_note,
       private_note,
-      endpoint_url,
+      host_url,
       external_id,
       external_payload,
     } = request.body;
@@ -415,7 +415,7 @@ export async function createDriveHandler(
         })
       );
     }
-    if (endpoint_url && endpoint_url.length > 4096) {
+    if (host_url && host_url.length > 4096) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
@@ -450,8 +450,7 @@ export async function createDriveHandler(
       icp_principal: icp_principal as ICPPrincipalString,
       public_note: public_note,
       private_note: private_note,
-      endpoint_url: (endpoint_url ||
-        `https://${icp_principal}.icp0.io`) as URLEndpoint, // Default endpoint
+      host_url: (host_url || `https://${icp_principal}.icp0.io`) as HostURL, // Default endpoint
       last_indexed_ms: undefined,
       labels: [], // No labels on creation by default
       external_id: external_id,
@@ -463,7 +462,7 @@ export async function createDriveHandler(
     await dbHelpers.transaction("drive", orgId, async (database) => {
       // Insert into drives table
       const stmt = database.prepare(
-        `INSERT INTO drives (id, name, icp_principal, public_note, private_note, endpoint_url, last_indexed_ms, created_at, external_id, external_payload)
+        `INSERT INTO drives (id, name, icp_principal, public_note, private_note, host_url, last_indexed_ms, created_at, external_id, external_payload)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       stmt.run(
@@ -472,7 +471,7 @@ export async function createDriveHandler(
         newDrive.icp_principal,
         newDrive.public_note,
         newDrive.private_note,
-        newDrive.endpoint_url,
+        newDrive.host_url,
         newDrive.last_indexed_ms,
         newDrive.created_at,
         newDrive.external_id,
@@ -538,7 +537,7 @@ export async function updateDriveHandler(
       name,
       public_note,
       private_note,
-      endpoint_url,
+      host_url,
       external_id,
       external_payload,
     } = request.body;
@@ -576,7 +575,7 @@ export async function updateDriveHandler(
         })
       );
     }
-    if (endpoint_url && endpoint_url.length > 4096) {
+    if (host_url && host_url.length > 4096) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
@@ -654,9 +653,9 @@ export async function updateDriveHandler(
       updates.push("private_note = ?");
       values.push(private_note);
     }
-    if (endpoint_url !== undefined) {
-      updates.push("endpoint_url = ?");
-      values.push(endpoint_url);
+    if (host_url !== undefined) {
+      updates.push("host_url = ?");
+      values.push(host_url);
     }
     if (external_id !== undefined) {
       oldExternalId = currentDrive.external_id; // Capture old external_id

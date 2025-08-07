@@ -285,7 +285,7 @@ export async function pipeAction(
         resource_name: file.name,
         drive_id: driveId,
         timestamp_ms: Date.now(),
-        endpoint_url: "TODO: FETCH_ACTUAL_URL_ENDPOINT", // Rust had URL_ENDPOINT.with(|url| url.borrow().get().clone())
+        host_url: "TODO: FETCH_ACTUAL_URL_ENDPOINT", // Rust had URL_ENDPOINT.with(|url| url.borrow().get().clone())
         metadata: undefined,
       };
 
@@ -417,7 +417,7 @@ export async function pipeAction(
         resource_name: folder.name,
         drive_id: driveId,
         timestamp_ms: Date.now(),
-        endpoint_url: "TODO: FETCH_ACTUAL_URL_ENDPOINT", // Rust had URL_ENDPOINT.with(|url| url.borrow().get().clone())
+        host_url: "TODO: FETCH_ACTUAL_URL_ENDPOINT", // Rust had URL_ENDPOINT.with(|url| url.borrow().get().clone())
         metadata: undefined,
       };
 

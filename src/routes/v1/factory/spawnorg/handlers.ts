@@ -796,7 +796,7 @@ export async function redeemGiftcardSpawnOrgHandler(
       const insertAboutDriveStmt = driveDatabase.prepare(
         `INSERT INTO about_drive (
             drive_id, drive_name, canister_id, version, drive_state_checksum,
-            timestamp_ns, owner_id, url_endpoint,
+            timestamp_ns, owner_id, host_url,
             transfer_owner_id, spawn_redeem_code, spawn_note,
             nonce_uuid_generated, default_everyone_group_id 
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -851,7 +851,7 @@ export async function redeemGiftcardSpawnOrgHandler(
 
       const insertDriveStmt = driveDatabase.prepare(
         `INSERT INTO drives (
-            id, name, icp_principal, public_note, private_note, endpoint_url, last_indexed_ms, created_at, external_id, external_payload
+            id, name, icp_principal, public_note, private_note, host_url, last_indexed_ms, created_at, external_id, external_payload
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       insertDriveStmt.run(
@@ -872,7 +872,7 @@ export async function redeemGiftcardSpawnOrgHandler(
       const insertGroupStmt = driveDatabase.prepare(
         `INSERT INTO groups (
             id, name, owner, avatar, public_note, private_note,
-            created_at, last_modified_at, drive_id, endpoint_url,
+            created_at, last_modified_at, drive_id, host_url,
             external_id, external_payload
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
@@ -969,7 +969,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         id: null as any, // Auto-incremented
         owner_id: ownerId,
         drive_id: driveId,
-        endpoint: endpoint,
+        host: endpoint,
         version: process.env.VERSION || "1.0.0", // Assuming version from env
         note: giftcard.note,
         giftcard_id: giftcard.id,
@@ -978,13 +978,13 @@ export async function redeemGiftcardSpawnOrgHandler(
       };
       database
         .prepare(
-          `INSERT INTO factory_spawn_history (owner_id, drive_id, endpoint, version, note, giftcard_id, gas_cycles_included, timestamp_ms)
+          `INSERT INTO factory_spawn_history (owner_id, drive_id, host, version, note, giftcard_id, gas_cycles_included, timestamp_ms)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           historyRecord.owner_id,
           historyRecord.drive_id,
-          historyRecord.endpoint,
+          historyRecord.host,
           historyRecord.version,
           historyRecord.note,
           historyRecord.giftcard_id,
@@ -1004,7 +1004,7 @@ export async function redeemGiftcardSpawnOrgHandler(
       createApiResponse({
         owner_id: ownerId,
         drive_id: driveId,
-        endpoint: endpoint,
+        host: endpoint,
         redeem_code: redeemCode,
         disk_auth_json: giftcard.disk_auth_json,
       })

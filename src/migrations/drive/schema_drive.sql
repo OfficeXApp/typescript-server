@@ -18,7 +18,7 @@ CREATE TABLE about_drive (
     drive_state_checksum TEXT NOT NULL,        -- Corresponds to DRIVE_STATE_CHECKSUM
     timestamp_ns TEXT NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
     owner_id TEXT NOT NULL,                    -- Corresponds to OWNER_ID
-    url_endpoint TEXT NOT NULL,                -- Corresponds to URL_ENDPOINT
+    host_url TEXT NOT NULL,                -- Corresponds to URL_ENDPOINT
     transfer_owner_id TEXT NOT NULL,           -- Corresponds to TRANSFER_OWNER_ID
     spawn_redeem_code TEXT NOT NULL,           -- Corresponds to SPAWN_REDEEM_CODE
     spawn_note TEXT NOT NULL,                  -- Corresponds to SPAWN_NOTE
@@ -78,7 +78,7 @@ CREATE TABLE drives (
     icp_principal TEXT NOT NULL,
     public_note TEXT,
     private_note TEXT,
-    endpoint_url TEXT NOT NULL,
+    host_url TEXT NOT NULL,
     last_indexed_ms INTEGER,
     created_at INTEGER NOT NULL,
     external_id TEXT,
@@ -207,7 +207,7 @@ CREATE TABLE groups (
     created_at INTEGER NOT NULL,
     last_modified_at INTEGER NOT NULL,
     drive_id TEXT NOT NULL,
-    endpoint_url TEXT NOT NULL,
+    host_url TEXT NOT NULL,
     external_id TEXT,
     external_payload TEXT,
     FOREIGN KEY(drive_id) REFERENCES drives(id)
@@ -619,15 +619,15 @@ END;
 -- Drives Triggers
 CREATE TRIGGER drives_ai AFTER INSERT ON drives BEGIN
   INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
-  VALUES (new.name || ' ' || new.id || ' ' || new.endpoint_url, new.name, new.endpoint_url, new.id, 'DRIVES', new.external_payload, new.created_at, new.created_at);
+  VALUES (new.name || ' ' || new.id || ' ' || new.host_url, new.name, new.host_url, new.id, 'DRIVES', new.external_payload, new.created_at, new.created_at);
   INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
 END;
 
 CREATE TRIGGER drives_au AFTER UPDATE ON drives BEGIN
   UPDATE search_fts SET
-    searchable_string = new.name || ' ' || new.id || ' ' || new.endpoint_url,
+    searchable_string = new.name || ' ' || new.id || ' ' || new.host_url,
     title = new.name,
-    preview = new.endpoint_url,
+    preview = new.host_url,
     updated_at = new.created_at,
     metadata = new.external_payload
   WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);
@@ -641,15 +641,15 @@ END;
 -- Groups Triggers
 CREATE TRIGGER groups_ai AFTER INSERT ON groups BEGIN
   INSERT INTO search_fts(searchable_string, title, preview, resource_id, category, metadata, created_at, updated_at)
-  VALUES (new.name || ' ' || new.id || ' ' || new.endpoint_url, new.name, new.endpoint_url, new.id, 'GROUPS', new.external_payload, new.created_at, new.last_modified_at);
+  VALUES (new.name || ' ' || new.id || ' ' || new.host_url, new.name, new.host_url, new.id, 'GROUPS', new.external_payload, new.created_at, new.last_modified_at);
   INSERT INTO fts_lookup (resource_id, fts_rowid) VALUES (new.id, last_insert_rowid());
 END;
 
 CREATE TRIGGER groups_au AFTER UPDATE ON groups BEGIN
   UPDATE search_fts SET
-    searchable_string = new.name || ' ' || new.id || ' ' || new.endpoint_url,
+    searchable_string = new.name || ' ' || new.id || ' ' || new.host_url,
     title = new.name,
-    preview = new.endpoint_url,
+    preview = new.host_url,
     updated_at = new.last_modified_at,
     metadata = new.external_payload
   WHERE rowid = (SELECT fts_rowid FROM fts_lookup WHERE resource_id = new.id);

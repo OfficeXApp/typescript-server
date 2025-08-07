@@ -776,7 +776,7 @@ export async function fireStateDiffWebhooks(
       diff_backward: backwardDiff,
       notes: notes || undefined, // Use undefined if null
       drive_id: driveId,
-      endpoint_url: endpointUrl,
+      host_url: endpointUrl,
       checksum_forward: forwardChecksum,
       checksum_backward: backwardChecksum,
     };

@@ -446,3 +446,18 @@ async function update_last_online_at(
     );
   }
 }
+
+// Encode: Direct URL-safe Base64
+export function urlSafeBase64Encode(str: string) {
+  // Handle Unicode characters
+  const utf8Bytes = new TextEncoder().encode(str);
+  const binaryString = Array.from(utf8Bytes)
+    .map((byte) => String.fromCharCode(byte))
+    .join("");
+
+  // Standard Base64 encoding
+  const base64 = btoa(binaryString);
+
+  // Make URL-safe by replacing characters
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
