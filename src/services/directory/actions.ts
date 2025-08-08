@@ -19,6 +19,7 @@ import {
   WebhookEventLabel,
   UpdateFileResponse,
   CreateFileResponse,
+  UpdateFolderResponse,
 } from "@officexapp/types";
 import {
   DriveID,
@@ -845,8 +846,11 @@ export async function pipeAction(
         );
       }
 
-      const result = await castFolderToFE(updatedFolder, userId, driveId);
-      return result;
+      const folderFE = await castFolderToFE(updatedFolder, userId, driveId);
+      const response_payload: UpdateFolderResponse = {
+        folder: folderFE,
+      };
+      return response_payload;
     }
 
     // =========================================================================

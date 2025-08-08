@@ -34,9 +34,8 @@ services:
         condition: service_healthy
     volumes:
       - ./:/etc/newman
-    env_file:
-      - ./.env
-    command: ["run", "postman/postman-rest-api.json"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["sleep 10 && newman run postman/postman-rest-api.docker.json"]
 
 volumes:
   app_data:
