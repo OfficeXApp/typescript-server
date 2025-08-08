@@ -30,7 +30,7 @@
     "@fastify/sensible": "^6.0.0",
     "@noble/ed25519": "^2.3.0",
     "@noble/hashes": "^1.8.0",
-    "@officexapp/types": "^0.0.189",
+    "@officexapp/types": "^0.0.190",
     "base64-js": "^1.5.1",
     "better-sqlite3": "^12.2.0",
     "bip39": "^3.1.0",

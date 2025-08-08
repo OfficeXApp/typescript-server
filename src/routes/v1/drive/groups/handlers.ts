@@ -482,7 +482,7 @@ export async function listGroupsHandler(
         page_size: processedGroups.length,
         total: totalCountToReturn,
         direction: direction,
-        cursor: nextCursor || undefined,
+        cursor: nextCursor || "",
       })
     );
   } catch (error) {
