@@ -152,7 +152,7 @@ export async function checkSystemPermissions({
 
   if (granteeId.startsWith(IDPrefixEnum.User)) {
     const isOwner = (await getDriveOwnerId(orgId)) === granteeId;
-    console.log(`isOwner==`, isOwner);
+
     if (isOwner) {
       return [
         SystemPermissionType.CREATE,
@@ -180,8 +180,6 @@ export async function checkSystemPermissions({
 
   const grantee_ids = granteeIdsToCheck.map(() => "?").join(",");
 
-  console.log(`>>> grantee_ids`, grantee_ids);
-
   // check against pure resource table
   const rows = await db.queryDrive(
     orgId,
@@ -199,8 +197,6 @@ export async function checkSystemPermissions({
 
   for (const row of rows) {
     const permission: SystemPermission = mapDbRowToSystemPermission(row);
-
-    // console.log(`>>> permission`, permission);
 
     if (
       (permission.expiry_date_ms >= 0 &&

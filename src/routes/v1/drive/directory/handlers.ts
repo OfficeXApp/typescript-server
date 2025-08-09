@@ -237,8 +237,6 @@ export async function listDirectoryHandler(
   const listRequest = request.body;
   const userApiKey = await authenticateRequest(request, "drive", driveId);
 
-  console.log(`body == ${JSON.stringify(listRequest)}`);
-
   if (!userApiKey) {
     return reply
       .status(401)
@@ -251,7 +249,6 @@ export async function listDirectoryHandler(
 
     // If disk_id is provided and no folder_id/path, it means "root shortcuts of user"
     if (listRequest.disk_id && !targetFolderId && !listRequest.path) {
-      console.log(`fetch_root_shortcuts_of_user`);
       const shortcutResponse = await fetch_root_shortcuts_of_user(
         driveId,
         listRequest,
@@ -336,8 +333,6 @@ export async function listDirectoryHandler(
       userApiKey.user_id,
       driveId
     );
-
-    console.log(`>>> permissionsForFolder`, permissionsForFolder);
 
     const isOwner = (await getDriveOwnerId(driveId)) === userApiKey.user_id;
 
@@ -563,8 +558,6 @@ export async function getRawUrlProxyHandler(
   }>,
   reply: FastifyReply
 ): Promise<void> {
-  console.log("getRawUrlProxyHandler: Handling raw URL proxy request");
-
   const { org_id: driveId } = request.params;
   const { file_id_with_extension } = request.params;
 
@@ -576,8 +569,6 @@ export async function getRawUrlProxyHandler(
   } else {
     fileId = file_id_with_extension;
   }
-
-  console.log(`getRawUrlProxyHandler: file_id=${fileId}`);
 
   // Create resource ID for permission checking
   const resourceId: DirectoryResourceID = `${fileId}` as DirectoryResourceID;
@@ -619,7 +610,6 @@ export async function getRawUrlProxyHandler(
   }
 
   if (!hasPermission) {
-    console.log("getRawUrlProxyHandler: No view permission");
     return reply.status(403).send({
       err: { code: 403, message: "Not authorized to view this file" },
     });
@@ -704,8 +694,6 @@ export async function getRawUrlProxyHandler(
       },
     });
   }
-
-  console.log("getRawUrlProxyHandler: Redirecting to presigned URL");
 
   // Return 302 redirect response
   return reply

@@ -574,11 +574,9 @@ export async function migrateFactoryHandler(
   try {
     if (drives && drives.length > 0) {
       // If specific drives are provided, migrate only those
-      console.log(`Migrating specific drives: ${drives.join(", ")}`);
       await runDriveMigrations(drives);
     } else {
       // If the drives array is empty or not provided, migrate all drives
-      console.log("No specific drives provided, migrating all drives.");
       await runDriveMigrations();
     }
 

@@ -1230,7 +1230,6 @@ export async function shortlinkHandler(
   request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestShortLink }>,
   reply: FastifyReply
 ): Promise<IResponseShortLink> {
-  console.log(`Incoming shortlink request for drive`);
   const { org_id: driveId } = request.params;
 
   try {
@@ -1239,12 +1238,10 @@ export async function shortlinkHandler(
     const slug = request.body.slug;
     const original_url = request.body.original_url;
 
-    console.log(`org_id: ${driveId}, body: ${JSON.stringify(request.body)}`);
     if (slug && !original_url) {
       // handle slug to return original url, just write the SQL
       const sql = `SELECT url FROM shortlinks WHERE id = ?`;
       const result = await db.queryDrive(driveId, sql, [slug]);
-      console.log(`result`, result);
       if (result.length === 0) {
         return reply.status(404).send(
           createApiResponse<undefined>(undefined, {
@@ -1275,7 +1272,6 @@ export async function shortlinkHandler(
       }
       // handle url to insert new entry into sqlite and return slug + url
       const slug = uuidv4();
-      console.log(`slug: ${slug}, original_url: ${original_url}`);
       const sql = `INSERT INTO shortlinks (id, url, created_by, created_at) VALUES (?, ?, ?, ?)`;
       const result = await db.runDrive(driveId, sql, [
         slug,
@@ -1306,7 +1302,6 @@ export async function shortlinkHandler(
       // assume this is requesting a deletion of shortlink, but only owner or original poster can delete
       const get_sql = `SELECT * FROM shortlinks WHERE id = ?`;
       const result = await db.queryDrive(driveId, get_sql, [slug]);
-      console.log(`result`, result);
       if (result.length === 0) {
         return reply.status(404).send(
           createApiResponse<undefined>(undefined, {
@@ -1341,7 +1336,6 @@ export async function shortlinkHandler(
       }
       const del_sql = `DELETE FROM shortlinks WHERE id = ?`;
       const del_result = await db.runDrive(driveId, del_sql, [slug]);
-      console.log(`del_result`, del_result);
       return reply.status(200).send(
         createApiResponse({
           slug,

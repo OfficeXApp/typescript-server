@@ -94,10 +94,6 @@ export async function createFile(
 
   const isOwner = (await getDriveOwnerId(driveId)) === userId;
 
-  console.log(
-    `Requesting user ${userId} has create permission: ${hasCreatePermission}. meanwhile the owner of drive ${driveId} is ${isOwner}`
-  );
-
   if (!isOwner && !hasCreatePermission && !hasEditPermission) {
     throw new Error(
       `Permission denied: User ${userId} cannot create files in folder ${parent_folder_uuid}.`
@@ -113,8 +109,6 @@ export async function createFile(
 
   const disk = await get_disk_from_db(driveId, disk_id);
   if (!disk) throw new Error("Disk not found.");
-
-  console.log(`Disk type: ${disk.disk_type}`);
 
   if (
     disk.disk_type !== DiskTypeEnum.AwsBucket &&
@@ -270,7 +264,6 @@ export async function createFile(
       external_id: params.external_id || "",
       external_payload: params.external_payload || "",
     };
-    console.log(`PRE_EXISTING_FILE_NOW_UPDATE:`, fileRecord);
     await dbHelpers.transaction("drive", driveId, (tx: Database) => {
       // update prior version
       tx.prepare(

@@ -73,9 +73,6 @@ export const db = {
         .prepare("SELECT name FROM sqlite_master WHERE type='table';")
         .all();
       if (tables.length === 0 && DRIVE_SCHEMA.trim().length > 0) {
-        console.log(
-          `Initializing drive database schema for ${driveId} during queryDrive from file...`
-        );
         database.exec(DRIVE_SCHEMA);
       }
 
@@ -303,9 +300,6 @@ export const dbHelpers = {
         .all();
       if (tables.length === 0 && DRIVE_SCHEMA.trim().length > 0) {
         // Only apply if the DB is empty and schema exists
-        console.log(
-          `Initializing drive database schema for ${driveId} from file...`
-        );
         database.exec(DRIVE_SCHEMA);
       }
       return callback(database);
@@ -399,7 +393,6 @@ async function applyMigrations(
   const isNew = dbIsNew();
 
   if (isNew && initialSchema) {
-    console.log(`Applying initial schema for new ${dbType} database.`);
     try {
       dbInstance.exec(initialSchema);
       // After applying the initial schema, we must record it in the migrations table.
@@ -438,13 +431,9 @@ async function applyMigrations(
     // In case the _migrations table itself wasn't created, we'll proceed as if none are applied.
   }
 
-  console.log(`Found ${migrationFiles.length} migrations for ${dbType}.`);
-  console.log(`Already applied migrations: ${appliedMigrations.join(", ")}`);
-
   for (const migrationFile of migrationFiles) {
     const migrationName = path.basename(migrationFile, ".sql");
     if (!appliedMigrations.includes(migrationName)) {
-      console.log(`Applying migration: ${migrationName} on ${dbType} DB...`);
       const migrationSql = await fs.promises.readFile(
         path.join(migrationsDir, migrationFile),
         "utf8"
@@ -455,7 +444,6 @@ async function applyMigrations(
         dbInstance
           .prepare("INSERT INTO _migrations (name) VALUES (?)")
           .run(migrationName);
-        console.log(`Migration ${migrationName} applied successfully.`);
       } catch (error) {
         console.error(`Error applying migration ${migrationName}:`, error);
         throw error; // Stop if a migration fails
@@ -474,17 +462,11 @@ async function applyMigrations(
  */
 export async function initFactoryDB(): Promise<Database.Database> {
   if (factoryDbInstance) {
-    // console.log(
-    //   "Factory database already initialized, returning existing instance."
-    // );
     return factoryDbInstance;
   }
 
   // Prevent concurrent initialization attempts
   if (factoryDbInitializing) {
-    console.log(
-      "Factory database initialization already in progress, waiting..."
-    );
     // Wait for the initialization to complete
     while (factoryDbInitializing) {
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -534,24 +516,15 @@ export async function initDriveDB(driveId: DriveID): Promise<void> {
   ensureDirectorySync(dbDir);
 
   if (!dbExists) {
-    // If it doesn't exist, we create it and apply the initial schema and migrations
-    console.log(
-      `Drive database for ${driveId} not found. Creating and initializing schema...`
-    );
     const database = new Database(driveDbPath);
     try {
       configureDatabase(database);
       // Use DRIVE_SCHEMA instead of DRIVE_SCHEMA_INIT
       await applyMigrations("drive", database, DRIVE_SCHEMA);
-      console.log(`Drive database for ${driveId} created and migrated.`);
     } finally {
       database.close();
     }
   } else {
-    // If it exists, we still run migrations to catch any new changes
-    console.log(
-      `Drive database for ${driveId} already exists. Applying migrations...`
-    );
     const database = new Database(driveDbPath);
     try {
       configureDatabase(database);
@@ -625,10 +598,7 @@ try {
 }
 
 export async function runDriveMigrations(driveIds?: DriveID[]): Promise<void> {
-  console.log("Starting migrations...");
-
   // Step 1: Ensure factory migrations are run first
-  console.log("Applying factory migrations...");
   if (!factoryDbInstance) {
     throw new Error("Factory database instance is not available.");
   }
@@ -636,9 +606,6 @@ export async function runDriveMigrations(driveIds?: DriveID[]): Promise<void> {
 
   // Step 2: Handle drive migrations
   if (driveIds && driveIds.length > 0) {
-    console.log(
-      `Applying migrations for specific drives: ${driveIds.join(", ")}`
-    );
     for (const driveId of driveIds) {
       try {
         const driveDbPath = getDriveDbPath(driveId);
@@ -657,8 +624,6 @@ export async function runDriveMigrations(driveIds?: DriveID[]): Promise<void> {
       }
     }
   } else {
-    // If no drive IDs are provided, migrate all drives using the new iterative function
-    console.log("Applying migrations for all drives...");
     const driveDir = path.join(DATA_DIR, "drive");
     for await (const drivePath of iterateDbFiles(driveDir)) {
       const driveId = path.basename(drivePath, ".db");
@@ -672,8 +637,6 @@ export async function runDriveMigrations(driveIds?: DriveID[]): Promise<void> {
       }
     }
   }
-
-  console.log("Migrations finished.");
 }
 
 /**

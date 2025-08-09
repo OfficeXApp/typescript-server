@@ -96,7 +96,6 @@ function parseGranteeIDForDb(idStr: GranteeID): {
   type: string;
   id: string | null;
 } {
-  console.log(`>>> parseGranteeIDForDb: ${idStr}`);
   if (idStr === PUBLIC_GRANTEE_ID_STRING) {
     return { type: "Public", id: null };
   }
@@ -232,10 +231,6 @@ export async function listDirectoryPermissionsForResource(options: {
     orgId
   );
 
-  console.log(
-    `Requester ID: ${requesterId} on orgId: ${orgId} on resourceId: ${resourceId} with owner ${await getDriveOwnerId(orgId)} and directory permissions ${resourcePermissions}`
-  );
-
   const hasViewPermissionOnResource = resourcePermissions.includes(
     DirectoryPermissionType.VIEW
   );
@@ -243,8 +238,6 @@ export async function listDirectoryPermissionsForResource(options: {
   if (!isOwner && !hasViewPermissionOnResource) {
     return { items: [], total: 0, authorized: false };
   }
-
-  console.log(`>>> we continue here`);
 
   let query = `
     SELECT
@@ -287,8 +280,6 @@ export async function listDirectoryPermissionsForResource(options: {
   params.push(pageSize + 1);
 
   const rows = await db.queryDrive(orgId, query, params);
-
-  console.log(`>>> we got rows`, rows);
 
   for (let i = 0; i < rows.length && i < pageSize; i++) {
     const rawPerm = mapDbRowToDirectoryPermission(rows[i]);
@@ -346,16 +337,6 @@ export async function createDirectoryPermission(
     parseDirectoryResourceIDForDb(data.resource_id);
   const { type: granteeType, id: granteeUUID } =
     parseGranteeIDForDb(granteeIdForDb);
-
-  console.log(`
-    >>> 
-
-    resourceType: ${resourceType}
-    resourceUUID: ${resourceUUID}
-    granteeType: ${granteeType}
-    granteeUUID: ${granteeUUID}
-    
-    `);
 
   let resourcePath = "";
   if (resourceType === "File") {
@@ -777,10 +758,6 @@ export async function listSystemPermissions(options: {
   const items: any[] = []; // SystemPermissionFE[]
   let total = 0;
   let newCursor: string | null = null;
-
-  console.log(
-    `listSystemPermissions: orgId: ${orgId}, requesterId: ${requesterId}... `
-  );
 
   const isOwner = (await getDriveOwnerId(orgId)) === requesterId;
 
