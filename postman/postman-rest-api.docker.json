@@ -765,6 +765,258 @@
       "response": []
     },
     {
+      "name": "drive/:org_id/organization/shortlink | create",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Set env vars",
+              "var jsonData = pm.response.json();",
+              "if (pm.response.code === 200 && jsonData.ok && jsonData.ok.data.slug) {",
+              "    var data = jsonData.ok.data;",
+              "    var slug = data.slug;",
+              "    if (slug) {",
+              "        pm.collectionVariables.set(\"shortlink_slug\", slug);",
+              "        console.log(\"Successfully set shortlink_slug to: \" + slug);",
+              "    }",
+              "} else {",
+              "    // Log an error if the request was not successful",
+              "    console.error(\"Failed to retrieve shortlink_slug. Status code: \" + pm.response.code);",
+              "    console.error(\"Response body:\", pm.response.text());",
+              "}",
+              "",
+              "pm.test(\"Schema is valid\", function () {",
+              "  var schema = {",
+              "    type: \"object\",",
+              "    properties: {",
+              "      ok: {",
+              "        type: \"object\",",
+              "        properties: {",
+              "          data: {",
+              "            type: \"object\",",
+              "            properties: {",
+              "              slug: { type: \"string\" },",
+              "              original_url: { type: \"string\" }",
+              "            },",
+              "            required: [\"slug\", \"original_url\"]",
+              "          }",
+              "        },",
+              "        required: [\"data\"]",
+              "      }",
+              "    },",
+              "    required: [\"ok\"]",
+              "  };",
+              "",
+              "  var response = pm.response.json();",
+              "  pm.expect(tv4.validate(response, schema)).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"original_url\": \"https://google.com/my-final-destination\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/organization/shortlink",
+          "host": ["{{ServerEndpoint}}"],
+          "path": ["v1", "drive", "{{org_id}}", "organization", "shortlink"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filters\": \"\",\n  \"page_size\": 50,\n  \"direction\": \"ASC\",\n  \"cursor_up\": \"string\",\n  \"cursor_down\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/list",
+              "host": ["{{ServerEndpoint}}"],
+              "path": ["v1", "drive", "{{org_id}}", "contacts", "list"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "3762"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:45:00 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"items\": [\n                {\n                    \"id\": \"UserID_jy44q-ztlrv-forew-yb2oj-m5clb-elvkn-7zjrd-mv2q7-lcrbk-5ke3i-wqe\",\n                    \"name\": \"Owner\",\n                    \"avatar\": null,\n                    \"email\": null,\n                    \"notifications_url\": null,\n                    \"public_note\": null,\n                    \"private_note\": null,\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"jy44q-ztlrv-forew-yb2oj-m5clb-elvkn-7zjrd-mv2q7-lcrbk-5ke3i-wqe\",\n                    \"seed_phrase\": null,\n                    \"from_placeholder_user_id\": null,\n                    \"redeem_code\": \"REDEEM_1753276590260\",\n                    \"created_at\": 1753276590260,\n                    \"last_online_ms\": 1753276590260,\n                    \"external_id\": null,\n                    \"external_payload\": null,\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_76d008d7-9a46-4da9-9435-c45c24af11dc\",\n                            \"is_admin\": true,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                },\n                {\n                    \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-nae\",\n                    \"name\": \"John Doe\",\n                    \"avatar\": \"\",\n                    \"email\": \"\",\n                    \"notifications_url\": \"\",\n                    \"public_note\": \"Senior Project Manager for Beta group\",\n                    \"private_note\": \"Recently promoted, great communicator\",\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-nae\",\n                    \"seed_phrase\": \"\",\n                    \"from_placeholder_user_id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-nae\",\n                    \"redeem_code\": \"RedeemTokenID_5cddae34-15e0-45a6-a556-d10afd190b86\",\n                    \"created_at\": 1753278982655,\n                    \"last_online_ms\": 0,\n                    \"external_id\": \"\",\n                    \"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Lead Project Manager\\\", \\\"location\\\": \\\"Remote\\\", \\\"updated\\\": true}\",\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_e6569cac-f6ee-4274-afa4-aacc55c97aca\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        },\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_e6569cac-f6ee-4274-afa4-aacc55c97aca\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                },\n                {\n                    \"id\": \"UserID_yghsj-jf6tk-32lwm-asdd3-jisdj-bbnvf-xhagi-k2pdd-ikncd-6opry-sqe\",\n                    \"name\": \"John Doee\",\n                    \"avatar\": \"\",\n                    \"email\": \"\",\n                    \"notifications_url\": \"\",\n                    \"public_note\": \"Note from User: Redeemed by \\\"Anon\\\" on 7/23/2025, 10:20:59 PM\",\n                    \"private_note\": \"\",\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"yghsj-jf6tk-32lwm-asdd3-jisdj-bbnvf-xhagi-k2pdd-ikncd-6opry-sqe\",\n                    \"seed_phrase\": \"\",\n                    \"from_placeholder_user_id\": \"UserID_7ha37-haziy-u5x36-qbyih-jrmza-zjnok-igpzn-bogz5-qduxp-yvkab-lqe\",\n                    \"redeem_code\": null,\n                    \"created_at\": 1753283670631,\n                    \"last_online_ms\": 0,\n                    \"external_id\": null,\n                    \"external_payload\": null,\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_ca0ad758-3c49-401d-bb36-7f241e658436\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                },\n                {\n                    \"id\": \"UserID_oik5u-j2dre-qb6km-xljny-hdrew-eft3z-znkyx-curyp-bvcrz-lgz5g-iae\",\n                    \"name\": \"John Doe\",\n                    \"avatar\": \"\",\n                    \"email\": \"\",\n                    \"notifications_url\": \"\",\n                    \"public_note\": \"\",\n                    \"private_note\": \"\",\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"oik5u-j2dre-qb6km-xljny-hdrew-eft3z-znkyx-curyp-bvcrz-lgz5g-iae\",\n                    \"seed_phrase\": \"\",\n                    \"from_placeholder_user_id\": \"UserID_oik5u-j2dre-qb6km-xljny-hdrew-eft3z-znkyx-curyp-bvcrz-lgz5g-iae\",\n                    \"redeem_code\": \"RedeemTokenID_448a53c2-2b5a-49f4-a3e1-61ba00d28cd7\",\n                    \"created_at\": 1753286498879,\n                    \"last_online_ms\": 0,\n                    \"external_id\": null,\n                    \"external_payload\": null,\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_adbb38bc-f241-428c-a18d-807e5fda46bf\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                }\n            ],\n            \"page_size\": 4,\n            \"total\": 4,\n            \"direction\": \"ASC\",\n            \"cursor\": null\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
+      "name": "drive/:org_id/organization/shortlink | redeem",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Response status code is 200\", function () {",
+              "    pm.expect(pm.response.code).to.equal(200);",
+              "});",
+              "",
+              "",
+              "pm.test(\"Response time is less than 200ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(200);",
+              "});",
+              "",
+              "",
+              "pm.test(\"Response should contain the required field 'ok'\", function () {",
+              "    const responseData = pm.response.json();",
+              "    pm.expect(responseData).to.have.property('ok');",
+              "});",
+              "",
+              "",
+              "pm.test(\"The 'data' field must be present and is an object\", function () {",
+              "    const responseData = pm.response.json();",
+              "    ",
+              "    pm.expect(responseData).to.have.property('ok').that.is.an('object');",
+              "    pm.expect(responseData.ok).to.have.property('data').that.is.an('object');",
+              "});",
+              "",
+              "",
+              "pm.test(\"The original_url field must be a non-empty string in the data object\", function () {",
+              "    const responseData = pm.response.json();",
+              "    ",
+              "    pm.expect(responseData).to.have.property('ok').that.is.an('object');",
+              "    pm.expect(responseData.ok).to.have.property('data').that.is.an('object');",
+              "    pm.expect(responseData.ok.data).to.have.property('original_url').that.is.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+              "});",
+              ""
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"slug\": \"{{shortlink_slug}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/organization/shortlink",
+          "host": ["{{ServerEndpoint}}"],
+          "path": ["v1", "drive", "{{org_id}}", "organization", "shortlink"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filters\": \"\",\n  \"page_size\": 50,\n  \"direction\": \"ASC\",\n  \"cursor_up\": \"string\",\n  \"cursor_down\": \"string\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/list",
+              "host": ["{{ServerEndpoint}}"],
+              "path": ["v1", "drive", "{{org_id}}", "contacts", "list"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "3762"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:45:00 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"items\": [\n                {\n                    \"id\": \"UserID_jy44q-ztlrv-forew-yb2oj-m5clb-elvkn-7zjrd-mv2q7-lcrbk-5ke3i-wqe\",\n                    \"name\": \"Owner\",\n                    \"avatar\": null,\n                    \"email\": null,\n                    \"notifications_url\": null,\n                    \"public_note\": null,\n                    \"private_note\": null,\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"jy44q-ztlrv-forew-yb2oj-m5clb-elvkn-7zjrd-mv2q7-lcrbk-5ke3i-wqe\",\n                    \"seed_phrase\": null,\n                    \"from_placeholder_user_id\": null,\n                    \"redeem_code\": \"REDEEM_1753276590260\",\n                    \"created_at\": 1753276590260,\n                    \"last_online_ms\": 1753276590260,\n                    \"external_id\": null,\n                    \"external_payload\": null,\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_76d008d7-9a46-4da9-9435-c45c24af11dc\",\n                            \"is_admin\": true,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                },\n                {\n                    \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-nae\",\n                    \"name\": \"John Doe\",\n                    \"avatar\": \"\",\n                    \"email\": \"\",\n                    \"notifications_url\": \"\",\n                    \"public_note\": \"Senior Project Manager for Beta group\",\n                    \"private_note\": \"Recently promoted, great communicator\",\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-nae\",\n                    \"seed_phrase\": \"\",\n                    \"from_placeholder_user_id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-nae\",\n                    \"redeem_code\": \"RedeemTokenID_5cddae34-15e0-45a6-a556-d10afd190b86\",\n                    \"created_at\": 1753278982655,\n                    \"last_online_ms\": 0,\n                    \"external_id\": \"\",\n                    \"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Lead Project Manager\\\", \\\"location\\\": \\\"Remote\\\", \\\"updated\\\": true}\",\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_e6569cac-f6ee-4274-afa4-aacc55c97aca\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        },\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_e6569cac-f6ee-4274-afa4-aacc55c97aca\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                },\n                {\n                    \"id\": \"UserID_yghsj-jf6tk-32lwm-asdd3-jisdj-bbnvf-xhagi-k2pdd-ikncd-6opry-sqe\",\n                    \"name\": \"John Doee\",\n                    \"avatar\": \"\",\n                    \"email\": \"\",\n                    \"notifications_url\": \"\",\n                    \"public_note\": \"Note from User: Redeemed by \\\"Anon\\\" on 7/23/2025, 10:20:59 PM\",\n                    \"private_note\": \"\",\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"yghsj-jf6tk-32lwm-asdd3-jisdj-bbnvf-xhagi-k2pdd-ikncd-6opry-sqe\",\n                    \"seed_phrase\": \"\",\n                    \"from_placeholder_user_id\": \"UserID_7ha37-haziy-u5x36-qbyih-jrmza-zjnok-igpzn-bogz5-qduxp-yvkab-lqe\",\n                    \"redeem_code\": null,\n                    \"created_at\": 1753283670631,\n                    \"last_online_ms\": 0,\n                    \"external_id\": null,\n                    \"external_payload\": null,\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_ca0ad758-3c49-401d-bb36-7f241e658436\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                },\n                {\n                    \"id\": \"UserID_oik5u-j2dre-qb6km-xljny-hdrew-eft3z-znkyx-curyp-bvcrz-lgz5g-iae\",\n                    \"name\": \"John Doe\",\n                    \"avatar\": \"\",\n                    \"email\": \"\",\n                    \"notifications_url\": \"\",\n                    \"public_note\": \"\",\n                    \"private_note\": \"\",\n                    \"evm_public_address\": \"\",\n                    \"icp_principal\": \"oik5u-j2dre-qb6km-xljny-hdrew-eft3z-znkyx-curyp-bvcrz-lgz5g-iae\",\n                    \"seed_phrase\": \"\",\n                    \"from_placeholder_user_id\": \"UserID_oik5u-j2dre-qb6km-xljny-hdrew-eft3z-znkyx-curyp-bvcrz-lgz5g-iae\",\n                    \"redeem_code\": \"RedeemTokenID_448a53c2-2b5a-49f4-a3e1-61ba00d28cd7\",\n                    \"created_at\": 1753286498879,\n                    \"last_online_ms\": 0,\n                    \"external_id\": null,\n                    \"external_payload\": null,\n                    \"permission_previews\": [\n                        \"CREATE\",\n                        \"VIEW\",\n                        \"EDIT\",\n                        \"DELETE\",\n                        \"INVITE\"\n                    ],\n                    \"labels\": [],\n                    \"group_previews\": [\n                        {\n                            \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                            \"invite_id\": \"GroupInviteID_adbb38bc-f241-428c-a18d-807e5fda46bf\",\n                            \"is_admin\": false,\n                            \"group_name\": \"Group for All\",\n                            \"group_avatar\": \"\"\n                        }\n                    ]\n                }\n            ],\n            \"page_size\": 4,\n            \"total\": 4,\n            \"direction\": \"ASC\",\n            \"cursor\": null\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
       "name": "drive/:org_id/contacts/list",
       "event": [
         {
@@ -11134,6 +11386,10 @@
     },
     {
       "key": "Server host",
+      "value": ""
+    },
+    {
+      "key": "shortlink_slug",
       "value": ""
     }
   ]

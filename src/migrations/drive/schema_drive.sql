@@ -348,6 +348,16 @@ CREATE TABLE purchases (
 );
 
 
+-- Table: shortlinks
+-- Description: Stores information about shortlinks.
+CREATE TABLE shortlinks (
+    id TEXT PRIMARY KEY NOT NULL, -- Corresponds to slug
+    url TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    created_by TEXT
+);
+
+
 -- Table: contact_id_superswap_history
 -- Source: src/core/state/drives/state.rs -> HISTORY_SUPERSWAP_USERID
 -- Description: Tracks the history of contact ID changes.
@@ -718,3 +728,6 @@ CREATE INDEX idx_uuid_claimed ON uuid_claimed(uuid);
 CREATE INDEX idx_purchases_vendor_id ON purchases(vendor_id);
 CREATE INDEX idx_purchases_status ON purchases(status);
 CREATE INDEX idx_purchases_created_at ON purchases(created_at);
+
+
+CREATE INDEX idx_shortlinks_url ON shortlinks(url);
