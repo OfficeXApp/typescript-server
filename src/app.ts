@@ -13,7 +13,6 @@ import { FactoryApiKey, IDPrefixEnum, UserID } from "@officexapp/types";
 import { isValidUserId } from "./api/helpers";
 import { generateApiKey } from "./services/auth";
 import { dbHelpers, initFactoryDB, db } from "./services/database";
-import * as Sentry from "@sentry/node";
 
 export interface AppOptions
   extends FastifyServerOptions,

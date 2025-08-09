@@ -70,3 +70,5 @@ dist
 
 prompts/*
 data/*
+# Sentry Config File
+.sentryclirc
