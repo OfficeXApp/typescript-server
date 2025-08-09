@@ -186,3 +186,20 @@ $ curl -X POST http://localhost:8888/v1/factory/api_keys/migrateDrive \
 ```
 
 To run the migrations on ALL drives, use an empty array for drives.
+
+### Sentry Error Tracking
+
+You may optionally setup Sentry Error Tracking by filling out .env variable `SENTRY_DSN`. Create one at [sentry.io](https://sentry.io).
+
+To upload sourcemaps to Sentry, run the `upload-sentry-sourcemaps.sh` script:
+
+```sh
+# Make it executable
+chmod +x upload-sentry-sourcemaps.sh
+
+# Build the project
+npm run build
+
+# Run it manually when you want to upload source maps
+./upload-sentry-sourcemaps.sh
+```

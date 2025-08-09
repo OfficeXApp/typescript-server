@@ -1,3 +1,5 @@
+// src/app.ts
+
 import { join } from "node:path";
 import AutoLoad, { AutoloadPluginOptions } from "@fastify/autoload";
 import fastifyCors from "@fastify/cors";

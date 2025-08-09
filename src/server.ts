@@ -1,38 +1,45 @@
 // src/server.ts
 
+import "./instrument";
+
 import { fastify } from "fastify";
 import { app } from "./app";
-import Fastify from "fastify";
 import { LOCAL_DEV_MODE } from "./constants";
-// activate dotenv
-import * as dotenv from "dotenv";
-dotenv.config();
+import * as Sentry from "@sentry/node";
 
-if (LOCAL_DEV_MODE) {
-  Fastify({
-    logger: {
-      level: "debug", // 'info', 'warn', 'error'
-      transport: {
-        target: "pino-pretty", // Makes logs readable in development console
-        options: {
-          translateTime: "HH:MM:ss Z",
-          ignore: "pid,hostname",
+const SENTRY_DSN = process.env.SENTRY_DSN;
+
+console.log("SENTRY_DSN", SENTRY_DSN);
+
+// Configure server options based on environment
+const serverOptions = LOCAL_DEV_MODE
+  ? {
+      logger: {
+        level: "debug", // 'info', 'warn', 'error'
+        transport: {
+          target: "pino-pretty", // Makes logs readable in development console
+          options: {
+            translateTime: "HH:MM:ss Z",
+            ignore: "pid,hostname",
+          },
         },
       },
-      // For production, you might remove transport or send to a file/service
-      // file: '/var/log/myapp.log', // Example for file logging
-    },
-  });
-}
+    }
+  : {
+      logger: {
+        level: process.env.LOG_LEVEL || "info",
+      },
+    };
 
-const server = fastify({
-  logger: {
-    level: process.env.LOG_LEVEL || "info",
-  },
-});
+const server = fastify(serverOptions);
 
 // Register your application
 server.register(app);
+
+// // Register Sentry error handler AFTER registering routes
+// if (SENTRY_DSN) {
+//   Sentry.setupFastifyErrorHandler(server);
+// }
 
 // Start listening
 const start = async () => {

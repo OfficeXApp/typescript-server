@@ -9,13 +9,13 @@
   "scripts": {
     "newman": "newman run postman/postman-rest-api.json",
     "test": "npm run build:ts && tsc -p test/tsconfig.json && c8 node --test -r ts-node/register \"test/**/*.ts\"",
-    "start": "npm run build:ts && fastify start -l info dist/app.js",
+    "start": "npm run build:ts && node dist/server.js",
     "build": "tsc && npm run copy-assets",
     "build:ts": "tsc && npm run copy-assets",
     "watch:ts": "tsc -w && npm run copy-assets",
     "copy-assets": "cpx \"src/schema/**/*.sql\" dist/schema",
-    "dev": "npm run build:ts && nodemon -L --watch src --ext ts,js,sql --exec \"npm run build:ts && fastify start -l info -P dist/app.js\"",
-    "dev:start": "nodemon -L --watch dist --exec \"fastify start -l info -P dist/app.js\""
+    "dev": "npm run build:ts && nodemon -L --watch src --ext ts,js,sql --exec \"npm run build:ts && node dist/server.js\"",
+    "dev:start": "nodemon -L --watch dist --exec \"node dist/server.js\""
   },
   "keywords": [],
   "author": "",
@@ -31,6 +31,9 @@
     "@noble/ed25519": "^2.3.0",
     "@noble/hashes": "^1.8.0",
     "@officexapp/types": "^0.0.194",
+    "@sentry/cli": "^2.51.1",
+    "@sentry/node": "^10.3.0",
+    "@sentry/profiling-node": "^10.3.0",
     "base64-js": "^1.5.1",
     "better-sqlite3": "^12.2.0",
     "bip39": "^3.1.0",
