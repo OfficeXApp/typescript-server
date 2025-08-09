@@ -849,7 +849,6 @@
 							"        'VERSION', ",
 							"        'OWNER_ID', ",
 							"        'URL_ENDPOINT', ",
-							"        'DRIVE_STATE_TIMESTAMP_NS', ",
 							"        'EXTERNAL_ID_MAPPINGS', ",
 							"        'RECENT_DEPLOYMENTS', ",
 							"        'SPAWN_REDEEM_CODE', ",
