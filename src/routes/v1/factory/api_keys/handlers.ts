@@ -13,7 +13,11 @@ import {
   DriveID,
   UserID,
 } from "@officexapp/types";
-import { db, dbHelpers } from "../../../../services/database";
+import {
+  db,
+  dbHelpers,
+  runDriveMigrations,
+} from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 import { OrgIdParams } from "../../types";
 import {
@@ -543,5 +547,54 @@ export async function snapshotFactoryHandler(
         })
       );
     }
+  }
+}
+
+export async function migrateFactoryHandler(
+  request: FastifyRequest<{
+    Body: {
+      drives?: DriveID[];
+    };
+  }>,
+  reply: FastifyReply
+): Promise<void> {
+  // Authenticate request and check if owner
+  const requesterApiKey = await authenticateRequest(request, "factory");
+  if (!requesterApiKey) {
+    return reply.status(401).send(
+      createApiResponse<undefined>(undefined, {
+        code: 401,
+        message: "Unauthorized",
+      })
+    );
+  }
+
+  const { drives } = request.body;
+
+  try {
+    if (drives && drives.length > 0) {
+      // If specific drives are provided, migrate only those
+      console.log(`Migrating specific drives: ${drives.join(", ")}`);
+      await runDriveMigrations(drives);
+    } else {
+      // If the drives array is empty or not provided, migrate all drives
+      console.log("No specific drives provided, migrating all drives.");
+      await runDriveMigrations();
+    }
+
+    reply.status(200).send(
+      createApiResponse({
+        message: `Migration process completed successfully`,
+        drives,
+      })
+    );
+  } catch (error: any) {
+    console.error("Error in migrateFactoryHandler:", error);
+    reply.status(500).send(
+      createApiResponse<undefined>(undefined, {
+        code: 500,
+        message: `Internal Server Error: ${error.message}`,
+      })
+    );
   }
 }

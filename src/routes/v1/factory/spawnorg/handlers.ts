@@ -746,57 +746,60 @@ export async function redeemGiftcardSpawnOrgHandler(
     const endpoint = getAppropriateUrlEndpoint(request);
     const driveId = `DriveID_${deployedCanisterId}`;
 
-    // --- Start: New Drive DB Creation and Initialization ---
-    const driveDbPath = getDriveDbPath(driveId);
-    const dbDir = path.dirname(driveDbPath);
-    ensureDirectorySync(dbDir); // Ensure the directory exists
+    // // --- Start: New Drive DB Creation and Initialization ---
+    // const driveDbPath = getDriveDbPath(driveId);
+    // const dbDir = path.dirname(driveDbPath);
+    // ensureDirectorySync(dbDir); // Ensure the directory exists
 
-    // CRITICAL CHANGE: Explicitly create the database file and apply schema here
-    let driveDatabaseInstance: Database.Database | null = null;
-    try {
-      driveDatabaseInstance = new Database(driveDbPath); // This creates the file if it doesn't exist
-      configureDatabase(driveDatabaseInstance); // Apply pragmas
+    // // CRITICAL CHANGE: Explicitly create the database file and apply schema here
+    // let driveDatabaseInstance: Database.Database | null = null;
+    // try {
+    //   driveDatabaseInstance = new Database(driveDbPath); // This creates the file if it doesn't exist
+    //   configureDatabase(driveDatabaseInstance); // Apply pragmas
 
-      if (DRIVE_SCHEMA.trim().length > 0) {
-        driveDatabaseInstance.exec(DRIVE_SCHEMA);
-        console.log(
-          `Drive database schema applied for ${driveId} during redemption.`
-        );
-      } else {
-        console.warn(
-          `No drive schema to apply for ${driveId}. DRIVE_SCHEMA is empty.`
-        );
-      }
-    } catch (error) {
-      console.error(
-        `Error creating or applying schema for new drive DB ${driveId}:`,
-        error
-      );
-      // Clean up potentially partially created DB file on error
-      if (fs.existsSync(driveDbPath)) {
-        fs.unlinkSync(driveDbPath);
-      }
-      throw new Error(`Failed to create new drive database for ${driveId}.`);
-    } finally {
-      if (driveDatabaseInstance) {
-        driveDatabaseInstance.close(); // Close the connection after creation and schema application
-      }
-    }
-    // --- End: New Drive DB Creation and Initialization ---
+    //   if (DRIVE_SCHEMA.trim().length > 0) {
+    //     driveDatabaseInstance.exec(DRIVE_SCHEMA);
+    //     console.log(
+    //       `Drive database schema applied for ${driveId} during redemption.`
+    //     );
+    //   } else {
+    //     console.warn(
+    //       `No drive schema to apply for ${driveId}. DRIVE_SCHEMA is empty.`
+    //     );
+    //   }
+    // } catch (error) {
+    //   console.error(
+    //     `Error creating or applying schema for new drive DB ${driveId}:`,
+    //     error
+    //   );
+    //   // Clean up potentially partially created DB file on error
+    //   if (fs.existsSync(driveDbPath)) {
+    //     fs.unlinkSync(driveDbPath);
+    //   }
+    //   throw new Error(`Failed to create new drive database for ${driveId}.`);
+    // } finally {
+    //   if (driveDatabaseInstance) {
+    //     driveDatabaseInstance.close(); // Close the connection after creation and schema application
+    //   }
+    // }
+    // // --- End: New Drive DB Creation and Initialization ---
 
-    // 2. Insert into the new drive's 'about_drive' table
+    // 1. Initialize the new drive's database, creating it if it doesn't exist
+    //    and applying the initial schema and any pending migrations.
+    await initDriveDB(driveId);
+
+    // 2. Perform all initial inserts within a single transaction.
     // Using dbHelpers.transaction for atomicity on the new drive's DB
     await dbHelpers.transaction("drive", driveId, (driveDatabase) => {
       const version = request.server.officex_version; // Get version from env
       const driveStateChecksum = "genesis"; // Initial checksum
-      const driveStateTimestampNs = BigInt(currentTime) * 1_000_000n; // Convert ms to ns
 
       const groupID = GenerateID.Group(); // This needs to be defined BEFORE the about_drive insert
 
       const insertAboutDriveStmt = driveDatabase.prepare(
         `INSERT INTO about_drive (
             drive_id, drive_name, canister_id, version, drive_state_checksum,
-            timestamp_ns, owner_id, host_url,
+            timestamp_ms, owner_id, host_url,
             transfer_owner_id, spawn_redeem_code, spawn_note,
             nonce_uuid_generated, default_everyone_group_id 
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -807,7 +810,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         deployedCanisterId,
         version,
         driveStateChecksum,
-        driveStateTimestampNs.toString(),
+        currentTime,
         ownerId,
         endpoint,
         "",

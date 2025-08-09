@@ -5,7 +5,13 @@
 -- =============================================
 
 
--- src/migrations/drive/schema_drive.sql
+CREATE TABLE IF NOT EXISTS _migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- src/schema/drive/schema_drive.sql
 
 -- Table: about_drive
 -- Source: src/core/state/drives/state.rs -> thread_local statics
@@ -16,7 +22,7 @@ CREATE TABLE about_drive (
     canister_id TEXT NOT NULL UNIQUE,          -- Corresponds to CANISTER_ID (PublicKeyICP)
     version TEXT NOT NULL,                     -- Corresponds to VERSION
     drive_state_checksum TEXT NOT NULL,        -- Corresponds to DRIVE_STATE_CHECKSUM
-    timestamp_ns TEXT NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
+    timestamp_ns INTEGER NOT NULL,    -- Corresponds to DRIVE_STATE_TIMESTAMP_NS (BigInt as string)
     owner_id TEXT NOT NULL,                    -- Corresponds to OWNER_ID
     host_url TEXT NOT NULL,                -- Corresponds to URL_ENDPOINT
     transfer_owner_id TEXT NOT NULL,           -- Corresponds to TRANSFER_OWNER_ID

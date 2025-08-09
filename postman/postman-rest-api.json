@@ -708,6 +708,119 @@
 			]
 		},
 		{
+			"name": "factory/migrate",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{factory_auth_token}}",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"drives\": [\"{{org_id}}\"]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{ServerEndpoint}}/v1/factory/migrate",
+					"host": [
+						"{{ServerEndpoint}}"
+					],
+					"path": [
+						"v1",
+						"factory",
+						"migrate"
+					]
+				}
+			},
+			"response": [
+				{
+					"name": "sample response",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer YOUR_API_KEY",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"redeem_code\": \"REDEEM_1753352970157\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/organization/redeem",
+							"host": [
+								"{{ServerEndpoint}}"
+							],
+							"path": [
+								"v1",
+								"drive",
+								"{{org_id}}",
+								"organization",
+								"redeem"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "access-control-allow-origin",
+							"value": "*"
+						},
+						{
+							"key": "content-type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "content-length",
+							"value": "803"
+						},
+						{
+							"key": "Date",
+							"value": "Thu, 24 Jul 2025 10:31:24 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=72"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"ok\": {\n        \"data\": {\n            \"drive_id\": \"DriveID_y6l3d-rw4ep-o5pii-o5usy-kls3l-vyx7b-63dhu-lupsq-x3gvb-ror6e-wae\",\n            \"endpoint_url\": \"http://localhost:8888\",\n            \"api_key\": \"eyJhdXRoX3R5cGUiOiJBUElfS0VZIiwidmFsdWUiOiI1NzUzNDMxZmQ0MmE2MTEwYzZiMWExMGE2ZTQ4ZjlhZTg5MTViNGVhM2MyYjFmOTIxYTljYmJhODgxNmQyZGYwIn0=\",\n            \"note\": \"giftcard GiftcardSpawnOrgID_07629364-c21a-4300-9bfc-bd4ec0458c07 was redeemed to spawn drive with 3500000000000 cycles, owned by UserID_rkibf-jg5lt-t76aq-bqqvo-v5rg6-2gnal-cjdgv-iugcr-v3xx4-qxnxo-zae, on timestamp_ms 1753352970157 2025-07-24T10:29:30.157Z\",\n            \"admin_login_password\": \"DriveID_y6l3d-rw4ep-o5pii-o5usy-kls3l-vyx7b-63dhu-lupsq-x3gvb-ror6e-wae:eyJhdXRoX3R5cGUiOiJBUElfS0VZIiwidmFsdWUiOiI1NzUzNDMxZmQ0MmE2MTEwYzZiMWExMGE2ZTQ4ZjlhZTg5MTViNGVhM2MyYjFmOTIxYTljYmJhODgxNmQyZGYwIn0=@http://localhost:8888\"\n        }\n    }\n}"
+				}
+			]
+		},
+		{
 			"name": "organization/snapshot",
 			"event": [
 				{
@@ -736,7 +849,6 @@
 							"        'VERSION', ",
 							"        'OWNER_ID', ",
 							"        'URL_ENDPOINT', ",
-							"        'DRIVE_STATE_TIMESTAMP_NS', ",
 							"        'EXTERNAL_ID_MAPPINGS', ",
 							"        'RECENT_DEPLOYMENTS', ",
 							"        'SPAWN_REDEEM_CODE', ",

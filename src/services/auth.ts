@@ -161,8 +161,6 @@ export async function authenticateRequest(
     return null;
   }
 
-  debug_log("auth_json:", authJson);
-
   // Handle different authentication types
   if (authJson.auth_type === AuthTypeEnum.Signature) {
     const proof = authJson as SignatureProof;
@@ -201,8 +199,6 @@ export async function authenticateRequest(
         return null;
       }
 
-      debug_log("Signature verification successful");
-
       // To compute the canonical principal that matches getPrincipal(),
       // first convert the raw public key into DER format by prepending the header.
       const derHeader = new Uint8Array([
@@ -222,7 +218,6 @@ export async function authenticateRequest(
         );
         return null;
       }
-      debug_log(`Successfully authenticated user: ${computedPrincipal}`);
 
       if (orgID) {
         update_last_online_at(format_user_id(computedPrincipal), orgID);
@@ -249,9 +244,7 @@ export async function authenticateRequest(
     }
   } else if (authJson.auth_type === AuthTypeEnum.ApiKey) {
     // API key authentication
-    const apiKeyValue = btoaToken; // The full btoa_token is the API key value
-    debug_log(`Looking up API key from payload: ${apiKeyValue}`);
-
+    const apiKeyValue = btoaToken;
     let fullApiKey: ApiKey | FactoryApiKey | null = null;
     const now = Number(get_current_nanoseconds() / 1_000_000n);
 
@@ -293,15 +286,6 @@ export async function authenticateRequest(
     }
 
     if (fullApiKey) {
-      debug_log(
-        `Found API Key: ${fullApiKey.id} for user: ${fullApiKey.user_id}`
-      );
-      debug_log(`Key expires at: ${fullApiKey.expires_at}, now: ${now}`);
-      debug_log(`Is revoked: ${fullApiKey.is_revoked}`);
-      if (appType === "drive") {
-        debug_log(`Begins at: ${(fullApiKey as ApiKey).begins_at}`);
-      }
-
       const isBeginsValid =
         appType === "factory" || (fullApiKey as ApiKey).begins_at <= now;
 
@@ -430,15 +414,13 @@ async function update_last_online_at(
   userId: UserID,
   orgID: DriveID
 ): Promise<void> {
-  const now = Date.now(); // Milliseconds
-  // Update last_online_ms in the contacts table of the specific drive DB
+  const now = Date.now();
   try {
-    await db.queryDrive(
+    await db.runDrive(
       orgID,
       `UPDATE contacts SET last_online_ms = ? WHERE id = ?`,
       [now, userId]
     );
-    debug_log(`Updated last online for user ${userId} in drive ${orgID}`);
   } catch (error) {
     console.error(
       `Failed to update last online for drive user ${userId} in drive ${orgID}:`,

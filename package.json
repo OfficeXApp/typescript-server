@@ -13,8 +13,8 @@
     "build": "tsc && npm run copy-assets",
     "build:ts": "tsc && npm run copy-assets",
     "watch:ts": "tsc -w && npm run copy-assets",
-    "copy-assets": "cpx \"src/migrations/**/*.sql\" dist/migrations",
-    "dev": "npm run build:ts && concurrently -k -p \"[{name}]\" -n \"TypeScript,App\" -c \"yellow.bold,cyan.bold\" \"npm:watch:ts\" \"npm:dev:start\"",
+    "copy-assets": "cpx \"src/schema/**/*.sql\" dist/schema",
+    "dev": "npm run build:ts && nodemon -L --watch src --ext ts,js,sql --exec \"npm run build:ts && fastify start -l info -P dist/app.js\"",
     "dev:start": "nodemon -L --watch dist --exec \"fastify start -l info -P dist/app.js\""
   },
   "keywords": [],
