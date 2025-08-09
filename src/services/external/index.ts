@@ -69,16 +69,12 @@ export async function updateExternalIDMapping(
           // If the list is empty, remove the mapping entirely
           const deleteSql = `DELETE FROM external_id_mappings WHERE external_id = ?;`;
           db.prepare(deleteSql).run(oldExternalId);
-          console.log(`Removed empty external ID mapping for ${oldExternalId}`);
         } else {
           // Update the existing mapping
           const updateSql = `UPDATE external_id_mappings SET internal_ids = ? WHERE external_id = ?;`;
           db.prepare(updateSql).run(
             internalIdsToJson(currentInternalIds),
             oldExternalId
-          );
-          console.log(
-            `Updated external ID mapping for ${oldExternalId}, removed ${internalId}`
           );
         }
       }

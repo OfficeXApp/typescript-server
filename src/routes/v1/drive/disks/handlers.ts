@@ -663,38 +663,38 @@ export async function createDiskHandler(
         );
 
         // Add permissions for root folder
-        const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
-        database
-          .prepare(
-            `
-            INSERT INTO permissions_directory (
-              id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
-              begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-          )
-          .run(
-            rootPermissionId,
-            "Folder",
-            generatedRootFolderId,
-            rootPath,
-            "User",
-            ownerId,
-            ownerId,
-            0,
-            -1,
-            1,
-            "Default permissions for disk root folder owner",
-            now,
-            now
-          );
+        // const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
+        // database
+        //   .prepare(
+        //     `
+        //     INSERT INTO permissions_directory (
+        //       id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
+        //       begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+        //     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        //   `
+        //   )
+        //   .run(
+        //     rootPermissionId,
+        //     "Folder",
+        //     generatedRootFolderId,
+        //     rootPath,
+        //     "User",
+        //     ownerId,
+        //     ownerId,
+        //     0,
+        //     -1,
+        //     1,
+        //     "Default permissions for disk root folder owner",
+        //     now,
+        //     now
+        //   );
 
-        const insertRootPermissionTypes = database.prepare(`
-            INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
-          `);
-        Object.values(DirectoryPermissionType).forEach((type) => {
-          insertRootPermissionTypes.run(rootPermissionId, type);
-        });
+        // const insertRootPermissionTypes = database.prepare(`
+        //     INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+        //   `);
+        // Object.values(DirectoryPermissionType).forEach((type) => {
+        //   insertRootPermissionTypes.run(rootPermissionId, type);
+        // });
 
         // 3. Insert Trash Folder
         const insertTrashStmt = database.prepare(
@@ -724,38 +724,38 @@ export async function createDiskHandler(
         );
 
         // Add permissions for trash folder
-        const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
-        database
-          .prepare(
-            `
-            INSERT INTO permissions_directory (
-              id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
-              begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `
-          )
-          .run(
-            trashPermissionId,
-            "Folder",
-            generatedTrashFolderId,
-            trashPath,
-            "User",
-            ownerId,
-            ownerId,
-            0,
-            -1,
-            0, // Not inheritable
-            "Default permissions for disk trash folder owner",
-            now,
-            now
-          );
+        // const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
+        // database
+        //   .prepare(
+        //     `
+        //     INSERT INTO permissions_directory (
+        //       id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
+        //       begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+        //     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        //   `
+        //   )
+        //   .run(
+        //     trashPermissionId,
+        //     "Folder",
+        //     generatedTrashFolderId,
+        //     trashPath,
+        //     "User",
+        //     ownerId,
+        //     ownerId,
+        //     0,
+        //     -1,
+        //     0, // Not inheritable
+        //     "Default permissions for disk trash folder owner",
+        //     now,
+        //     now
+        //   );
 
-        const insertTrashPermissionTypes = database.prepare(`
-            INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
-          `);
-        Object.values(DirectoryPermissionType).forEach((type) => {
-          insertTrashPermissionTypes.run(trashPermissionId, type);
-        });
+        // const insertTrashPermissionTypes = database.prepare(`
+        //     INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+        //   `);
+        // Object.values(DirectoryPermissionType).forEach((type) => {
+        //   insertTrashPermissionTypes.run(trashPermissionId, type);
+        // });
 
         // 4. Update the disk record with the actual root_folder and trash_folder
         const updateDiskFoldersStmt = database.prepare(

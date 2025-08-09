@@ -547,14 +547,6 @@ export async function createContactHandler(
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    console.log(`
-      await checkSystemPermissions({
-        resourceTable: TABLE_${SystemTableValueEnum.CONTACTS},
-        granteeId: ${requesterApiKey.user_id},
-        orgId: ${org_id},
-      })
-      `);
-
     const hasCreatePermission = (
       await checkSystemPermissions({
         resourceTable: `TABLE_${SystemTableValueEnum.CONTACTS}`,
@@ -1095,10 +1087,6 @@ export async function redeemContactHandler(
         );
     }
     const redeemReq = request.body;
-
-    console.log(`the requester is ----`, requesterApiKey);
-    console.log(`the org_id is ----`, org_id);
-    console.log(`the redeemReq is ----`, redeemReq);
 
     if (!validateUserId(redeemReq.current_user_id)) {
       return reply.status(400).send(

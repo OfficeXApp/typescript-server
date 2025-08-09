@@ -290,10 +290,6 @@ export async function listGiftcardSpawnOrgsHandler(
 
     const isOwner = request.server.factory_owner === requesterApiKey.user_id;
 
-    console.log(
-      `isOwner: ${isOwner}, ownerId: ${request.server.factory_owner}, requesterApiKey.user_id: ${requesterApiKey.user_id}`
-    );
-
     if (!isOwner) {
       return reply
         .status(403)
