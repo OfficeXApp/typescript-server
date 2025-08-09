@@ -1,10 +1,13 @@
 // src/server.ts
 
+import "./instrument";
+
 import { fastify } from "fastify";
 import { app } from "./app";
 import Fastify from "fastify";
 import { LOCAL_DEV_MODE } from "./constants";
-// activate dotenv
+import * as Sentry from "@sentry/node";
+
 import * as dotenv from "dotenv";
 dotenv.config();
 
@@ -30,6 +33,8 @@ const server = fastify({
     level: process.env.LOG_LEVEL || "info",
   },
 });
+
+Sentry.setupFastifyErrorHandler(server);
 
 // Register your application
 server.register(app);

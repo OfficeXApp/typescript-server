@@ -1,3 +1,5 @@
+// src/app.ts
+
 import { join } from "node:path";
 import AutoLoad, { AutoloadPluginOptions } from "@fastify/autoload";
 import fastifyCors from "@fastify/cors";
@@ -11,6 +13,7 @@ import { FactoryApiKey, IDPrefixEnum, UserID } from "@officexapp/types";
 import { isValidUserId } from "./api/helpers";
 import { generateApiKey } from "./services/auth";
 import { dbHelpers, initFactoryDB, db } from "./services/database";
+import * as Sentry from "@sentry/node";
 
 export interface AppOptions
   extends FastifyServerOptions,
