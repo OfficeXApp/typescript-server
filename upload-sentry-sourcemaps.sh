@@ -13,7 +13,7 @@ npm run build
 if [ ! -f ".sentryclirc" ]; then
     echo "❌ Error: .sentryclirc file not found!"
     echo "   Please run the Sentry wizard first or create the auth config file."
-    echo "   Run: npx @sentry/wizard@latest -i sourcemaps --saas --org officex --project officex-typescript-server"
+    echo "   Run: npx @sentry/wizard@latest -i sourcemaps --saas --org officex --project officex-official"
     exit 1
 fi
 
@@ -25,10 +25,10 @@ if [ ! -d "./dist" ]; then
 fi
 
 echo "📤 Injecting source map references..."
-npx sentry-cli sourcemaps inject --org officex --project officex-typescript-server ./dist
+npx sentry-cli sourcemaps inject --org officex --project officex-official ./dist
 
 echo "🚀 Uploading source maps to Sentry..."
-npx sentry-cli sourcemaps upload --org officex --project officex-typescript-server ./dist
+npx sentry-cli sourcemaps upload --org officex --project officex-official ./dist
 
 echo "✅ Source maps uploaded successfully!"
 echo "   View your project at: https://sentry.io"
