@@ -26,7 +26,9 @@ import {
   SystemPermissionType, // Import SystemPermissionType
   SystemTableValueEnum,
   SystemResourceID,
-  IErrorResponse, // Import SystemTableValueEnum
+  IErrorResponse,
+  IRequestShortLink,
+  IResponseShortLink, // Import SystemTableValueEnum
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import {
@@ -1221,5 +1223,113 @@ export async function snapshotDriveHandler(
         })
       );
     }
+  }
+}
+
+export async function shortlinkHandler(
+  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestShortLink }>,
+  reply: FastifyReply
+): Promise<IResponseShortLink> {
+  const { org_id: driveId } = request.params;
+  const requesterApiKey = await authenticateRequest(request, "drive", driveId);
+  if (!requesterApiKey) {
+    return reply.status(401).send(
+      createApiResponse<undefined>(undefined, {
+        code: 401,
+        message: "Unauthorized",
+      })
+    );
+  }
+  try {
+    request.log.info(`Incoming shortlink request for drive: ${driveId}`);
+    //
+    const slug = request.body.slug;
+    const url = request.body.url;
+    if (slug && !url) {
+      // handle slug to return original url, just write the SQL
+      const sql = `SELECT url FROM shortlink WHERE slug = ?`;
+      const result = await db.queryDrive(driveId, sql, [slug]);
+      console.log(`result`, result);
+      if (result.length === 0) {
+        return reply.status(404).send(
+          createApiResponse<undefined>(undefined, {
+            code: 404,
+            message: "Shortlink not found",
+          })
+        );
+      }
+      return reply.status(200).send(createApiResponse(result[0]));
+    } else if (!slug && url) {
+      // handle url to insert new entry into sqlite and return slug + url
+      const sql = `INSERT INTO shortlink (id, url, created_by, created_at) VALUES (?, ?, ?, ?)`;
+      const result = await db.runDrive(driveId, sql, [
+        slug,
+        url,
+        requesterApiKey.user_id,
+        Date.now(),
+      ]);
+      return reply.status(200).send(createApiResponse(result));
+    } else if (slug && url) {
+      // assume this is requesting a deletion of shortlink, but only owner or original poster can delete
+      const get_sql = `SELECT * FROM shortlink WHERE id = ?`;
+      const result = await db.queryDrive(driveId, get_sql, [slug]);
+      console.log(`result`, result);
+      if (result.length === 0) {
+        return reply.status(404).send(
+          createApiResponse<undefined>(undefined, {
+            code: 404,
+            message: "Shortlink not found",
+          })
+        );
+      }
+      const shortlink = result[0];
+      const isOwner =
+        requesterApiKey.user_id === (await getDriveOwnerId(driveId));
+      const hasEditPermission = (
+        await checkSystemPermissions({
+          resourceTable: `TABLE_DRIVES`,
+          resourceId: driveId,
+          granteeId: requesterApiKey.user_id,
+          orgId: driveId,
+        })
+      ).includes(SystemPermissionType.EDIT);
+      if (
+        shortlink.created_by !== requesterApiKey.user_id &&
+        !isOwner &&
+        !hasEditPermission
+      ) {
+        return reply.status(403).send(
+          createApiResponse<undefined>(undefined, {
+            code: 403,
+            message:
+              "Forbidden. You are not the owner of this shortlink or organization, or have edit permissions on this drive.",
+          })
+        );
+      }
+      const del_sql = `DELETE FROM shortlink WHERE id = ?`;
+      const del_result = await db.runDrive(driveId, del_sql, [slug]);
+      console.log(`del_result`, del_result);
+      return reply.status(200).send(
+        createApiResponse({
+          slug,
+          url,
+        })
+      );
+    } else {
+      return reply.status(400).send(
+        createApiResponse<undefined>(undefined, {
+          code: 400,
+          message:
+            "Invalid request, can only send a slug or a url, not both or none.",
+        })
+      );
+    }
+  } catch (error: any) {
+    return reply.status(500).send(
+      createApiResponse<undefined>(undefined, {
+        code: 500,
+        message: `Internal server error - ${error}`,
+      })
+    );
   }
 }

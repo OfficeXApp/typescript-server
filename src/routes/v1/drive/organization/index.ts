@@ -14,6 +14,7 @@ import {
   superswapUserIdDriveHandler,
   redeemOrganizationDriveHandler,
   inboxDriveHandler,
+  shortlinkHandler,
 } from "./handlers";
 import { driveRateLimitPreHandler } from "../../../../services/rate-limit";
 import { OrgIdParams } from "../../types"; // Assuming this path is correct for OrgIdParams
@@ -28,6 +29,7 @@ import {
   IRequestRedeemOrg,
   IRequestInboxOrg,
   IResponseWhoAmI,
+  IRequestShortLink,
 } from "@officexapp/types"; // Adjust this path if your types are elsewhere
 
 const organizationRoutes: FastifyPluginAsync = async (
@@ -122,6 +124,13 @@ const organizationRoutes: FastifyPluginAsync = async (
     `/inbox`,
     { preHandler: [driveRateLimitPreHandler] },
     inboxDriveHandler
+  );
+
+  // POST /v1/drive/:org_id/organization/shortlink
+  fastify.post<{ Params: OrgIdParams; Body: IRequestShortLink }>(
+    `/shortlink`,
+    { preHandler: [driveRateLimitPreHandler] },
+    shortlinkHandler
   );
 };
 
