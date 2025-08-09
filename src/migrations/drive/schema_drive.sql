@@ -354,8 +354,8 @@ CREATE TABLE shortlinks (
     id TEXT PRIMARY KEY NOT NULL, -- Corresponds to slug
     url TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    created_by TEXT,
-)
+    created_by TEXT
+);
 
 
 -- Table: contact_id_superswap_history
@@ -729,15 +729,5 @@ CREATE INDEX idx_purchases_vendor_id ON purchases(vendor_id);
 CREATE INDEX idx_purchases_status ON purchases(status);
 CREATE INDEX idx_purchases_created_at ON purchases(created_at);
 
--- Table: shortlink
--- Description: Stores shortlinks created by users.
-CREATE TABLE shortlink (
-    slug TEXT PRIMARY KEY NOT NULL,
-    url TEXT NOT NULL,
-    owner_id TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    FOREIGN KEY(owner_id) REFERENCES contacts(id) ON DELETE CASCADE
-);
 
-
-CREATE INDEX idx_shortlink_url ON shortlink(url);
+CREATE INDEX idx_shortlinks_url ON shortlinks(url);

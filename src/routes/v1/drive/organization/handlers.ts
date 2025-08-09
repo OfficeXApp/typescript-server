@@ -1230,24 +1230,19 @@ export async function shortlinkHandler(
   request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestShortLink }>,
   reply: FastifyReply
 ): Promise<IResponseShortLink> {
+  console.log(`Incoming shortlink request for drive`);
   const { org_id: driveId } = request.params;
-  const requesterApiKey = await authenticateRequest(request, "drive", driveId);
-  if (!requesterApiKey) {
-    return reply.status(401).send(
-      createApiResponse<undefined>(undefined, {
-        code: 401,
-        message: "Unauthorized",
-      })
-    );
-  }
+
   try {
     request.log.info(`Incoming shortlink request for drive: ${driveId}`);
     //
     const slug = request.body.slug;
-    const url = request.body.url;
-    if (slug && !url) {
+    const original_url = request.body.original_url;
+
+    console.log(`org_id: ${driveId}, body: ${JSON.stringify(request.body)}`);
+    if (slug && !original_url) {
       // handle slug to return original url, just write the SQL
-      const sql = `SELECT url FROM shortlink WHERE slug = ?`;
+      const sql = `SELECT url FROM shortlinks WHERE id = ?`;
       const result = await db.queryDrive(driveId, sql, [slug]);
       console.log(`result`, result);
       if (result.length === 0) {
@@ -1258,20 +1253,58 @@ export async function shortlinkHandler(
           })
         );
       }
-      return reply.status(200).send(createApiResponse(result[0]));
-    } else if (!slug && url) {
+      return reply.status(200).send(
+        createApiResponse({
+          slug,
+          original_url: result[0].url,
+        })
+      );
+    } else if (!slug && original_url) {
+      const requesterApiKey = await authenticateRequest(
+        request,
+        "drive",
+        driveId
+      );
+      if (!requesterApiKey) {
+        return reply.status(401).send(
+          createApiResponse<undefined>(undefined, {
+            code: 401,
+            message: "Unauthorized",
+          })
+        );
+      }
       // handle url to insert new entry into sqlite and return slug + url
-      const sql = `INSERT INTO shortlink (id, url, created_by, created_at) VALUES (?, ?, ?, ?)`;
+      const slug = uuidv4();
+      console.log(`slug: ${slug}, original_url: ${original_url}`);
+      const sql = `INSERT INTO shortlinks (id, url, created_by, created_at) VALUES (?, ?, ?, ?)`;
       const result = await db.runDrive(driveId, sql, [
         slug,
-        url,
+        original_url,
         requesterApiKey.user_id,
         Date.now(),
       ]);
-      return reply.status(200).send(createApiResponse(result));
-    } else if (slug && url) {
+      return reply.status(200).send(
+        createApiResponse({
+          slug,
+          original_url,
+        })
+      );
+    } else if (slug && original_url) {
+      const requesterApiKey = await authenticateRequest(
+        request,
+        "drive",
+        driveId
+      );
+      if (!requesterApiKey) {
+        return reply.status(401).send(
+          createApiResponse<undefined>(undefined, {
+            code: 401,
+            message: "Unauthorized",
+          })
+        );
+      }
       // assume this is requesting a deletion of shortlink, but only owner or original poster can delete
-      const get_sql = `SELECT * FROM shortlink WHERE id = ?`;
+      const get_sql = `SELECT * FROM shortlinks WHERE id = ?`;
       const result = await db.queryDrive(driveId, get_sql, [slug]);
       console.log(`result`, result);
       if (result.length === 0) {
@@ -1306,13 +1339,13 @@ export async function shortlinkHandler(
           })
         );
       }
-      const del_sql = `DELETE FROM shortlink WHERE id = ?`;
+      const del_sql = `DELETE FROM shortlinks WHERE id = ?`;
       const del_result = await db.runDrive(driveId, del_sql, [slug]);
       console.log(`del_result`, del_result);
       return reply.status(200).send(
         createApiResponse({
           slug,
-          url,
+          original_url,
         })
       );
     } else {

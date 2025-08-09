@@ -27,15 +27,15 @@ services:
       retries: 10
       start_period: 20s
 
-  newman:
-    image: postman/newman:latest
-    depends_on:
-      app:
-        condition: service_healthy
-    volumes:
-      - ./:/etc/newman
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["sleep 10 && newman run postman/postman-rest-api.docker.json"]
+  # newman:
+  #   image: postman/newman:latest
+  #   depends_on:
+  #     app:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./:/etc/newman
+  #   entrypoint: ["/bin/sh", "-c"]
+  #   command: ["sleep 10 && newman run postman/postman-rest-api.docker.json"]
 
 volumes:
   app_data:
