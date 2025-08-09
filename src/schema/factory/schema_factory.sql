@@ -1,6 +1,10 @@
--- src/migrations/factory/schema_factory.sql
+-- src/schema/factory/schema_factory.sql
 
-
+CREATE TABLE IF NOT EXISTS _migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 
 -- Table: factory_admins

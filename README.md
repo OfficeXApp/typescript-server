@@ -155,6 +155,10 @@ $ docker-compose -f docker-compose.prod.yml up --pull always -d
 # View logs
 $ docker-compose -f docker-compose.prod.yml logs -f
 
+# Poke around in docker sqlite
+$ docker exec -it typescript-server-app-1 /bin/bash
+# cd /data/drives/ && ls
+
 # Stop and restart (preserves data/volumes)
 $ docker-compose -f docker-compose.prod.yml down && docker-compose -f docker-compose.prod.yml up --pull always -d
 
@@ -168,3 +172,17 @@ Push update to production:
 $ docker buildx build --platform linux/amd64 -t officex/typescript-server:latest .
 $ docker push officex/typescript-server:latest
 ```
+
+## Database Schema Migration
+
+To run migrations on the factory database, simply add SQL files to `src/schema/factory/migrations/*` and restart the server.
+
+To run migrations on a drive database, use the `migrateDriveHandler` API endpoint.
+
+```sh
+$ curl -X POST http://localhost:8888/v1/factory/api_keys/migrateDrive \
+  -H "Content-Type: application/json" \
+  -d '{"drives": ["drive_id_1", "drive_id_2"]}'
+```
+
+To run the migrations on ALL drives, use an empty array for drives.
