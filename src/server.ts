@@ -5,11 +5,6 @@ import "./instrument";
 import { fastify } from "fastify";
 import { app } from "./app";
 import { LOCAL_DEV_MODE } from "./constants";
-import * as Sentry from "@sentry/node";
-
-const SENTRY_DSN = process.env.SENTRY_DSN;
-
-console.log("SENTRY_DSN", SENTRY_DSN);
 
 // Configure server options based on environment
 const serverOptions = LOCAL_DEV_MODE
@@ -35,11 +30,6 @@ const server = fastify(serverOptions);
 
 // Register your application
 server.register(app);
-
-// // Register Sentry error handler AFTER registering routes
-// if (SENTRY_DSN) {
-//   Sentry.setupFastifyErrorHandler(server);
-// }
 
 // Start listening
 const start = async () => {
