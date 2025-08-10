@@ -191,7 +191,7 @@ To run the migrations on ALL drives, use an empty array for drives.
 
 You may optionally setup Sentry Error Tracking by filling out .env variable `SENTRY_DSN`. Create one at [sentry.io](https://sentry.io).
 
-To upload sourcemaps to Sentry, run the `upload-sentry-sourcemaps.sh` script:
+To upload sourcemaps to Sentry, run the `upload-sentry-sourcemaps.sh` script but replace with your project-id.
 
 ```sh
 # Make it executable
