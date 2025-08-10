@@ -770,7 +770,7 @@ export async function fireStateDiffWebhooks(
     // Prepare the state diff record
     const stateDiffRecord: StateDiffRecord = {
       id: driveStateDiffId,
-      timestamp_ns: timestampNs,
+      timestamp_ms: timestampMs,
       implementation: "JAVASCRIPT_RUNTIME", // As per your TS type definition
       diff_forward: forwardDiff,
       diff_backward: backwardDiff,

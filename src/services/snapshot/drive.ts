@@ -201,7 +201,7 @@ export async function getDriveSnapshot(
       canister_id: ICPPrincipalString;
       version: string;
       drive_state_checksum: string;
-      timestamp_ns: string;
+      timestamp_ms: string;
       owner_id: UserID;
       host_url: HostURL;
       transfer_owner_id: UserID;
@@ -572,7 +572,7 @@ export async function getDriveSnapshot(
       VERSION: aboutDrive.version,
       OWNER_ID: aboutDrive.owner_id,
       URL_ENDPOINT: aboutDrive.host_url,
-      DRIVE_STATE_TIMESTAMP_NS: aboutDrive.timestamp_ns,
+      DRIVE_STATE_TIMESTAMP_NS: aboutDrive.timestamp_ms,
       EXTERNAL_ID_MAPPINGS,
       RECENT_DEPLOYMENTS, // MOCKED
       SPAWN_REDEEM_CODE: aboutDrive.spawn_redeem_code,
@@ -645,7 +645,7 @@ export async function getDriveAbout(driveId: DriveID): Promise<{
   canister_id: ICPPrincipalString;
   version: string;
   drive_state_checksum: string;
-  timestamp_ns: string;
+  timestamp_ms: string;
   owner_id: UserID;
   host_url: HostURL;
   transfer_owner_id: UserID;
@@ -661,7 +661,7 @@ export async function getDriveAbout(driveId: DriveID): Promise<{
                     canister_id,
                     version,
                     drive_state_checksum,
-                    timestamp_ns,
+                    timestamp_ms,
                     owner_id,
                     host_url,
                     transfer_owner_id,
@@ -677,7 +677,7 @@ export async function getDriveAbout(driveId: DriveID): Promise<{
       canister_id: ICPPrincipalString;
       version: string;
       drive_state_checksum: string;
-      timestamp_ns: string;
+      timestamp_ms: string;
       owner_id: UserID;
       host_url: HostURL;
       transfer_owner_id: UserID;

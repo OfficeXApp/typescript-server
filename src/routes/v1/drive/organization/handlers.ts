@@ -94,7 +94,7 @@ export async function aboutDriveHandler(
     const result = await db.queryDrive(
       org_id,
       `SELECT drive_id, drive_name, canister_id, version, drive_state_checksum,
-              timestamp_ns, owner_id, host_url, transfer_owner_id,
+              timestamp_ms, owner_id, host_url, transfer_owner_id,
               spawn_redeem_code, spawn_note, nonce_uuid_generated
        FROM about_drive LIMIT 1`
     );
@@ -192,15 +192,15 @@ export async function replayDriveHandler(
     const finalChecksum = "mock_checksum_after_replay"; // DRIVE: Calculate actual checksum
 
     // Update drive state timestamp in 'about_drive' table
-    const currentTimestampNs = Date.now() * 1_000_000;
+    const currentTimestampMs = Date.now();
     await db.queryDrive(
       org_id,
-      `UPDATE about_drive SET timestamp_ns = ?, drive_state_checksum = ?`,
-      [String(currentTimestampNs), finalChecksum]
+      `UPDATE about_drive SET timestamp_ms = ?, drive_state_checksum = ?`,
+      [String(currentTimestampMs), finalChecksum]
     );
 
     const responseData: IResponseReplayDrive["ok"]["data"] = {
-      timestamp_ns: currentTimestampNs,
+      timestamp_ms: currentTimestampMs,
       diffs_applied: appliedCount,
       checkpoint_diff_id: lastDiffId,
       final_checksum: finalChecksum,
