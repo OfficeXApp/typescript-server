@@ -221,6 +221,145 @@
       "response": []
     },
     {
+      "name": "factory/helpers/generate-crypto-identity",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Parse the JSON response",
+              "var jsonData = pm.response.json();",
+              "",
+              "// Check if the response is successful and contains the drive_id",
+              "if (pm.response.code === 200 && jsonData.ok && jsonData.ok.data.user_id) {",
+              "    ",
+              "    var admin_user_id = jsonData.ok.data.user_id",
+              "    console.log(`admin_user_id`, admin_user_id)",
+              "    if (admin_user_id) {",
+              "        pm.collectionVariables.set(\"admin_user_id\", admin_user_id);",
+              "        console.log(\"Successfully set admin_user_id to: \" + admin_user_id);",
+              "    }",
+              "} else {",
+              "    // Log an error if the request was not successful",
+              "    console.error(\"Failed to retrieve admin_user_id. Status code: \" + pm.response.code);",
+              "    console.error(\"Response body:\", pm.response.text());",
+              "}",
+              "",
+              "",
+              "var responseJSON = pm.response.json();",
+              "",
+              "// Define the expected schema",
+              "pm.test(\"Schema is valid\", function () {",
+              "  var schema = {",
+              "    type: \"object\",",
+              "    properties: {",
+              "      ok: {",
+              "        type: \"object\",",
+              "        properties: {",
+              "          data: {",
+              "            type: \"object\",",
+              "            properties: {",
+              "              user_id: { type: \"string\" },",
+              "              icp_principal: { type: \"string\" },",
+              "              evm_public_key: { type: \"string\" },",
+              "              evm_private_key: { type: \"string\" },",
+              "              origin: { type: \"object\" }",
+              "            },",
+              "            required: [\"user_id\", \"icp_principal\", \"evm_public_key\", \"evm_private_key\", \"origin\"]",
+              "          }",
+              "        },",
+              "        required: [\"data\"]",
+              "      }",
+              "    },",
+              "    required: [\"ok\"]",
+              "  };",
+              "",
+              "  pm.expect(tv4.validate(responseJSON, schema)).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"secret_salt\": \"supersecretpassword\"\n    // \"seed_phrase\": \"wire oven dust shallow clog name solution proof they rent tonight lab\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{FactoryEndpoint}}/v1/factory/helpers/generate-crypto-identity",
+          "host": ["{{FactoryEndpoint}}"],
+          "path": ["v1", "factory", "helpers", "generate-crypto-identity"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer YOUR_API_KEY",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"action\": \"CREATE\",\n    \"usd_revenue_cents\": 200,\n    \"note\": \"Giftcard for new organization\",\n    \"gas_cycles_included\": 3500000000000\n    // \"external_id\": \"StripeID_abc123\",\n    // \"disk_auth_json\": \"{\\\"endpoint\\\":\\\"https://gateway.storjshare.io\\\",\\\"access_key\\\":\\\"YOUR_S3_ACCESS_KEY\\\",\\\"secret_key\\\":\\\"YOUR_S3_SECRET_KEY\\\",\\\"bucket\\\":\\\"YOUR_S3_BUCKET_NAME\\\",\\\"region\\\":\\\"us-east-1\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{FactoryEndpoint}}/v1/factory/giftcards/spawnorg/upsert",
+              "host": ["{{FactoryEndpoint}}"],
+              "path": ["v1", "factory", "giftcards", "spawnorg", "upsert"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "225"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:40:23 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"id\": \"GiftcardSpawnOrgID_3d53b19c-4025-49e1-a4ac-086a4db6ed92\",\n            \"usd_revenue_cents\": 200,\n            \"note\": \"Giftcard for new organization\",\n            \"gas_cycles_included\": 3500000000000,\n            \"timestamp_ms\": 1753299623042,\n            \"redeemed\": false\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
       "name": "factory/giftcards/spawnorg/create",
       "event": [
         {
@@ -434,7 +573,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"giftcard_id\": \"{{gift_card_id}}\",\n  \"owner_icp_principal\": \"rkibf-jg5lt-t76aq-bqqvo-v5rg6-2gnal-cjdgv-iugcr-v3xx4-qxnxo-zae\",\n  \"organization_name\": \"Demo Organization\",\n  \"owner_name\": \"Arbitrary Admin Anon\"\n}",
+          "raw": "{\n  \"giftcard_id\": \"{{gift_card_id}}\",\n  \"owner_user_id\": \"{{admin_user_id}}\",\n  \"organization_name\": \"Demo Organization\",\n  \"owner_name\": \"Arbitrary Admin Anon\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -644,7 +783,7 @@
       ]
     },
     {
-      "name": "factory/migrate",
+      "name": "factory/helpers/migrate",
       "event": [
         {
           "listen": "test",
@@ -666,7 +805,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"drives\": [\"{{org_id}}\"]\n}",
+          "raw": "{\n  \"drives\": [\"{{org_id}}\"]\n// \"drives\": []\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -674,9 +813,9 @@
           }
         },
         "url": {
-          "raw": "{{ServerEndpoint}}/v1/factory/migrate",
+          "raw": "{{ServerEndpoint}}/v1/factory/helpers/migrate",
           "host": ["{{ServerEndpoint}}"],
-          "path": ["v1", "factory", "migrate"]
+          "path": ["v1", "factory", "helpers", "migrate"]
         }
       },
       "response": [
@@ -858,9 +997,10 @@
               "            type: \"object\",",
               "            properties: {",
               "              slug: { type: \"string\" },",
-              "              original_url: { type: \"string\" }",
+              "              original_url: { type: \"string\" },",
+              "              shortlink_url: { type: \"string\" }",
               "            },",
-              "            required: [\"slug\", \"original_url\"]",
+              "            required: [\"slug\", \"original_url\", \"shortlink_url\"]",
               "          }",
               "        },",
               "        required: [\"data\"]",
@@ -1089,65 +1229,57 @@
               "});",
               "",
               "",
-              "pm.test(\"Response time is less than 200ms\", function () {",
-              "    pm.expect(pm.response.responseTime).to.be.below(200);",
+              "pm.test(\"Response contains the 'ok' field\", function () {",
+              "    const responseData = pm.response.json();",
+              "    pm.expect(responseData).to.have.property('ok');",
               "});",
               "",
               "",
-              "pm.test(\"Response schema matches expected structure\", function () {",
+              "pm.test(\"Validate the items array is present and contains at least one object when total is greater than 0\", function () {",
+              "    const responseData = pm.response.json();",
+              "    ",
+              "    pm.expect(responseData).to.be.an('object');",
+              "    pm.expect(responseData.ok).to.exist;",
+              "    pm.expect(responseData.ok.data).to.exist;",
+              "    pm.expect(responseData.ok.data.total).to.be.greaterThan(0);",
+              "",
+              "    if (responseData.ok.data.total > 0) {",
+              "        pm.expect(responseData.ok.data.items).to.be.an('array').that.is.not.empty;",
+              "        pm.expect(responseData.ok.data.items).to.have.length.of.at.least(1);",
+              "    }",
+              "});",
+              "",
+              "",
+              "pm.test(\"Created_at and Last_online_ms must be non-negative integers\", function () {",
+              "    const responseData = pm.response.json();",
+              "    ",
+              "    pm.expect(responseData).to.be.an('object');",
+              "    pm.expect(responseData.ok).to.exist;",
+              "    pm.expect(responseData.ok.data).to.exist;",
+              "    pm.expect(responseData.ok.data.items).to.be.an('array');",
+              "",
+              "    responseData.ok.data.items.forEach(item => {",
+              "        pm.expect(item.created_at).to.be.a('number').and.to.be.at.least(0, \"Created_at must be a non-negative integer\");",
+              "        pm.expect(item.last_online_ms).to.be.a('number').and.to.be.at.least(0, \"Last_online_ms must be a non-negative integer\");",
+              "    });",
+              "});",
+              "",
+              "",
+              "pm.test(\"Group previews array contains objects with required fields\", function () {",
               "    const responseData = pm.response.json();",
               "    ",
               "    pm.expect(responseData).to.be.an('object');",
               "    pm.expect(responseData.ok).to.exist.and.to.be.an('object');",
               "    pm.expect(responseData.ok.data).to.exist.and.to.be.an('object');",
-              "    pm.expect(responseData.ok.data.items).to.exist.and.to.be.an('array');",
+              "    pm.expect(responseData.ok.data.items).to.be.an('array');",
               "",
               "    responseData.ok.data.items.forEach(item => {",
-              "        pm.expect(item).to.be.an('object');",
-              "        pm.expect(item).to.have.all.keys('id', 'name', 'avatar', 'email', 'notifications_url', ",
-              "            'public_note', 'private_note', 'evm_public_address', 'icp_principal', ",
-              "            'seed_phrase', 'from_placeholder_user_id', 'redeem_code', 'created_at', ",
-              "            'last_online_ms', 'external_id', 'external_payload', 'permission_previews', ",
-              "            'labels', 'group_previews');",
-              "        ",
-              "        pm.expect(item.created_at).to.be.a('number');",
-              "        pm.expect(item.last_online_ms).to.be.a('number');",
-              "        ",
+              "        pm.expect(item.group_previews).to.be.an('array');",
               "        item.group_previews.forEach(group => {",
               "            pm.expect(group).to.be.an('object');",
-              "            pm.expect(group).to.have.all.keys('group_id', 'invite_id', 'is_admin', ",
-              "                'group_name', 'group_avatar');",
+              "            pm.expect(group).to.have.all.keys('group_id', 'invite_id', 'is_admin', 'group_name', 'group_avatar');",
               "        });",
               "    });",
-              "",
-              "    pm.expect(responseData.ok.data.page_size).to.be.a('number');",
-              "    pm.expect(responseData.ok.data.total).to.be.a('number');",
-              "    pm.expect(responseData.ok.data.direction).to.be.a('string');",
-              "});",
-              "",
-              "",
-              "pm.test(\"Each item in the 'items' array contains the required fields\", function () {",
-              "    const responseData = pm.response.json();",
-              "    ",
-              "    pm.expect(responseData).to.have.property('ok').that.is.an('object');",
-              "    pm.expect(responseData.ok).to.have.property('data').that.is.an('object');",
-              "    pm.expect(responseData.ok.data).to.have.property('items').that.is.an('array');",
-              "",
-              "    responseData.ok.data.items.forEach(item => {",
-              "        pm.expect(item).to.have.all.keys('id', 'name', 'avatar', 'email', 'notifications_url', ",
-              "            'public_note', 'private_note', 'evm_public_address', 'icp_principal', ",
-              "            'seed_phrase', 'from_placeholder_user_id', 'redeem_code', 'created_at', ",
-              "            'last_online_ms', 'external_id', 'external_payload', 'permission_previews', ",
-              "            'labels', 'group_previews');",
-              "    });",
-              "});",
-              "",
-              "",
-              "pm.test(\"Total is a non-negative integer indicating the total number of items\", function () {",
-              "    const responseData = pm.response.json();",
-              "    ",
-              "    pm.expect(responseData).to.have.property('ok').that.is.an('object');",
-              "    pm.expect(responseData.ok.data).to.have.property('total').that.is.a('number').and.to.be.at.least(0);",
               "});",
               ""
             ],
@@ -1234,7 +1366,241 @@
       ]
     },
     {
-      "name": "drive/:org_id/contacts/create | owned",
+      "name": "drive/:org_id/contacts/helpers/generate-crypto-identity",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [""],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"secret_entropy\": \"specific-user-password\"\n    // \"seed_phrase\": \"wire oven dust shallow clog name solution proof they rent tonight lab\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{FactoryEndpoint}}/v1/factory/helpers/generate-crypto-identity",
+          "host": ["{{FactoryEndpoint}}"],
+          "path": ["v1", "factory", "helpers", "generate-crypto-identity"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer YOUR_API_KEY",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"action\": \"CREATE\",\n    \"usd_revenue_cents\": 200,\n    \"note\": \"Giftcard for new organization\",\n    \"gas_cycles_included\": 3500000000000\n    // \"external_id\": \"StripeID_abc123\",\n    // \"disk_auth_json\": \"{\\\"endpoint\\\":\\\"https://gateway.storjshare.io\\\",\\\"access_key\\\":\\\"YOUR_S3_ACCESS_KEY\\\",\\\"secret_key\\\":\\\"YOUR_S3_SECRET_KEY\\\",\\\"bucket\\\":\\\"YOUR_S3_BUCKET_NAME\\\",\\\"region\\\":\\\"us-east-1\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{FactoryEndpoint}}/v1/factory/giftcards/spawnorg/upsert",
+              "host": ["{{FactoryEndpoint}}"],
+              "path": ["v1", "factory", "giftcards", "spawnorg", "upsert"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "225"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:40:23 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"id\": \"GiftcardSpawnOrgID_3d53b19c-4025-49e1-a4ac-086a4db6ed92\",\n            \"usd_revenue_cents\": 200,\n            \"note\": \"Giftcard for new organization\",\n            \"gas_cycles_included\": 3500000000000,\n            \"timestamp_ms\": 1753299623042,\n            \"redeemed\": false\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
+      "name": "drive/:org_id/contacts/create | blank",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "",
+              "pm.test(\"Schema is valid\", function () {",
+              "  var schema = {",
+              "    type: \"object\",",
+              "    properties: {",
+              "      ok: {",
+              "        type: \"object\",",
+              "        properties: {",
+              "          data: {",
+              "            type: \"object\",",
+              "            properties: {",
+              "              id: { type: \"string\" },",
+              "              name: { type: \"string\" },",
+              "              avatar: { type: \"string\" },",
+              "              email: { type: \"string\" },",
+              "              notifications_url: { type: \"string\" },",
+              "              public_note: { type: \"string\" },",
+              "              private_note: { type: \"string\" },",
+              "              evm_public_address: { type: \"string\" },",
+              "              icp_principal: { type: \"string\" },",
+              "              secret_entropy: { type: \"string\" },",
+              "              seed_phrase: { type: \"string\" },",
+              "              labels: { type: \"array\" },",
+              "              created_at: { type: \"integer\" },",
+              "              last_online_ms: { type: \"integer\" },",
+              "              permission_previews: { type: \"array\" },",
+              "              group_previews: {",
+              "                type: \"array\",",
+              "                items: {",
+              "                  type: \"object\",",
+              "                  properties: {",
+              "                    group_id: { type: \"string\" },",
+              "                    invite_id: { type: \"string\" },",
+              "                    is_admin: { type: \"boolean\" },",
+              "                    group_name: { type: \"string\" },",
+              "                    group_avatar: { type: \"string\" }",
+              "                  },",
+              "                  required: [\"group_id\", \"invite_id\", \"is_admin\", \"group_name\", \"group_avatar\"]",
+              "                }",
+              "              }",
+              "            },",
+              "            required: [\"id\", \"name\", \"avatar\", \"email\", \"notifications_url\", \"public_note\", \"private_note\", \"evm_public_address\", \"icp_principal\", \"secret_entropy\", \"seed_phrase\", \"labels\", \"created_at\", \"last_online_ms\", \"permission_previews\", \"group_previews\"]",
+              "          }",
+              "        },",
+              "        required: [\"data\"]",
+              "      }",
+              "    },",
+              "    required: [\"ok\"]",
+              "  };",
+              "",
+              "  var response = pm.response.json();",
+              "  pm.expect(tv4.validate(response, schema)).to.be.true;",
+              "});",
+              "",
+              ""
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Mary\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+          "host": ["{{ServerEndpoint}}"],
+          "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n  \"public_note\": \"\",\n  \"is_placeholder\": true,\n  \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+              "host": ["{{ServerEndpoint}}"],
+              "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "815"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:46:13 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"name\": \"John Doe\",\n            \"avatar\": \"\",\n            \"email\": \"\",\n            \"notifications_url\": \"\",\n            \"public_note\": \"\",\n            \"private_note\": \"\",\n            \"evm_public_address\": \"\",\n            \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"seed_phrase\": \"\",\n            \"labels\": [],\n            \"from_placeholder_user_id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"redeem_code\": \"RedeemTokenID_773013f7-9d2f-4daf-8873-daa09cb6cf23\",\n            \"created_at\": 1753299973103,\n            \"last_online_ms\": 0,\n            \"permission_previews\": [\n                \"CREATE\",\n                \"VIEW\",\n                \"EDIT\",\n                \"DELETE\",\n                \"INVITE\"\n            ],\n            \"group_previews\": [\n                {\n                    \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                    \"invite_id\": \"GroupInviteID_930a7fa9-0d9a-4f65-bb10-03db6a572ee6\",\n                    \"is_admin\": false,\n                    \"group_name\": \"Group for All\",\n                    \"group_avatar\": \"\"\n                }\n            ]\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
+      "name": "drive/:org_id/contacts/create | entropy",
       "event": [
         {
           "listen": "test",
@@ -1326,7 +1692,345 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"John Doe\",\n  \"icp_principal\": \"67q5a-2manu-6wyl6-6onic-pvqe4-bydge-lhy4g-22nvo-hcact-5qmki-yae\",\n  \"public_note\": \"\",\n  \"id\": \"UserID_67q5a-2manu-6wyl6-6onic-pvqe4-bydge-lhy4g-22nvo-hcact-5qmki-yae\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
+          "raw": "{\n  \"name\": \"Zolana\",\n  \"secret_entropy\": \"user-id-from-my-database-with-extra-salt\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+          "host": ["{{ServerEndpoint}}"],
+          "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n  \"public_note\": \"\",\n  \"is_placeholder\": true,\n  \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+              "host": ["{{ServerEndpoint}}"],
+              "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "815"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:46:13 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"name\": \"John Doe\",\n            \"avatar\": \"\",\n            \"email\": \"\",\n            \"notifications_url\": \"\",\n            \"public_note\": \"\",\n            \"private_note\": \"\",\n            \"evm_public_address\": \"\",\n            \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"seed_phrase\": \"\",\n            \"labels\": [],\n            \"from_placeholder_user_id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"redeem_code\": \"RedeemTokenID_773013f7-9d2f-4daf-8873-daa09cb6cf23\",\n            \"created_at\": 1753299973103,\n            \"last_online_ms\": 0,\n            \"permission_previews\": [\n                \"CREATE\",\n                \"VIEW\",\n                \"EDIT\",\n                \"DELETE\",\n                \"INVITE\"\n            ],\n            \"group_previews\": [\n                {\n                    \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                    \"invite_id\": \"GroupInviteID_930a7fa9-0d9a-4f65-bb10-03db6a572ee6\",\n                    \"is_admin\": false,\n                    \"group_name\": \"Group for All\",\n                    \"group_avatar\": \"\"\n                }\n            ]\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
+      "name": "drive/:org_id/contacts/create | seed",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [""],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Sethra\",\n  \"seed_phrase\": \"round care sleep chest luck mirror thick again another smooth above energy\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+          "host": ["{{ServerEndpoint}}"],
+          "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n  \"public_note\": \"\",\n  \"is_placeholder\": true,\n  \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+              "host": ["{{ServerEndpoint}}"],
+              "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "815"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:46:13 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"name\": \"John Doe\",\n            \"avatar\": \"\",\n            \"email\": \"\",\n            \"notifications_url\": \"\",\n            \"public_note\": \"\",\n            \"private_note\": \"\",\n            \"evm_public_address\": \"\",\n            \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"seed_phrase\": \"\",\n            \"labels\": [],\n            \"from_placeholder_user_id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"redeem_code\": \"RedeemTokenID_773013f7-9d2f-4daf-8873-daa09cb6cf23\",\n            \"created_at\": 1753299973103,\n            \"last_online_ms\": 0,\n            \"permission_previews\": [\n                \"CREATE\",\n                \"VIEW\",\n                \"EDIT\",\n                \"DELETE\",\n                \"INVITE\"\n            ],\n            \"group_previews\": [\n                {\n                    \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                    \"invite_id\": \"GroupInviteID_930a7fa9-0d9a-4f65-bb10-03db6a572ee6\",\n                    \"is_admin\": false,\n                    \"group_name\": \"Group for All\",\n                    \"group_avatar\": \"\"\n                }\n            ]\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
+      "name": "drive/:org_id/contacts/create | seed",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [""],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n   \"id\": \"UserID_pungd-p7wtp-mcku5-m7xp6-kies2-kw6ji-d5i2j-4ktx2-ejeea-sexp6-uqe\",\n  \"name\": \"Sethra\",\n  \"seed_phrase\": \"field made theory as crowd stood including flower hall fireplace planet worry\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+          "host": ["{{ServerEndpoint}}"],
+          "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Doe\",\n  \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n  \"public_note\": \"\",\n  \"is_placeholder\": true,\n  \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/create",
+              "host": ["{{ServerEndpoint}}"],
+              "path": ["v1", "drive", "{{org_id}}", "contacts", "create"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "815"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:46:13 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"name\": \"John Doe\",\n            \"avatar\": \"\",\n            \"email\": \"\",\n            \"notifications_url\": \"\",\n            \"public_note\": \"\",\n            \"private_note\": \"\",\n            \"evm_public_address\": \"\",\n            \"icp_principal\": \"veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"seed_phrase\": \"\",\n            \"labels\": [],\n            \"from_placeholder_user_id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\",\n            \"redeem_code\": \"RedeemTokenID_773013f7-9d2f-4daf-8873-daa09cb6cf23\",\n            \"created_at\": 1753299973103,\n            \"last_online_ms\": 0,\n            \"permission_previews\": [\n                \"CREATE\",\n                \"VIEW\",\n                \"EDIT\",\n                \"DELETE\",\n                \"INVITE\"\n            ],\n            \"group_previews\": [\n                {\n                    \"group_id\": \"GroupID_e614966a-1e97-4362-a7c2-de16f2059120\",\n                    \"invite_id\": \"GroupInviteID_930a7fa9-0d9a-4f65-bb10-03db6a572ee6\",\n                    \"is_admin\": false,\n                    \"group_name\": \"Group for All\",\n                    \"group_avatar\": \"\"\n                }\n            ]\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
+      "name": "drive/:org_id/contacts/create | owned",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Set env vars",
+              "var jsonData = pm.response.json();",
+              "if (pm.response.code === 200 && jsonData.ok && jsonData.ok.data.id) {",
+              "    var data = jsonData.ok.data;",
+              "    var contact_user_id = data.id;",
+              "    if (contact_user_id) {",
+              "        pm.collectionVariables.set(\"user_id\", contact_user_id);",
+              "        console.log(\"Successfully set user_id to: \" + contact_user_id);",
+              "    }",
+              "} else {",
+              "    // Log an error if the request was not successful",
+              "    console.error(\"Failed to retrieve auth_token. Status code: \" + pm.response.code);",
+              "    console.error(\"Response body:\", pm.response.text());",
+              "}",
+              "",
+              "",
+              "pm.test(\"Schema is valid\", function () {",
+              "  var schema = {",
+              "    type: \"object\",",
+              "    properties: {",
+              "      ok: {",
+              "        type: \"object\",",
+              "        properties: {",
+              "          data: {",
+              "            type: \"object\",",
+              "            properties: {",
+              "              id: { type: \"string\" },",
+              "              name: { type: \"string\" },",
+              "              avatar: { type: \"string\" },",
+              "              email: { type: \"string\" },",
+              "              notifications_url: { type: \"string\" },",
+              "              public_note: { type: \"string\" },",
+              "              private_note: { type: \"string\" },",
+              "              evm_public_address: { type: \"string\" },",
+              "              icp_principal: { type: \"string\" },",
+              "              secret_entropy: { type: \"string\" },",
+              "              seed_phrase: { type: \"string\" },",
+              "              labels: { type: \"array\" },",
+              "              created_at: { type: \"integer\" },",
+              "              last_online_ms: { type: \"integer\" },",
+              "              permission_previews: { type: \"array\" },",
+              "              group_previews: {",
+              "                type: \"array\",",
+              "                items: {",
+              "                  type: \"object\",",
+              "                  properties: {",
+              "                    group_id: { type: \"string\" },",
+              "                    invite_id: { type: \"string\" },",
+              "                    is_admin: { type: \"boolean\" },",
+              "                    group_name: { type: \"string\" },",
+              "                    group_avatar: { type: \"string\" }",
+              "                  },",
+              "                  required: [\"group_id\", \"invite_id\", \"is_admin\", \"group_name\", \"group_avatar\"]",
+              "                }",
+              "              }",
+              "            },",
+              "            required: [\"id\", \"name\", \"avatar\", \"email\", \"notifications_url\", \"public_note\", \"private_note\", \"evm_public_address\", \"icp_principal\", \"secret_entropy\", \"seed_phrase\", \"labels\", \"created_at\", \"last_online_ms\", \"permission_previews\", \"group_previews\"]",
+              "          }",
+              "        },",
+              "        required: [\"data\"]",
+              "      }",
+              "    },",
+              "    required: [\"ok\"]",
+              "  };",
+              "",
+              "  var response = pm.response.json();",
+              "  pm.expect(tv4.validate(response, schema)).to.be.true;",
+              "});",
+              "",
+              ""
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"John Doe\",\n  \"public_note\": \"\",\n  \"id\": \"UserID_67q5a-2manu-6wyl6-6onic-pvqe4-bydge-lhy4g-22nvo-hcact-5qmki-yae\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -1738,7 +2442,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Jill Doe\",\n  \"icp_principal\": \"xayt5-kwmd7-5errb-xtcpz-givvp-2p5da-aju26-6paxg-5agv3-sdz22-bae\",\n  \"public_note\": \"\",\n  \"is_placeholder\": true\n//   \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
+          "raw": "{\n  \"name\": \"Jill Doe\",\n  \"public_note\": \"\",\n  \"is_placeholder\": true\n//   \"id\": \"UserID_veqcy-bsctq-ulthr-e6zsq-5itsa-z7iou-faz2c-35dyh-3emzd-fwhfa-na3\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -5065,6 +5769,94 @@
           "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/api_keys/create",
           "host": ["{{ServerEndpoint}}"],
           "path": ["v1", "drive", "{{org_id}}", "api_keys", "create"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "drive/:org_id/contacts/helpers/generate-auto-login-link",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Response status code is 200\", function () {",
+              "    pm.expect(pm.response.code).to.eql(200);",
+              "});",
+              "",
+              "",
+              "pm.test(\"Response time is less than 200ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(200);",
+              "});",
+              "",
+              "",
+              "pm.test(\"Response has required fields\", function () {",
+              "    const responseData = pm.response.json();",
+              "    ",
+              "    pm.expect(responseData).to.be.an('object');",
+              "    pm.expect(responseData.ok).to.exist.and.to.be.an('object');",
+              "    pm.expect(responseData.ok.data).to.exist.and.to.be.an('object');",
+              "    ",
+              "    const requiredFields = ['user_id', 'auto_login_link', 'full_login_instructions'];",
+              "    requiredFields.forEach(field => {",
+              "        pm.expect(responseData.ok.data).to.have.property(field);",
+              "    });",
+              "});",
+              "",
+              "",
+              "pm.test(\"User ID must be a non-empty string\", function () {",
+              "    const responseData = pm.response.json();",
+              "    ",
+              "    pm.expect(responseData).to.be.an('object');",
+              "    pm.expect(responseData.ok.data.user_id).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"User ID should not be empty\");",
+              "});",
+              "",
+              "",
+              "pm.test(\"The auto_login_link must be a valid URL format\", function () {",
+              "    const responseData = pm.response.json();",
+              "    ",
+              "    pm.expect(responseData).to.be.an('object');",
+              "    pm.expect(responseData.ok).to.exist;",
+              "    pm.expect(responseData.ok.data).to.exist;",
+              "    pm.expect(responseData.ok.data.auto_login_link).to.exist;",
+              "    pm.expect(responseData.ok.data.auto_login_link).to.match(/^https?:\\/\\/[^\\s/$.?#].[^\\s]*$/, \"auto_login_link is not a valid URL format\");",
+              "});",
+              ""
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": " {\n    \"user_id\": \"{{foreign_friend_user_id}}\",\n    \"profile_api_key\": \"{{foreign_friend_api_key}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/contacts/helpers/generate-auto-login-link",
+          "host": ["{{ServerEndpoint}}"],
+          "path": [
+            "v1",
+            "drive",
+            "{{org_id}}",
+            "contacts",
+            "helpers",
+            "generate-auto-login-link"
+          ]
         }
       },
       "response": []
@@ -11451,6 +12243,10 @@
     },
     {
       "key": "shortlink_slug",
+      "value": ""
+    },
+    {
+      "key": "admin_user_id",
       "value": ""
     }
   ]
