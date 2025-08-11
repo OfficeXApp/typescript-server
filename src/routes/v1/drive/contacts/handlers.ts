@@ -27,13 +27,19 @@ import {
   GroupID, // Added GroupID import
   GroupInviteID, // Added GroupInviteID import
   GroupRole, // Added GroupRole import
-  GroupInviteeID, // Added GroupInviteeID import
+  GroupInviteeID,
+  IRequestAutoLoginLink,
+  Drive,
+  IResponseAutoLoginLink,
+  IRequestGenerateCryptoIdentity, // Added GroupInviteeID import
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import {
   authenticateRequest,
   generateApiKey,
+  generateCryptoIdentity,
   seed_phrase_to_wallet_addresses,
+  urlSafeBase64Encode,
 } from "../../../../services/auth";
 import {
   validateEmail,
@@ -47,6 +53,7 @@ import {
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 import { checkSystemPermissions } from "../../../../services/permissions/system";
 import { getGroupById } from "../../../../services/groups";
+import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {
@@ -412,12 +419,24 @@ export async function createContactHandler(
         })
       );
     }
-    if (!createReq.icp_principal) {
+    if (
+      createReq.secret_entropy &&
+      !validateIdString(createReq.secret_entropy)
+    ) {
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
           message:
-            "Validation error: icp_principal - ICP principal cannot be empty",
+            "Validation error: secret_entropy - Secret entropy must be 256 characters or less",
+        })
+      );
+    }
+    if (createReq.id && createReq.secret_entropy) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message:
+            "Validation error: secret_entropy - if using secret_entropy, do not provide an id",
         })
       );
     }
@@ -510,16 +529,19 @@ export async function createContactHandler(
       );
     }
 
-    if (createReq.seed_phrase) {
+    if (createReq.id && createReq.seed_phrase) {
       try {
         const derivedAddresses = await seed_phrase_to_wallet_addresses(
           createReq.seed_phrase
         );
-        if (derivedAddresses.icp_principal !== createReq.icp_principal) {
+        if (
+          derivedAddresses.icp_principal !==
+          createReq.id?.replace("UserID_", "")
+        ) {
           return reply.status(400).send(
             createApiResponse(undefined, {
               code: 400,
-              message: `Validation error: seed_phrase - Seed phrase generates ICP principal '${derivedAddresses.icp_principal}' which doesn't match the provided principal '${createReq.icp_principal}'`,
+              message: `Validation error: seed_phrase - Seed phrase generates ICP principal '${derivedAddresses.icp_principal}' which doesn't match the provided principal '${createReq.id?.replace("UserID_", "")}'`,
             })
           );
         }
@@ -564,24 +586,55 @@ export async function createContactHandler(
     }
 
     // Generate contactId based on ICP principal if not provided
-    const contactId: UserID =
-      (createReq.id as UserID) ||
-      (`${IDPrefixEnum.User}${createReq.icp_principal.replace(/[^a-zA-Z0-9]/g, "_")}` as UserID);
-    const plainContactId = contactId;
+    let contactId: UserID = createReq.id as UserID;
+    let evm_public_address = createReq.evm_public_address || "";
+    let secret_entropy = createReq.secret_entropy || "";
+    let seed_phrase = createReq.seed_phrase || "";
+    let icp_principal = createReq.id?.replace("UserID_", "") || "";
+
+    if (createReq.seed_phrase) {
+      const cryptoIdentity = await generateCryptoIdentity({
+        seed_phrase: createReq.seed_phrase,
+      });
+      contactId = cryptoIdentity.user_id;
+      icp_principal = cryptoIdentity.icp_principal;
+      evm_public_address = cryptoIdentity.evm_public_key;
+      seed_phrase = cryptoIdentity.origin.seed_phrase || "";
+    } else if (createReq.secret_entropy) {
+      const cryptoIdentity = await generateCryptoIdentity({
+        secret_entropy: createReq.secret_entropy,
+      });
+      contactId = cryptoIdentity.user_id;
+      icp_principal = cryptoIdentity.icp_principal;
+      evm_public_address = cryptoIdentity.evm_public_key;
+      seed_phrase = cryptoIdentity.origin.seed_phrase || "";
+    } else if (
+      !createReq.id &&
+      !createReq.seed_phrase &&
+      !createReq.secret_entropy
+    ) {
+      const cryptoIdentity = await generateCryptoIdentity({});
+      contactId = cryptoIdentity.user_id;
+      icp_principal = cryptoIdentity.icp_principal;
+      evm_public_address = cryptoIdentity.evm_public_key;
+      seed_phrase = cryptoIdentity.origin.seed_phrase || "";
+    }
 
     // Ensure the ID is unique if it's client-provided
-    const existingContact = await db.queryDrive(
-      org_id,
-      "SELECT id FROM contacts WHERE id = ?",
-      [plainContactId]
-    );
-    if (existingContact.length > 0) {
-      return reply.status(409).send(
-        createApiResponse(undefined, {
-          code: 409,
-          message: "Contact with this ID already exists.",
-        })
+    if (contactId) {
+      const existingContact = await db.queryDrive(
+        org_id,
+        "SELECT id FROM contacts WHERE id = ?",
+        [contactId]
       );
+      if (existingContact.length > 0) {
+        return reply.status(409).send(
+          createApiResponse(undefined, {
+            code: 409,
+            message: "Contact with this ID already exists.",
+          })
+        );
+      }
     }
 
     const newContact: Contact = {
@@ -592,9 +645,10 @@ export async function createContactHandler(
       notifications_url: createReq.notifications_url || "",
       public_note: createReq.public_note || "",
       private_note: createReq.private_note || "",
-      evm_public_address: createReq.evm_public_address || "",
-      icp_principal: createReq.icp_principal,
-      seed_phrase: createReq.seed_phrase || "",
+      evm_public_address,
+      icp_principal,
+      seed_phrase,
+      secret_entropy,
       labels: [],
       from_placeholder_user_id: createReq.is_placeholder
         ? contactId
@@ -610,11 +664,11 @@ export async function createContactHandler(
 
     await dbHelpers.transaction("drive", org_id, (database) => {
       const stmt = database.prepare(
-        `INSERT INTO contacts (id, name, avatar, email, notifications_url, public_note, private_note, evm_public_address, icp_principal, seed_phrase, from_placeholder_user_id, redeem_code, created_at, last_online_ms, external_id, external_payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO contacts (id, name, avatar, email, notifications_url, public_note, private_note, evm_public_address, icp_principal, seed_phrase, from_placeholder_user_id, redeem_code, created_at, last_online_ms, external_id, external_payload, secret_entropy)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       stmt.run(
-        plainContactId,
+        contactId,
         newContact.name,
         newContact.avatar,
         newContact.email,
@@ -631,7 +685,8 @@ export async function createContactHandler(
         newContact.created_at,
         newContact.last_online_ms,
         newContact.external_id,
-        newContact.external_payload
+        newContact.external_payload,
+        newContact.secret_entropy
       );
 
       // Add the contact to the default "Everyone" group if it exists
@@ -668,7 +723,7 @@ export async function createContactHandler(
           WHERE group_id = ? AND invitee_id = ?;
         `
           )
-          .get(plainDefaultGroupId, plainContactId);
+          .get(plainDefaultGroupId, contactId);
 
         if (!existingInvite) {
           // Insert into group_invites table
@@ -684,7 +739,7 @@ export async function createContactHandler(
               plainDefaultGroupId,
               requesterApiKey.user_id,
               "USER",
-              plainContactId,
+              contactId,
               GroupRole.MEMBER, // Default role for "Everyone" group
               `Auto-invited to default 'Group for All' upon contact creation.`,
               Date.now(),
@@ -1353,6 +1408,172 @@ export async function redeemContactHandler(
     return reply.status(200).send(createApiResponse(responseData));
   } catch (error) {
     request.log.error("Error in redeemContactHandler:", error);
+    return reply.status(500).send(
+      createApiResponse(undefined, {
+        code: 500,
+        message: `Internal server error - ${error}`,
+      })
+    );
+  }
+}
+
+export async function generateAutoLoginLinkHandler(
+  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestAutoLoginLink }>,
+  reply: FastifyReply
+): Promise<IResponseAutoLoginLink> {
+  try {
+    const { org_id } = request.params;
+
+    const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+    if (!requesterApiKey) {
+      return reply
+        .status(401)
+        .send(
+          createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+        );
+    }
+
+    // query to get current drive with its name and endpoint url
+    let drive: Drive | null = null;
+    try {
+      const result = await db.queryDrive(
+        org_id,
+        "SELECT * FROM drives WHERE id = ?",
+        [org_id]
+      );
+      if (result && result.length > 0) {
+        drive = result[0] as Drive;
+      }
+    } catch (e) {
+      request.log.error(`Error querying drive ${org_id}:`, e);
+      return reply.status(500).send(
+        createApiResponse(undefined, {
+          code: 500,
+          message: "Internal server error querying drive",
+        })
+      );
+    }
+
+    if (!drive) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: "Drive not found",
+        })
+      );
+    }
+
+    //
+    const { user_id, profile_api_key } = request.body;
+
+    // check if user_id is a known contact, as they must be a contact to generate an auto login link (also they need to create an api key if none passed in arg)
+    const contacts = await db.queryDrive(
+      org_id,
+      "SELECT * FROM contacts WHERE id = ?",
+      [user_id]
+    );
+    if (!contacts || contacts.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: `Contact not found with id ${user_id}`,
+        })
+      );
+    }
+    const contact = contacts[0] as Contact;
+
+    const owner_id = await getDriveOwnerId(org_id);
+    const is_owner = owner_id === requesterApiKey.user_id;
+
+    // check if requester is owner or has edit access to this contact, and if not, return 403
+    const requesterPermissions = await checkSystemPermissions({
+      resourceTable: "TABLE_CONTACTS",
+      resourceId: contact.id,
+      granteeId: requesterApiKey.user_id,
+      orgId: org_id,
+    });
+    if (
+      !is_owner &&
+      !requesterPermissions.includes(SystemPermissionType.EDIT)
+    ) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message:
+            "Forbidden - Requester does not have edit permissions to this contact",
+        })
+      );
+    }
+
+    // check if API key is valid
+    const apiKeyResult = await db.queryDrive(
+      org_id,
+      "SELECT * FROM api_keys WHERE value = ?",
+      [profile_api_key]
+    );
+    if (!apiKeyResult || apiKeyResult.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: "API key not found",
+        })
+      );
+    }
+
+    const apiKey = apiKeyResult[0] as ApiKey;
+    if (apiKey.user_id !== contact.id) {
+      return reply.status(403).send(
+        createApiResponse(undefined, {
+          code: 403,
+          message: "Forbidden - API key does not belong to this contact",
+        })
+      );
+    }
+
+    // Construct the admin login password
+    const adminLoginPassword = `${drive.id}:${profile_api_key}@${drive.host_url}`;
+    const auto_login_details = {
+      org_name: drive.name,
+      org_id: drive.id,
+      org_host: drive.host_url,
+      profile_id: contact.id,
+      profile_name: contact.name,
+      profile_api_key: profile_api_key,
+    };
+    const auto_login_redeem_token = urlSafeBase64Encode(
+      JSON.stringify(auto_login_details)
+    );
+    const autoLoginUrl = `${frontend_endpoint}/auto-login?token=${auto_login_redeem_token}`;
+
+    const full_login_instructions = `To login to ${drive.name}, please visit the following URL: ${autoLoginUrl}`;
+
+    return reply.status(200).send(
+      createApiResponse({
+        user_id: contact.id,
+        auto_login_link: autoLoginUrl,
+        full_login_instructions,
+      })
+    );
+  } catch (error) {
+    request.log.error("Error in generateAutoLoginLinkHandler:", error);
+    return reply.status(500).send(
+      createApiResponse(undefined, {
+        code: 500,
+        message: `Internal server error - ${error}`,
+      })
+    );
+  }
+}
+
+export async function generateCryptoIdentityHandler(
+  request: FastifyRequest<{ Body: IRequestGenerateCryptoIdentity }>,
+  reply: FastifyReply
+): Promise<IResponseAutoLoginLink> {
+  try {
+    const cryptoIdentity = await generateCryptoIdentity(request.body);
+    return reply.status(200).send(createApiResponse(cryptoIdentity));
+  } catch (error) {
+    request.log.error("Error in generateCryptoIdentityHandler:", error);
     return reply.status(500).send(
       createApiResponse(undefined, {
         code: 500,

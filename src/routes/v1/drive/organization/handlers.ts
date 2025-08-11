@@ -35,6 +35,7 @@ import {
   authenticateRequest,
   generateApiKey,
   urlSafeBase64Encode,
+  wrapOrgCode,
 } from "../../../../services/auth";
 import { DriveID, UserID, IDPrefixEnum } from "@officexapp/types";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
@@ -44,7 +45,7 @@ import {
   DriveStateSnapshot,
   getDriveSnapshot,
 } from "../../../../services/snapshot/drive";
-import { LOCAL_DEV_MODE } from "../../../../constants";
+import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
 
 /**
  * Handles the /organization/about route.
@@ -1059,9 +1060,6 @@ export async function redeemOrganizationDriveHandler(
     const auto_login_redeem_token = urlSafeBase64Encode(
       JSON.stringify(auto_login_details)
     );
-    const frontend_endpoint = LOCAL_DEV_MODE
-      ? "http://localhost:5173"
-      : "https://officex.app";
     const autoLoginUrl = `${frontend_endpoint}/auto-login?token=${auto_login_redeem_token}`;
     const responseData: IResponseRedeemOrg["ok"]["data"] = {
       drive_id: org_id,
@@ -1234,6 +1232,27 @@ export async function shortlinkHandler(
 
   try {
     request.log.info(`Incoming shortlink request for drive: ${driveId}`);
+
+    // Retrieve data from SQLite `about_drive` table
+    const result = await db.queryDrive(
+      driveId,
+      `SELECT drive_id, drive_name, canister_id, version, drive_state_checksum,
+              timestamp_ms, owner_id, host_url, transfer_owner_id,
+              spawn_redeem_code, spawn_note, nonce_uuid_generated
+       FROM about_drive LIMIT 1`
+    );
+
+    if (result.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: "Drive information not found",
+        })
+      );
+    }
+
+    const driveInfo = result[0];
+
     //
     const slug = request.body.slug;
     const original_url = request.body.original_url;
@@ -1254,6 +1273,12 @@ export async function shortlinkHandler(
         createApiResponse({
           slug,
           original_url: result[0].url,
+          shortlink_url: wrapOrgCode({
+            frontend_url: frontend_endpoint,
+            drive_id: driveId,
+            host_url: driveInfo.host_url,
+            route: `/to/${slug}`,
+          }),
         })
       );
     } else if (!slug && original_url) {
@@ -1283,6 +1308,12 @@ export async function shortlinkHandler(
         createApiResponse({
           slug,
           original_url,
+          shortlink_url: wrapOrgCode({
+            frontend_url: frontend_endpoint,
+            drive_id: driveId,
+            host_url: driveInfo.host_url,
+            route: `/to/${slug}`,
+          }),
         })
       );
     } else if (slug && original_url) {
@@ -1340,6 +1371,12 @@ export async function shortlinkHandler(
         createApiResponse({
           slug,
           original_url,
+          shortlink_url: wrapOrgCode({
+            frontend_url: frontend_endpoint,
+            drive_id: driveId,
+            host_url: driveInfo.host_url,
+            route: `/to/${slug}`,
+          }),
         })
       );
     } else {

@@ -4,12 +4,16 @@ import { Principal } from "@dfinity/principal";
 import * as ed from "@noble/ed25519";
 import { sign, verify, getPublicKey, utils } from "@noble/ed25519";
 import { mnemonicToSeed, validateMnemonic } from "bip39";
+import { Ed25519KeyIdentity } from "@dfinity/identity";
+import { mnemonicToAccount } from "viem/accounts";
 import { getAddress, HDNodeWallet } from "ethers";
 import {
   toByteArray as base64Decode,
   fromByteArray as base64Encode,
 } from "base64-js";
-import { FastifyRequest } from "fastify"; // Import FastifyRequest
+import { mnemonicToSeedSync } from "@scure/bip39";
+import { FastifyRequest } from "fastify";
+import * as bip39 from "bip39";
 import {
   ApiKey,
   ApiKeyID,
@@ -17,9 +21,13 @@ import {
   ApiKeyValue,
   AuthJsonDecoded,
   AuthTypeEnum,
+  Contact,
+  Drive,
   DriveID,
   FactoryApiKey,
   IDPrefixEnum,
+  IRequestAutoLoginLink,
+  IRequestGenerateCryptoIdentity,
   SignatureProof,
   UserID,
 } from "@officexapp/types";
@@ -27,6 +35,10 @@ import { v4 as uuidv4 } from "uuid";
 import { db } from "./database";
 import { webcrypto } from "node:crypto";
 import { sha512 } from "@noble/hashes/sha512";
+import { LOCAL_DEV_MODE } from "../constants";
+import { wordlist } from "@scure/bip39/wordlists/english";
+import { generateMnemonic } from "@scure/bip39";
+import { bytesToHex, sha256, toBytes } from "viem";
 
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 
@@ -63,6 +75,8 @@ export class ErrorResponse {
 export interface WalletAddresses {
   icp_principal: string;
   evm_public_address: string;
+  evm_private_key: string;
+  seed_phrase: string;
 }
 
 export class SeedPhraseError extends Error {
@@ -330,55 +344,89 @@ export function create_raw_upload_error_response(
  * from a standard mnemonic seed phrase. It uses industry-standard libraries
  * for both ICP (Ed25519) and EVM (secp256k1) key derivation.
  */
-export async function seed_phrase_to_wallet_addresses(
-  seed_phrase: string
-): Promise<WalletAddresses> {
-  // Validate the mnemonic phrase
-  if (!validateMnemonic(seed_phrase)) {
-    // Use validateMnemonic directly
-    throw new SeedPhraseError("Invalid mnemonic seed phrase");
+// export async function seed_phrase_to_wallet_addresses(
+//   seed_phrase: string
+// ): Promise<WalletAddresses> {
+//   console.log("seed_phrase_to_wallet_addresses", seed_phrase);
+//   // Validate the mnemonic phrase
+//   if (!validateMnemonic(seed_phrase)) {
+//     // Use validateMnemonic directly
+//     throw new SeedPhraseError("Invalid mnemonic seed phrase");
+//   }
+
+//   // Generate the 512-bit seed from the mnemonic
+//   const seedBuffer = await mnemonicToSeed(seed_phrase); // Use mnemonicToSeed directly
+//   const seedBytes = new Uint8Array(seedBuffer); // Convert to Uint8Array for consistency
+
+//   // ---- ICP Principal Generation (Ed25519) ----
+
+//   // The ICP self-authenticating principal typically uses the first 32 bytes of the seed
+//   // as the Ed25519 private key.
+//   const ed25519PrivateKey = seedBytes.slice(0, 32);
+
+//   // Derive the Ed25519 public key from the private key using getPublicKey
+//   const ed25519PublicKey = await getPublicKey(ed25519PrivateKey); // This is a Uint8Array (32 bytes)
+
+//   // To compute the canonical principal, convert the raw public key into DER format
+//   // by prepending the standard Ed25519 DER header.
+//   const derHeader = new Uint8Array([
+//     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+//   ]);
+//   const derKey = new Uint8Array(derHeader.length + ed25519PublicKey.length);
+//   derKey.set(derHeader);
+//   derKey.set(ed25519PublicKey, derHeader.length);
+
+//   // Compute the self-authenticating principal using the DER-encoded key.
+//   const principal = Principal.selfAuthenticating(derKey);
+//   const icp_principal = principal.toText();
+
+//   // ---- EVM Address Generation (secp256k1 - using ethers.js BIP39/BIP44) ----
+
+//   // ethers.js's HDNodeWallet can directly derive from the BIP39 seed.
+//   // It handles the secp256k1 key derivation according to standard paths (e.g., m/44'/60'/0'/0/0 for Ethereum).
+//   const ethWallet = HDNodeWallet.fromSeed(seedBuffer);
+
+//   // The `address` property of the Wallet object provides the checksummed Ethereum address.
+//   const evm_public_address = getAddress(ethWallet.address); // Use getAddress for checksumming
+//   const evm_private_key = ethWallet.privateKey;
+
+//   return {
+//     icp_principal,
+//     evm_public_address,
+//     evm_private_key,
+//     seed_phrase,
+//   };
+// }
+
+export const seed_phrase_to_wallet_addresses = async (seedPhrase: string) => {
+  try {
+    // For EVM address generation
+    const evmAccount = mnemonicToAccount(seedPhrase);
+    const evmAddress = evmAccount.address;
+
+    const derivedKey = await deriveEd25519KeyFromSeed(
+      mnemonicToSeedSync(seedPhrase || "")
+    );
+    // Create the identity from the derived key
+    // @ts-ignore
+    const identity = Ed25519KeyIdentity.fromSecretKey(derivedKey);
+
+    // Get the principal using the identity's getPrincipal method
+    const principal = identity.getPrincipal();
+    const principalStr = principal.toString();
+
+    return {
+      icp_principal: principalStr,
+      evm_public_address: evmAddress,
+      // @ts-ignore
+      evm_private_key: bytesToHex(evmAccount.getHdKey().privateKey),
+      seed_phrase: seedPhrase,
+    };
+  } catch (error) {
+    console.error("Failed to generate addresses:", error);
+    throw error;
   }
-
-  // Generate the 512-bit seed from the mnemonic
-  const seedBuffer = await mnemonicToSeed(seed_phrase); // Use mnemonicToSeed directly
-  const seedBytes = new Uint8Array(seedBuffer); // Convert to Uint8Array for consistency
-
-  // ---- ICP Principal Generation (Ed25519) ----
-
-  // The ICP self-authenticating principal typically uses the first 32 bytes of the seed
-  // as the Ed25519 private key.
-  const ed25519PrivateKey = seedBytes.slice(0, 32);
-
-  // Derive the Ed25519 public key from the private key using getPublicKey
-  const ed25519PublicKey = await getPublicKey(ed25519PrivateKey); // This is a Uint8Array (32 bytes)
-
-  // To compute the canonical principal, convert the raw public key into DER format
-  // by prepending the standard Ed25519 DER header.
-  const derHeader = new Uint8Array([
-    0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
-  ]);
-  const derKey = new Uint8Array(derHeader.length + ed25519PublicKey.length);
-  derKey.set(derHeader);
-  derKey.set(ed25519PublicKey, derHeader.length);
-
-  // Compute the self-authenticating principal using the DER-encoded key.
-  const principal = Principal.selfAuthenticating(derKey);
-  const icp_principal = principal.toText();
-
-  // ---- EVM Address Generation (secp256k1 - using ethers.js BIP39/BIP44) ----
-
-  // ethers.js's HDNodeWallet can directly derive from the BIP39 seed.
-  // It handles the secp256k1 key derivation according to standard paths (e.g., m/44'/60'/0'/0/0 for Ethereum).
-  const ethWallet = HDNodeWallet.fromSeed(seedBuffer);
-
-  // The `address` property of the Wallet object provides the checksummed Ethereum address.
-  const evm_public_address = getAddress(ethWallet.address); // Use getAddress for checksumming
-
-  return {
-    icp_principal,
-    evm_public_address,
-  };
-}
+};
 
 export async function generateApiKey(): Promise<string> {
   const input = `${IDPrefixEnum.ApiKey}${uuidv4()}`;
@@ -429,6 +477,23 @@ async function update_last_online_at(
   }
 }
 
+export const wrapOrgCode = ({
+  frontend_url,
+  drive_id,
+  host_url,
+  route,
+}: {
+  frontend_url: string;
+  drive_id: DriveID;
+  host_url: string;
+  route: string;
+}) => {
+  const btoaEndpoint = urlSafeBase64Encode(host_url || "");
+  const orgcode = `${drive_id}__${btoaEndpoint}`;
+
+  return `${frontend_url}/org/${orgcode}${route}`;
+};
+
 // Encode: Direct URL-safe Base64
 export function urlSafeBase64Encode(str: string) {
   // Handle Unicode characters
@@ -443,3 +508,86 @@ export function urlSafeBase64Encode(str: string) {
   // Make URL-safe by replacing characters
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
+
+export const generateCryptoIdentity = async (
+  args: IRequestGenerateCryptoIdentity
+) => {
+  const { secret_entropy, seed_phrase } = args;
+
+  if (!secret_entropy && !seed_phrase) {
+    // create a user completely from scratch
+    const seed = generateRandomSeed();
+    const wallets = await seed_phrase_to_wallet_addresses(seed);
+
+    const cryptoIdentity = {
+      user_id: `${IDPrefixEnum.User}${wallets.icp_principal}`,
+      icp_principal: wallets.icp_principal,
+      evm_public_key: wallets.evm_public_address,
+      evm_private_key: wallets.evm_private_key,
+      origin: {
+        secret_entropy,
+        seed_phrase,
+      },
+    };
+
+    return cryptoIdentity;
+  } else if (seed_phrase) {
+    const wallets = await seed_phrase_to_wallet_addresses(seed_phrase);
+    const cryptoIdentity = {
+      user_id: `${IDPrefixEnum.User}${wallets.icp_principal}`,
+      icp_principal: wallets.icp_principal,
+      evm_public_key: wallets.evm_public_address,
+      evm_private_key: wallets.evm_private_key,
+      origin: {
+        secret_entropy,
+        seed_phrase,
+      },
+    };
+    return cryptoIdentity;
+  } else if (secret_entropy) {
+    const seed = passwordToSeedPhrase(secret_entropy);
+    const wallets = await seed_phrase_to_wallet_addresses(seed);
+    const cryptoIdentity = {
+      user_id: `${IDPrefixEnum.User}${wallets.icp_principal}`,
+      icp_principal: wallets.icp_principal,
+      evm_public_key: wallets.evm_public_address,
+      evm_private_key: wallets.evm_private_key,
+      origin: {
+        secret_entropy,
+        seed_phrase,
+      },
+    };
+    return cryptoIdentity;
+  } else {
+    throw new Error("Invalid arguments");
+  }
+};
+
+// Helper function to generate a random seed phrase
+export const generateRandomSeed = (): string => {
+  // return (generate(12) as string[]).join(" ");
+  return generateMnemonic(wordlist, 128);
+};
+
+export const passwordToSeedPhrase = (password: string) => {
+  // 1. Generate a deterministic hash (entropy) from the password.
+  const passwordBytes = new TextEncoder().encode(password);
+
+  // The sha256 function from viem returns a hex string.
+  const entropyHex = sha256(passwordBytes);
+
+  // 2. Convert the hex string to a Uint8Array using viem's toBytes function.
+  const entropyBytes = toBytes(entropyHex);
+
+  // 3. Use bip39.entropyToMnemonic to convert the entropy into a mnemonic.
+  // The library expects a Buffer, so we need to convert our Uint8Array.
+  return bip39.entropyToMnemonic(Buffer.from(entropyBytes), wordlist);
+};
+
+// Function to derive Ed25519 key from seed (uses the first 32 bytes of the seed)
+const deriveEd25519KeyFromSeed = async (
+  seed: Uint8Array
+): Promise<Uint8Array> => {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", seed);
+  return new Uint8Array(hashBuffer).slice(0, 32); // Ed25519 secret key should be 32 bytes
+};

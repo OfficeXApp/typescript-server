@@ -5,7 +5,12 @@ import {
 } from "./api_keys/handlers";
 import giftcardSpawnOrgRoutes from "./spawnorg";
 import { factoryRateLimitPreHandler } from "../../../services/rate-limit";
-import { DriveID } from "@officexapp/types";
+import {
+  DriveID,
+  IRequestAutoLoginLink,
+  IRequestGenerateCryptoIdentity,
+} from "@officexapp/types";
+import { generateCryptoIdentityHandler } from "../drive/contacts/handlers";
 
 const factoryRoutes: FastifyPluginAsync = async (
   fastify,
@@ -25,9 +30,16 @@ const factoryRoutes: FastifyPluginAsync = async (
       drives?: DriveID[];
     };
   }>(
-    "/migrate",
+    "/helpers/migrate",
     { preHandler: [factoryRateLimitPreHandler] },
     migrateFactoryHandler
+  );
+
+  // POST /helpers/generate-crypto-identity
+  fastify.post<{ Body: IRequestGenerateCryptoIdentity }>(
+    `/helpers/generate-crypto-identity`,
+    { preHandler: [factoryRateLimitPreHandler] }, // Add the preHandler here
+    generateCryptoIdentityHandler
   );
 };
 
