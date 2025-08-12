@@ -910,7 +910,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         GroupRole.ADMIN,
         noteForSpawn,
         currentTime,
-        0, // expires_at: 0 means non-expiring
+        -1, // expires_at: -1 means non-expiring
         currentTime,
         currentTime,
         redeemCode,
@@ -937,7 +937,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         groupID, // grantee_id: The ID of the "Group for All"
         ownerId, // granted_by: The owner of the drive
         currentTime, // begin_date_ms
-        0, // expiry_date_ms: 0 means non-expiring
+        -1, // expiry_date_ms: -1 means non-expiring
         "Allow 'Group for All' to view all disks by default.", // note
         currentTime, // created_at
         currentTime, // last_modified_at

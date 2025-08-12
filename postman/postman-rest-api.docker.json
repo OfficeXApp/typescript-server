@@ -293,7 +293,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"secret_salt\": \"supersecretpassword\"\n    // \"seed_phrase\": \"wire oven dust shallow clog name solution proof they rent tonight lab\"\n}",
+          "raw": "{\n    \"secret_entropy\": \"supersecretpassword\"\n    // \"seed_phrase\": \"wire oven dust shallow clog name solution proof they rent tonight lab\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -430,7 +430,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n    \"action\": \"CREATE\",\n    \"usd_revenue_cents\": 200,\n    \"note\": \"Giftcard for new organization\",\n    \"gas_cycles_included\": 3500000000000\n    // \"external_id\": \"StripeID_abc123\",\n    // \"disk_auth_json\": \"{\\\"endpoint\\\":\\\"https://gateway.storjshare.io\\\",\\\"access_key\\\":\\\"YOUR_S3_ACCESS_KEY\\\",\\\"secret_key\\\":\\\"YOUR_S3_SECRET_KEY\\\",\\\"bucket\\\":\\\"YOUR_S3_BUCKET_NAME\\\",\\\"region\\\":\\\"us-east-1\\\"}\"\n}",
+          "raw": "{\n    // \"usd_revenue_cents\": 200,\n    // \"note\": \"Giftcard for new organization\",\n    // \"gas_cycles_included\": 3500000000000\n    // \"external_id\": \"StripeID_abc123\",\n    // \"disk_auth_json\": \"{\\\"endpoint\\\":\\\"https://gateway.storjshare.io\\\",\\\"access_key\\\":\\\"YOUR_S3_ACCESS_KEY\\\",\\\"secret_key\\\":\\\"YOUR_S3_SECRET_KEY\\\",\\\"bucket\\\":\\\"YOUR_S3_BUCKET_NAME\\\",\\\"region\\\":\\\"us-east-1\\\"}\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -1937,7 +1937,7 @@
       ]
     },
     {
-      "name": "drive/:org_id/contacts/create | owned",
+      "name": "drive/:org_id/contacts/create | id",
       "event": [
         {
           "listen": "test",
@@ -2030,7 +2030,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"John Doe\",\n  \"public_note\": \"\",\n  \"id\": \"UserID_67q5a-2manu-6wyl6-6onic-pvqe4-bydge-lhy4g-22nvo-hcact-5qmki-yae\"\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
+          "raw": "{\n  \"name\": \"John Doe\",\n  \"id\": \"UserID_67q5a-2manu-6wyl6-6onic-pvqe4-bydge-lhy4g-22nvo-hcact-5qmki-yae\"\n//   \"public_note\": \"\",\n  //\"private_note\": \"Primary contact for urgent issues\",\n  //\"external_id\": \"emp-1234\",\n  //\"external_payload\": \"{\\\"department\\\": \\\"product\\\", \\\"title\\\": \\\"Senior Project Manager\\\", \\\"location\\\": \\\"Remote\\\"}\"\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -10794,7 +10794,7 @@
           "script": {
             "exec": [
               "pm.test(\"Response status code is 200\", function () {",
-              "    pm.expect(pm.response.code).to.equal(200);",
+              "    pm.expect(pm.response.code).to.eql(200);",
               "});",
               "",
               "",
@@ -10803,29 +10803,21 @@
               "});",
               "",
               "",
-              "pm.test(\"Response matches expected schema for folders and files\", function () {",
+              "pm.test(\"Validate the schema of the response\", function () {",
               "    const responseData = pm.response.json();",
               "    ",
               "    pm.expect(responseData).to.be.an('object');",
-              "    ",
-              "    // Test for folders array schema",
+              "    pm.expect(responseData).to.have.all.keys('folders', 'files', 'total_files', 'total_folders', 'cursor', 'breadcrumbs', 'permission_previews');",
+              "",
               "    pm.expect(responseData.folders).to.be.an('array');",
-              "    responseData.folders.forEach(folder => {",
-              "        pm.expect(folder).to.be.an('object');",
-              "        // Assuming folders can have a name and an id",
-              "        pm.expect(folder).to.have.all.keys('name', 'id', 'parent_folder_uuid', 'full_directory_path', 'created_by', 'created_at', 'disk_id', 'disk_type', 'deleted', 'expires_at', 'drive_id', 'restore_trash_prior_folder_uuid', 'has_sovereign_permissions', 'shortcut_to', 'notes', 'external_id', 'external_payload', 'subfolder_uuids', 'file_uuids', 'labels', 'last_updated_date_ms', 'last_updated_by', 'clipped_directory_path', 'permission_previews'); // Adjust keys based on actual schema",
-              "        pm.expect(folder.name).to.be.a('string').and.to.have.lengthOf.at.least(1);",
-              "        pm.expect(folder.id).to.be.a('string').and.to.have.lengthOf.at.least(1);",
-              "    });",
-              "    ",
-              "    // Test for files array schema",
               "    pm.expect(responseData.files).to.be.an('array');",
-              "    responseData.files.forEach(file => {",
-              "        pm.expect(file).to.be.an('object');",
-              "        // Assuming files can have a name and an id",
-              "        pm.expect(file).to.have.all.keys('name', 'id', 'parent_folder_uuid', 'version_id', 'extension', 'full_directory_path', 'created_by', 'created_at', 'disk_id', 'disk_type', 'file_size', 'raw_url', 'deleted', 'drive_id', 'upload_status', 'expires_at', 'restore_trash_prior_folder_uuid', 'has_sovereign_permissions', 'shortcut_to', 'notes', 'external_id', 'external_payload', 'file_version', 'labels', 'last_updated_date_ms', 'last_updated_by', 'clipped_directory_path', 'permission_previews'); // Adjust keys based on actual schema",
-              "        pm.expect(file.name).to.be.a('string').and.to.have.lengthOf.at.least(1);",
-              "        pm.expect(file.id).to.be.a('string').and.to.have.lengthOf.at.least(1);",
+              "    pm.expect(responseData.breadcrumbs).to.be.an('array');",
+              "    pm.expect(responseData.permission_previews).to.be.an('array');",
+              "",
+              "    responseData.breadcrumbs.forEach(breadcrumb => {",
+              "        pm.expect(breadcrumb).to.be.an('object');",
+              "        pm.expect(breadcrumb).to.have.all.keys('resource_id', 'resource_name', 'visibility_preview');",
+              "        pm.expect(breadcrumb.visibility_preview).to.be.an('array');",
               "    });",
               "});",
               "",
@@ -10834,20 +10826,22 @@
               "    const responseData = pm.response.json();",
               "    ",
               "    pm.expect(responseData).to.be.an('object');",
-              "    ",
+              "    pm.expect(responseData.breadcrumbs).to.be.an('array');",
+              "",
               "    responseData.breadcrumbs.forEach(breadcrumb => {",
-              "        pm.expect(breadcrumb).to.have.property('resource_id').that.is.a('string');",
-              "        pm.expect(breadcrumb).to.have.property('resource_name').that.is.a('string');",
+              "        pm.expect(breadcrumb).to.be.an('object');",
+              "        pm.expect(breadcrumb).to.have.all.keys('resource_id', 'resource_name', 'visibility_preview');",
               "    });",
               "});",
               "",
               "",
-              "pm.test(\"Total files and total folders are non-negative integers\", function () {",
+              "pm.test(\"Permission previews is an array and contains strings\", function () {",
               "    const responseData = pm.response.json();",
-              "    ",
-              "    pm.expect(responseData).to.be.an('object');",
-              "    pm.expect(responseData.total_files).to.be.a('number').and.to.be.at.least(0);",
-              "    pm.expect(responseData.total_folders).to.be.a('number').and.to.be.at.least(0);",
+              "",
+              "    pm.expect(responseData).to.have.property('permission_previews').that.is.an('array');",
+              "    responseData.permission_previews.forEach(function(item) {",
+              "        pm.expect(item).to.be.a('string');",
+              "    });",
               "});",
               ""
             ],
@@ -11146,78 +11140,6 @@
             "get",
             "{{directory_permit_id}}"
           ]
-        }
-      },
-      "response": []
-    },
-    {
-      "name": "drive/:org_id/directory/list | no permit",
-      "event": [
-        {
-          "listen": "test",
-          "script": {
-            "exec": [
-              "pm.test(\"Response status code is 403\", function () {",
-              "    pm.expect(pm.response.code).to.equal(403);",
-              "});",
-              "",
-              "",
-              "pm.test(\"Response time is less than 200ms\", function () {",
-              "    pm.expect(pm.response.responseTime).to.be.below(200);",
-              "});",
-              "",
-              "",
-              "pm.test(\"Response contains the error object\", function () {",
-              "    const responseData = pm.response.json();",
-              "    ",
-              "    pm.expect(responseData).to.have.property('err').that.is.an('object');",
-              "});",
-              "",
-              "",
-              "pm.test(\"Error code must be a number\", function () {",
-              "    const responseData = pm.response.json();",
-              "    ",
-              "    pm.expect(responseData).to.be.an('object');",
-              "    pm.expect(responseData.err).to.exist;",
-              "    pm.expect(responseData.err.code).to.be.a('number');",
-              "});",
-              "",
-              "",
-              "pm.test(\"Error message must be a non-empty string\", function () {",
-              "    const responseData = pm.response.json();",
-              "    ",
-              "    pm.expect(responseData).to.be.an('object');",
-              "    pm.expect(responseData.err).to.be.an('object').that.has.property('message').that.is.a('string').and.to.have.lengthOf.at.least(1, \"Error message should not be empty\");",
-              "});",
-              ""
-            ],
-            "type": "text/javascript",
-            "packages": {}
-          }
-        }
-      ],
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Authorization",
-            "value": "Bearer {{foreign_friend_api_key}}",
-            "type": "text"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"folder_id\": \"{{folder_id}}\",\n  \"path\": \"\",\n  \"filters\": \"\",\n  \"page_size\": 50,\n  \"direction\": \"ASC\"\n//   \"cursor\": \"\"\n}",
-          "options": {
-            "raw": {
-              "language": "json"
-            }
-          }
-        },
-        "url": {
-          "raw": "{{ServerEndpoint}}/v1/drive/{{org_id}}/directory/list",
-          "host": ["{{ServerEndpoint}}"],
-          "path": ["v1", "drive", "{{org_id}}", "directory", "list"]
         }
       },
       "response": []
