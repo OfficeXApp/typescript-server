@@ -28,6 +28,7 @@ import {
   FolderRecord,
   FolderRecordFE,
   FileRecordFE,
+  GroupID,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -605,10 +606,32 @@ export async function createDiskHandler(
     const diskId = (body.id || `${IDPrefixEnum.Disk}${uuidv4()}`) as Disk["id"];
     const now = Date.now();
 
+    // grab the group for all
+
+    // Add the contact to the default "Everyone" group if it exists
+    interface DefaultGroupQueryResult {
+      default_everyone_group_id?: string; // Change 'value' to the new column name
+      id?: string; // Keep this for the fallback search
+    }
+
     const newDisk: Disk = await dbHelpers.transaction(
       "drive",
       org_id,
       (database) => {
+        // Query the specific new column 'default_everyone_group_id'
+        const defaultEveryoneGroupResult = database
+          .prepare(
+            `SELECT default_everyone_group_id FROM about_drive LIMIT 1` // Assuming about_drive is effectively a singleton for the current drive
+          )
+          .get() as DefaultGroupQueryResult | undefined;
+
+        let defaultGroupId: GroupID | null = null;
+        if (defaultEveryoneGroupResult?.default_everyone_group_id) {
+          // Use the new column name
+          defaultGroupId =
+            defaultEveryoneGroupResult.default_everyone_group_id as GroupID;
+        }
+
         const generatedRootFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
         const generatedTrashFolderId = `${IDPrefixEnum.Folder}${uuidv4()}`;
         const ownerId = requesterApiKey.user_id;
@@ -662,39 +685,41 @@ export async function createDiskHandler(
           null
         );
 
-        // Add permissions for root folder
-        // const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
-        // database
-        //   .prepare(
-        //     `
-        //     INSERT INTO permissions_directory (
-        //       id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
-        //       begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
-        //     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        //   `
-        //   )
-        //   .run(
-        //     rootPermissionId,
-        //     "Folder",
-        //     generatedRootFolderId,
-        //     rootPath,
-        //     "User",
-        //     ownerId,
-        //     ownerId,
-        //     0,
-        //     -1,
-        //     1,
-        //     "Default permissions for disk root folder owner",
-        //     now,
-        //     now
-        //   );
+        if (defaultGroupId) {
+          // Add permissions for root folder
+          const rootPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
+          database
+            .prepare(
+              `
+              INSERT INTO permissions_directory (
+                id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
+                begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `
+            )
+            .run(
+              rootPermissionId,
+              "Folder",
+              generatedRootFolderId,
+              rootPath,
+              "Group",
+              defaultGroupId,
+              ownerId,
+              0,
+              -1,
+              1,
+              "Default permissions for disk root folder owner",
+              now,
+              now
+            );
 
-        // const insertRootPermissionTypes = database.prepare(`
-        //     INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
-        //   `);
-        // Object.values(DirectoryPermissionType).forEach((type) => {
-        //   insertRootPermissionTypes.run(rootPermissionId, type);
-        // });
+          const insertRootPermissionTypes = database.prepare(`
+              INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+            `);
+          Object.values(DirectoryPermissionType).forEach((type) => {
+            insertRootPermissionTypes.run(rootPermissionId, type);
+          });
+        }
 
         // 3. Insert Trash Folder
         const insertTrashStmt = database.prepare(
@@ -723,39 +748,41 @@ export async function createDiskHandler(
           null
         );
 
-        // Add permissions for trash folder
-        // const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
-        // database
-        //   .prepare(
-        //     `
-        //     INSERT INTO permissions_directory (
-        //       id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
-        //       begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
-        //     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        //   `
-        //   )
-        //   .run(
-        //     trashPermissionId,
-        //     "Folder",
-        //     generatedTrashFolderId,
-        //     trashPath,
-        //     "User",
-        //     ownerId,
-        //     ownerId,
-        //     0,
-        //     -1,
-        //     0, // Not inheritable
-        //     "Default permissions for disk trash folder owner",
-        //     now,
-        //     now
-        //   );
+        if (defaultGroupId) {
+          // Add permissions for trash folder
+          const trashPermissionId = `${IDPrefixEnum.DirectoryPermission}${uuidv4()}`;
+          database
+            .prepare(
+              `
+            INSERT INTO permissions_directory (
+              id, resource_type, resource_id, resource_path, grantee_type, grantee_id, granted_by,
+              begin_date_ms, expiry_date_ms, inheritable, note, created_at, last_modified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `
+            )
+            .run(
+              trashPermissionId,
+              "Folder",
+              generatedTrashFolderId,
+              trashPath,
+              "Group",
+              defaultGroupId,
+              ownerId,
+              0,
+              -1,
+              0, // Not inheritable
+              "Default permissions for disk trash folder owner",
+              now,
+              now
+            );
 
-        // const insertTrashPermissionTypes = database.prepare(`
-        //     INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
-        //   `);
-        // Object.values(DirectoryPermissionType).forEach((type) => {
-        //   insertTrashPermissionTypes.run(trashPermissionId, type);
-        // });
+          const insertTrashPermissionTypes = database.prepare(`
+            INSERT INTO permissions_directory_types (permission_id, permission_type) VALUES (?, ?)
+          `);
+          Object.values(DirectoryPermissionType).forEach((type) => {
+            insertTrashPermissionTypes.run(trashPermissionId, type);
+          });
+        }
 
         // 4. Update the disk record with the actual root_folder and trash_folder
         const updateDiskFoldersStmt = database.prepare(

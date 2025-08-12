@@ -97,7 +97,7 @@ export function mapDbRowToSystemPermission(row: any): SystemPermission {
   } else if (row.resource_type === "Record") {
     resourceIdWithPrefix = row.resource_identifier as SystemResourceID; // resource_identifier is already the full prefixed ID from DB
   } else {
-    throw new Error(`Unknown resource_type from DB: ${row.resource_type}`);
+    resourceIdWithPrefix = row.resource_identifier as SystemResourceID;
   }
 
   return {

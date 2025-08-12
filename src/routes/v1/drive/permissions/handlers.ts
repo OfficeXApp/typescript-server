@@ -877,11 +877,8 @@ export async function createSystemPermission(
   if (data.resource_id.startsWith("TABLE_")) {
     resourceType = "Table";
     resourceIdentifier = data.resource_id;
-  } else if (data.resource_id.startsWith("RECORD_")) {
-    resourceType = "Record";
-    resourceIdentifier = data.resource_id;
   } else {
-    resourceType = "Unknown";
+    resourceType = "Record";
     resourceIdentifier = data.resource_id;
   }
 
@@ -991,11 +988,8 @@ export async function updateSystemPermission(
       if (data.resource_id.startsWith("TABLE_")) {
         resourceType = "Table";
         resourceIdentifier = data.resource_id;
-      } else if (data.resource_id.startsWith("RECORD_")) {
-        resourceType = "Record";
-        resourceIdentifier = data.resource_id;
       } else {
-        resourceType = "Unknown";
+        resourceType = "Record";
         resourceIdentifier = data.resource_id;
       }
       updateFields.push("resource_type = ?", "resource_identifier = ?");
