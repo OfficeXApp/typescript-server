@@ -1052,7 +1052,7 @@ export async function redeemOrganizationDriveHandler(
       org_name: driveName,
       org_id: org_id,
       org_host: driveEndpointUrl,
-      profile_id: adminApiKeyId,
+      profile_id: driveOwnerId,
       profile_name: "Admin",
       profile_api_key: adminApiKeyValue,
       profile_seed_phrase: undefined,

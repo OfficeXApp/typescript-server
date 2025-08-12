@@ -141,7 +141,7 @@ export async function authenticateRequest(
     // We assume 'auth' query parameter is a string. Cast for type safety.
     const queryAuth = (req.query as { auth?: string }).auth;
     if (queryAuth) {
-      debug_log(`Found auth query parameter: ${queryAuth}`);
+      // debug_log(`Found auth query parameter: ${queryAuth}`);
       btoaToken = queryAuth;
     }
   }

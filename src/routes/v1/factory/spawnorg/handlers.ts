@@ -447,13 +447,13 @@ export async function createGiftcardSpawnOrgHandler(
 
     const newGiftcard: GiftcardSpawnOrg = {
       id: `${IDPrefixEnum.GiftcardSpawnOrg}${uuidv4()}`,
-      usd_revenue_cents: createBody.usd_revenue_cents,
-      note: createBody.note,
-      gas_cycles_included: createBody.gas_cycles_included,
+      usd_revenue_cents: createBody.usd_revenue_cents || 0,
+      note: createBody.note || "",
+      gas_cycles_included: createBody.gas_cycles_included || 1000000000,
       timestamp_ms: Date.now(),
-      external_id: createBody.external_id,
+      external_id: createBody.external_id || undefined,
       redeemed: false,
-      disk_auth_json: createBody.disk_auth_json,
+      disk_auth_json: createBody.disk_auth_json || "",
     };
 
     await dbHelpers.transaction("factory", null, (database) => {
