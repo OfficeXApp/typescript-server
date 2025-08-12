@@ -123,7 +123,8 @@ function validateRedeemGiftcardSpawnOrgRequest(
       error: `GiftcardSpawnOrg ID must start with '${IDPrefixEnum.GiftcardSpawnOrg}'`,
     };
   }
-  if (!validateIcpPrincipal(body.owner_icp_principal)) {
+  const owner_icp_principal = body.owner_user_id.replace("UserID_", "");
+  if (!validateIcpPrincipal(owner_icp_principal)) {
     return { valid: false, error: "Invalid ICP principal" };
   }
   if (
@@ -725,13 +726,14 @@ export async function redeemGiftcardSpawnOrgHandler(
     }
 
     const redeemCode = `REDEEM_${Date.now()}`;
-    const ownerId = `UserID_${body.owner_icp_principal}`;
+    const ownerId = body.owner_user_id;
+    const owner_icp_principal = ownerId.replace("UserID_", "");
     const currentTime = Date.now();
     const noteForSpawn = `giftcard ${body.giftcard_id} was redeemed to spawn drive with ${giftcard.gas_cycles_included} cycles, owned by ${ownerId}, on timestamp_ms ${currentTime} ${new Date(currentTime).toISOString()}`;
 
     // Simulate canister deployment to get a dummy canister ID
     const deployedCanisterId = await deployDriveCanister(
-      body.owner_icp_principal,
+      owner_icp_principal,
       body.organization_name,
       body.owner_name,
       redeemCode,
@@ -836,7 +838,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         null, // public_note
         null, // private_note
         "", // evm_public_address - replace with actual derivation if needed
-        body.owner_icp_principal,
+        owner_icp_principal,
         null, // seed_phrase
         null, // from_placeholder_user_id
         redeemCode, // redeem_code for the owner if tied to spawn

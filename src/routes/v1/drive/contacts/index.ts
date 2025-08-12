@@ -8,6 +8,8 @@ import {
   updateContactHandler,
   deleteContactHandler,
   redeemContactHandler,
+  generateAutoLoginLinkHandler,
+  generateCryptoIdentityHandler,
 } from "./handlers";
 import { driveRateLimitPreHandler } from "../../../../services/rate-limit"; // Import the preHandler
 import {
@@ -20,6 +22,8 @@ import {
   IRequestListContacts,
   IRequestUpdateContact,
   IRequestRedeemContact,
+  IRequestAutoLoginLink,
+  IRequestGenerateCryptoIdentity,
 } from "@officexapp/types"; // Adjust this path if your types are elsewhere
 
 // Define interfaces for params and body if they are not already defined in @officexapp/types
@@ -73,6 +77,20 @@ const contactsRoutes: FastifyPluginAsync = async (
     `/redeem`,
     { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
     redeemContactHandler
+  );
+
+  // POST /v1/drive/:org_id/contacts/helpers/generate-auto-login-link
+  fastify.post<{ Params: OrgIdParams; Body: IRequestAutoLoginLink }>(
+    `/helpers/generate-auto-login-link`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    generateAutoLoginLinkHandler
+  );
+
+  // POST /v1/drive/:org_id/contacts/helpers/generate-crypto-identity
+  fastify.post<{ Params: OrgIdParams; Body: IRequestGenerateCryptoIdentity }>(
+    `/helpers/generate-crypto-identity`,
+    { preHandler: [driveRateLimitPreHandler] }, // Add the preHandler here
+    generateCryptoIdentityHandler
   );
 };
 
