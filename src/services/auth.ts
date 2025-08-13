@@ -511,7 +511,16 @@ export function urlSafeBase64Encode(str: string) {
 
 export const generateCryptoIdentity = async (
   args: IRequestGenerateCryptoIdentity
-) => {
+): Promise<{
+  user_id: UserID;
+  icp_principal: string;
+  evm_public_key: string;
+  evm_private_key: string;
+  origin: {
+    secret_entropy?: string;
+    seed_phrase?: string;
+  };
+}> => {
   const { secret_entropy, seed_phrase } = args;
 
   if (!secret_entropy && !seed_phrase) {

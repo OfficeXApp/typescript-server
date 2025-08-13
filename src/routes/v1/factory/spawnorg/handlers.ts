@@ -31,7 +31,7 @@ import {
   getDriveDbPath,
   initDriveDB,
 } from "../../../../services/database";
-import { authenticateRequest } from "../../../../services/auth";
+import { authenticateRequest, wrapOrgCode } from "../../../../services/auth";
 import { isValidID } from "../../../../api/helpers";
 import { generateMnemonic, mnemonicToSeed } from "bip39";
 import { getPublicKeyAsync } from "@noble/ed25519";
@@ -41,6 +41,7 @@ import { FREE_MODE } from "../../../../constants";
 import path from "path";
 import Database from "better-sqlite3";
 import fs from "fs";
+import { frontend_endpoint } from "../../../../constants";
 
 // Type definitions for route params
 interface GetGiftcardSpawnOrgParams {
@@ -741,7 +742,7 @@ export async function redeemGiftcardSpawnOrgHandler(
       giftcard.gas_cycles_included
     );
 
-    const endpoint = getAppropriateUrlEndpoint(request);
+    const host_url = getAppropriateUrlEndpoint(request);
     const driveId = `DriveID_${deployedCanisterId}`;
 
     // // --- Start: New Drive DB Creation and Initialization ---
@@ -794,13 +795,20 @@ export async function redeemGiftcardSpawnOrgHandler(
 
       const groupID = GenerateID.Group(); // This needs to be defined BEFORE the about_drive insert
 
+      const frontend_url = wrapOrgCode({
+        frontend_url: frontend_endpoint,
+        drive_id: driveId,
+        host_url,
+        route: "",
+      });
+
       const insertAboutDriveStmt = driveDatabase.prepare(
         `INSERT INTO about_drive (
             drive_id, drive_name, canister_id, version, drive_state_checksum,
             timestamp_ms, owner_id, host_url,
             transfer_owner_id, spawn_redeem_code, spawn_note,
-            nonce_uuid_generated, default_everyone_group_id 
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            nonce_uuid_generated, default_everyone_group_id, external_id, frontend_url
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       insertAboutDriveStmt.run(
         driveId,
@@ -810,12 +818,14 @@ export async function redeemGiftcardSpawnOrgHandler(
         driveStateChecksum,
         currentTime,
         ownerId,
-        endpoint,
+        host_url,
         "",
         redeemCode,
         noteForSpawn,
         0,
-        groupID // Pass the groupID here
+        groupID,
+        body.external_id || "",
+        frontend_url
       );
 
       // Optionally, create the owner contact in the new drive's DB
@@ -861,10 +871,10 @@ export async function redeemGiftcardSpawnOrgHandler(
         deployedCanisterId, // canister_id for `about_drive`
         null,
         null,
-        endpoint,
+        host_url,
         null,
         currentTime,
-        null,
+        body.external_id || "",
         null
       );
 
@@ -887,7 +897,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         currentTime,
         currentTime,
         driveId,
-        endpoint,
+        host_url,
         null,
         null
       );
@@ -970,7 +980,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         id: null as any, // Auto-incremented
         owner_id: ownerId,
         drive_id: driveId,
-        host: endpoint,
+        host: host_url,
         version: process.env.VERSION || "1.0.0", // Assuming version from env
         note: giftcard.note,
         giftcard_id: giftcard.id,
@@ -1005,7 +1015,7 @@ export async function redeemGiftcardSpawnOrgHandler(
       createApiResponse({
         owner_id: ownerId,
         drive_id: driveId,
-        host: endpoint,
+        host: host_url,
         redeem_code: redeemCode,
         disk_auth_json: giftcard.disk_auth_json,
       })

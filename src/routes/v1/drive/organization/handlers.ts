@@ -71,32 +71,22 @@ export async function aboutDriveHandler(
     const ownerId = await getDriveOwnerId(org_id);
     const isOwner = requesterApiKey.user_id === ownerId;
 
-    const hasViewPermission = (
-      await checkSystemPermissions({
-        resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
-        resourceId: `${org_id}` as SystemResourceID,
-        granteeId: requesterApiKey.user_id,
-        orgId: org_id,
-      })
-    ).includes(SystemPermissionType.VIEW);
-
-    if (!isOwner && !hasViewPermission) {
-      request.log.warn(
-        `User ${requesterApiKey.user_id} does not have VIEW permission for the PERMISSIONS table in ${org_id}.`
-      );
-      return reply
-        .status(403)
-        .send(
-          createApiResponse(undefined, { code: 403, message: "Forbidden" })
-        );
-    }
+    const hasViewPermission =
+      (
+        await checkSystemPermissions({
+          resourceTable: `TABLE_${SystemTableValueEnum.DRIVES}`,
+          resourceId: `${org_id}` as SystemResourceID,
+          granteeId: requesterApiKey.user_id,
+          orgId: org_id,
+        })
+      ).includes(SystemPermissionType.VIEW) || isOwner;
 
     // Retrieve data from SQLite `about_drive` table
     const result = await db.queryDrive(
       org_id,
       `SELECT drive_id, drive_name, canister_id, version, drive_state_checksum,
               timestamp_ms, owner_id, host_url, transfer_owner_id,
-              spawn_redeem_code, spawn_note, nonce_uuid_generated
+              spawn_redeem_code, spawn_note, nonce_uuid_generated, external_id, frontend_url
        FROM about_drive LIMIT 1`
     );
 
@@ -131,7 +121,19 @@ export async function aboutDriveHandler(
       daily_idle_cycle_burn_rate: dailyIdleCycleBurnRate,
       controllers: controllers,
       version: driveInfo.version,
+      frontend_url: driveInfo.frontend_url || "",
+      external_id: driveInfo.external_id || "",
     };
+
+    if (!hasViewPermission) {
+      responseData.gas_cycles = "0";
+      responseData.daily_idle_cycle_burn_rate = "0";
+      responseData.controllers = [];
+      responseData.organization_name = "REDACTED";
+      responseData.owner = "REDACTED";
+      responseData.canister_id = "REDACTED";
+      responseData.external_id = "";
+    }
 
     reply.status(200).send(createApiResponse(responseData));
   } catch (error) {
