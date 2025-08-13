@@ -7,7 +7,6 @@ import {
   replayDriveHandler,
   searchDriveHandler,
   reindexDriveHandler,
-  externalIdDriveHandler,
   transferOwnershipDriveHandler,
   updateAllowedDomainsDriveHandler,
   whoAmIDriveHandler,
@@ -71,13 +70,6 @@ const organizationRoutes: FastifyPluginAsync = async (
     `/reindex`,
     { preHandler: [driveRateLimitPreHandler] },
     reindexDriveHandler
-  );
-
-  // POST /v1/drive/:org_id/organization/external_id
-  fastify.post<{ Params: OrgIdParams; Body: IRequestExternalIDsDrive }>(
-    `/external_id`,
-    { preHandler: [driveRateLimitPreHandler] },
-    externalIdDriveHandler
   );
 
   // POST /v1/drive/:org_id/organization/transfer_ownership

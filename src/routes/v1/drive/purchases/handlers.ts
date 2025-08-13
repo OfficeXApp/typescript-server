@@ -27,11 +27,7 @@ import {
   validateShortString,
   validateUrl,
 } from "../../../../services/validation";
-import {
-  claimUUID,
-  isUUIDClaimed,
-  updateExternalIDMapping,
-} from "../../../../services/external";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 import {
   redactLabelValue,
   checkSystemPermissions,
@@ -362,6 +358,7 @@ export async function createPurchaseHandler(
       "drive",
       org_id,
       (database) => {
+        claimUUID(database, purchaseId);
         const insertPurchaseStmt = database.prepare(
           `INSERT INTO purchases (id, template_id, vendor_name, vendor_id, status, description, about_url, billing_url, support_url, delivery_url, verification_url, installation_url, title, subtitle, pricing, vendor_notes, notes, created_at, updated_at, last_updated_at, tracer, external_id, external_payload)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -432,17 +429,6 @@ export async function createPurchaseHandler(
         return createdPurchase;
       }
     );
-
-    await updateExternalIDMapping(
-      org_id,
-      undefined,
-      newPurchase.external_id,
-      newPurchase.id
-    );
-
-    if (!body.id) {
-      await claimUUID(org_id, newPurchase.id);
-    }
 
     const permissionPreviews = await checkSystemPermissions({
       resourceTable: `TABLE_${SystemTableValueEnum.PURCHASES}`,
@@ -628,12 +614,6 @@ export async function updatePurchaseHandler(
     if (body.external_id !== undefined) {
       updates.push("external_id = ?");
       values.push(body.external_id);
-      await updateExternalIDMapping(
-        org_id,
-        existingPurchase.external_id,
-        body.external_id,
-        purchaseId
-      );
     }
     if (body.external_payload !== undefined) {
       updates.push("external_payload = ?");
@@ -809,15 +789,6 @@ export async function deletePurchaseHandler(
       // Removed purchase_related_resources deletion
     });
 
-    if (externalIdToDelete) {
-      await updateExternalIDMapping(
-        org_id,
-        externalIdToDelete,
-        undefined,
-        purchaseId
-      );
-    }
-
     const deletedData: IResponseDeletePurchase["ok"]["data"] = {
       id: purchaseId,
       deleted: true,
@@ -843,17 +814,20 @@ async function validateCreatePurchaseRequest(
   error?: string;
 }> {
   if (body.id) {
+    const is_claimed = await isUUIDClaimed(body.id, orgID);
+    if (is_claimed) {
+      return {
+        valid: false,
+        error: "UUID is already claimed",
+      };
+    }
+  }
+
+  if (body.id) {
     if (!body.id.startsWith(IDPrefixEnum.PurchaseID)) {
       return {
         valid: false,
         error: `Purchase ID must start with '${IDPrefixEnum.PurchaseID}'.`,
-      };
-    }
-    const alreadyClaimed = await isUUIDClaimed(orgID, body.id);
-    if (alreadyClaimed) {
-      return {
-        valid: false,
-        error: `Provided Purchase ID '${body.id}' is already claimed.`,
       };
     }
   }

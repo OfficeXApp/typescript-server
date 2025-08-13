@@ -39,6 +39,7 @@ import {
   removeMemberFromGroup,
   isUserInGroup, // Added for consistency
 } from "../../../../services/groups";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 interface GetGroupInviteParams extends OrgIdParams {
   invite_id: string;
@@ -52,10 +53,20 @@ interface ListGroupInvitesBody {
   cursor?: string;
 }
 
-function validateCreateRequest(body: IRequestCreateGroupInvite): {
-  valid: boolean;
-  error?: string;
-} {
+async function validateCreateRequest(
+  body: IRequestCreateGroupInvite,
+  orgID: DriveID
+): Promise<{ valid: boolean; error?: string }> {
+  if (body.id) {
+    const is_claimed = await isUUIDClaimed(body.id, orgID);
+    if (is_claimed) {
+      return {
+        valid: false,
+        error: "UUID is already claimed",
+      };
+    }
+  }
+
   if (!body.group_id || !body.group_id.startsWith(IDPrefixEnum.Group)) {
     return { valid: false, error: "Group ID must start with GroupID_" };
   }
@@ -419,7 +430,7 @@ export async function createGroupInviteHandler(
     const orgId = request.params.org_id as DriveID;
 
     // Validate request
-    const validation = validateCreateRequest(body);
+    const validation = await validateCreateRequest(body, orgId);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -536,6 +547,8 @@ export async function createGroupInviteHandler(
 
     // Insert invite using transaction
     await dbHelpers.transaction("drive", orgId, (database) => {
+      claimUUID(database, invite.id);
+
       const stmt = database.prepare(
         `INSERT INTO group_invites (
             id, group_id, inviter_id, invitee_id, invitee_type, role, note,

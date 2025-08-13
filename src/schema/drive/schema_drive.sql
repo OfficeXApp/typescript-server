@@ -511,13 +511,13 @@ CREATE TABLE purchase_labels (
 -- Table: external_id_mappings
 -- Description: Stores mappings from an ExternalID to a list of internal IDs (e.g., DriveID, FileID, FolderID, etc.)
 CREATE TABLE external_id_mappings (
-    external_id TEXT PRIMARY KEY NOT NULL, -- Corresponds to ExternalID
-    internal_ids TEXT NOT NULL -- JSON string of StringVec.items (Vec<String>)
+    external_id TEXT PRIMARY KEY NOT NULL,
+    internal_ids TEXT NOT NULL
 );
 
 CREATE TABLE uuid_claimed (
     uuid TEXT PRIMARY KEY NOT NULL,
-    claimed INTEGER NOT NULL DEFAULT 1 -- 1 for true (claimed), 0 for false
+    claimed INTEGER NOT NULL DEFAULT 1
 );
 
 

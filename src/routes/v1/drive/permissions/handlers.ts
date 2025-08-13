@@ -76,6 +76,7 @@ import {
   mapDbRowToSystemPermission,
 } from "../../../../services/permissions/system";
 import { authenticateRequest } from "../../../../services/auth";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 // Constants for ID prefixes to match Rust enum variants in string format
 export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
@@ -369,6 +370,8 @@ export async function createDirectoryPermission(
 
   // 1. Run the synchronous transaction to write the data to the database.
   dbHelpers.transaction("drive", orgId, (tx) => {
+    claimUUID(tx, newPermissionId);
+
     tx.prepare(
       `
         INSERT INTO permissions_directory (
@@ -894,6 +897,8 @@ export async function createSystemPermission(
 
   // 1. Run the synchronous transaction to create the records.
   dbHelpers.transaction("drive", orgId, (tx) => {
+    claimUUID(tx, newPermissionId);
+
     tx.prepare(
       `
         INSERT INTO permissions_system (
@@ -1326,6 +1331,18 @@ export async function createDirectoryPermissionsHandler(
       );
   }
 
+  if (data.id) {
+    const is_claimed = await isUUIDClaimed(data.id, org_id);
+    if (is_claimed) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: "UUID is already claimed",
+        })
+      );
+    }
+  }
+
   const requesterId = requesterApiKey.user_id;
 
   try {
@@ -1664,6 +1681,18 @@ export async function createSystemPermissionsHandler(
       .send(
         createApiResponse(undefined, { code: 401, message: "Unauthorized" })
       );
+  }
+
+  if (data.id) {
+    const is_claimed = await isUUIDClaimed(data.id, org_id);
+    if (is_claimed) {
+      return reply.status(400).send(
+        createApiResponse(undefined, {
+          code: 400,
+          message: "UUID is already claimed",
+        })
+      );
+    }
   }
 
   const requesterId = requesterApiKey.user_id;

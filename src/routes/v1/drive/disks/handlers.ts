@@ -37,11 +37,7 @@ import {
   redactLabelValue,
   checkSystemPermissions,
 } from "../../../../services/permissions/system";
-import {
-  claimUUID,
-  isUUIDClaimed,
-  updateExternalIDMapping,
-} from "../../../../services/external";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 // --- Helper Types for Request Params ---
 
@@ -61,6 +57,15 @@ async function validateCreateDiskRequest(
   valid: boolean;
   error?: string;
 }> {
+  if (body.id) {
+    const is_claimed = await isUUIDClaimed(body.id, orgID);
+    if (is_claimed) {
+      return {
+        valid: false,
+        error: "UUID is already claimed",
+      };
+    }
+  }
   if (!body.name || body.name.length === 0 || body.name.length > 256) {
     return {
       valid: false,
@@ -80,14 +85,6 @@ async function validateCreateDiskRequest(
       return {
         valid: false,
         error: `Disk ID must start with '${IDPrefixEnum.Disk}'.`,
-      };
-    }
-    // Check if the provided ID is already claimed (Rust's `validate_unclaimed_uuid`)
-    const alreadyClaimed = await isUUIDClaimed(orgID, body.id);
-    if (alreadyClaimed) {
-      return {
-        valid: false,
-        error: `Provided Disk ID '${body.id}' is already claimed.`,
       };
     }
   }
@@ -160,11 +157,6 @@ async function validateCreateDiskRequest(
       valid: false,
       error: "Endpoint must be 2048 characters or less.",
     };
-  }
-
-  // mark it claimed
-  if (body.id) {
-    await claimUUID(orgID, body.id);
   }
 
   return { valid: true };
@@ -618,6 +610,8 @@ export async function createDiskHandler(
       "drive",
       org_id,
       (database) => {
+        claimUUID(database, diskId);
+
         // Query the specific new column 'default_everyone_group_id'
         const defaultEveryoneGroupResult = database
           .prepare(
@@ -814,18 +808,6 @@ export async function createDiskHandler(
       }
     );
 
-    // ... (rest of your existing post-transaction logic remains the same)
-    await updateExternalIDMapping(
-      org_id,
-      undefined,
-      newDisk.external_id,
-      newDisk.id
-    );
-
-    if (!body.id) {
-      await claimUUID(org_id, newDisk.id);
-    }
-
     snapshotPoststate(
       prestate,
       `${requesterApiKey.user_id}: Create Disk ${newDisk.id}`
@@ -964,12 +946,6 @@ export async function updateDiskHandler(
     if (body.external_id !== undefined) {
       updates.push("external_id = ?");
       values.push(body.external_id);
-      await updateExternalIDMapping(
-        org_id,
-        existingDisk.external_id,
-        body.external_id,
-        diskId
-      );
     }
     if (body.external_payload !== undefined) {
       updates.push("external_payload = ?");
@@ -1121,15 +1097,6 @@ export async function deleteDiskHandler(
       const stmt = database.prepare("DELETE FROM disks WHERE id = ?");
       stmt.run(diskId);
     });
-
-    if (externalIdToDelete) {
-      await updateExternalIDMapping(
-        org_id,
-        externalIdToDelete,
-        undefined, // New external ID is undefined for deletion
-        diskId
-      );
-    }
 
     snapshotPoststate(
       prestate,
