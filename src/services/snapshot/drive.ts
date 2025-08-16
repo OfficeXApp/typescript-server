@@ -214,31 +214,6 @@ export async function getDriveSnapshot(
       throw new Error(`Drive with ID ${driveId} not found.`);
     }
 
-    // `EXTERNAL_ID_MAPPINGS` (HashMap<ExternalID, Vec<String>>) from `external_id_mappings` table
-    const externalIdMappingsRows = database
-      .prepare(`SELECT external_id, internal_ids FROM external_id_mappings`)
-      .all() as { external_id: string; internal_ids: string }[]; // internal_ids is JSON string
-    const EXTERNAL_ID_MAPPINGS: Record<ExternalID, string[]> =
-      externalIdMappingsRows.reduce(
-        (
-          acc: Record<ExternalID, string[]>,
-          row: { external_id: string; internal_ids: string }
-        ) => {
-          try {
-            // Assuming internal_ids is a JSON string of a string array, e.g., '["id1", "id2"]'
-            acc[row.external_id] = JSON.parse(row.internal_ids);
-          } catch (e) {
-            console.error(
-              `Failed to parse internal_ids for ${row.external_id}:`,
-              e
-            );
-            acc[row.external_id] = [];
-          }
-          return acc;
-        },
-        {} as Record<ExternalID, string[]>
-      );
-
     // `RECENT_DEPLOYMENTS` (Vec<IFactorySpawnHistoryRecord>)
     // This isn't directly in the provided SQL schema, it's a Rust `StableVec`.
     // In TS, if it's stored, it would likely be another table or a JSON blob.
@@ -573,7 +548,7 @@ export async function getDriveSnapshot(
       OWNER_ID: aboutDrive.owner_id,
       URL_ENDPOINT: aboutDrive.host_url,
       DRIVE_STATE_TIMESTAMP_NS: aboutDrive.timestamp_ms,
-      EXTERNAL_ID_MAPPINGS,
+      EXTERNAL_ID_MAPPINGS: {},
       RECENT_DEPLOYMENTS, // MOCKED
       SPAWN_REDEEM_CODE: aboutDrive.spawn_redeem_code,
       SPAWN_NOTE: aboutDrive.spawn_note,
@@ -689,37 +664,6 @@ export async function getDriveAbout(driveId: DriveID): Promise<{
       throw new Error(`About data for drive ${driveId} not found.`);
     }
     return result;
-  });
-}
-
-// TODO: Implement other specific getters if they are needed as public service functions
-// outside of the full snapshot (e.g., if other handlers need just contacts, or just files)
-
-export async function getDriveExternalIdMappings(
-  driveId: DriveID
-): Promise<Record<ExternalID, string[]>> {
-  return dbHelpers.withDrive(driveId, (database) => {
-    const rows = database
-      .prepare(`SELECT external_id, internal_ids FROM external_id_mappings`)
-      .all() as { external_id: string; internal_ids: string }[];
-    return rows.reduce(
-      (
-        acc: Record<ExternalID, string[]>,
-        row: { external_id: string; internal_ids: string }
-      ) => {
-        try {
-          acc[row.external_id] = JSON.parse(row.internal_ids);
-        } catch (e) {
-          console.error(
-            `Failed to parse internal_ids for ${row.external_id}:`,
-            e
-          );
-          acc[row.external_id] = [];
-        }
-        return acc;
-      },
-      {} as Record<ExternalID, string[]>
-    );
   });
 }
 

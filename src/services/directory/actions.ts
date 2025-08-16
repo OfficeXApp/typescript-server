@@ -78,6 +78,7 @@ import {
   generateShareTrackHash,
 } from "../webhooks/share";
 import { updateSubfolderPaths } from "./internals";
+import { isUUIDClaimed } from "../external";
 
 /**
  * Custom error class for directory actions to return structured errors.
@@ -473,6 +474,13 @@ export async function pipeAction(
     case DirectoryActionEnum.CREATE_FILE: {
       const payload = action.payload as CreateFilePayload;
 
+      if (payload.id) {
+        const is_claimed = await isUUIDClaimed(payload.id, driveId);
+        if (is_claimed) {
+          throw new DirectoryActionError(400, "UUID is already claimed");
+        }
+      }
+
       // The permission check for `CREATE_FILE` is now handled inside `driveCreateFile` itself,
       // simplifying this action handler. `driveCreateFile` will throw an error if permissions are insufficient.
       const [fileRecord, uploadResponse] = await driveCreateFile(
@@ -527,6 +535,13 @@ export async function pipeAction(
     // =========================================================================
     case DirectoryActionEnum.CREATE_FOLDER: {
       const payload = action.payload as CreateFolderPayload;
+
+      if (payload.id) {
+        const is_claimed = await isUUIDClaimed(payload.id, driveId);
+        if (is_claimed) {
+          throw new DirectoryActionError(400, "UUID is already claimed");
+        }
+      }
 
       // The permission check for `CREATE_FOLDER` is now handled inside `driveCreateFolder` itself,
       // simplifying this action handler. `driveCreateFolder` will throw an error if permissions are insufficient.

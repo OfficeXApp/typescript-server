@@ -54,6 +54,7 @@ import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 import { checkSystemPermissions } from "../../../../services/permissions/system";
 import { getGroupById } from "../../../../services/groups";
 import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {
@@ -411,6 +412,18 @@ export async function createContactHandler(
 
     const createReq = request.body;
 
+    if (createReq.id) {
+      const is_claimed = await isUUIDClaimed(createReq.id, org_id);
+      if (is_claimed) {
+        return reply.status(400).send(
+          createApiResponse(undefined, {
+            code: 400,
+            message: "UUID is already claimed",
+          })
+        );
+      }
+    }
+
     if (createReq.id && !createReq.id.startsWith(IDPrefixEnum.User)) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -663,6 +676,8 @@ export async function createContactHandler(
     };
 
     await dbHelpers.transaction("drive", org_id, (database) => {
+      claimUUID(database, contactId);
+
       const stmt = database.prepare(
         `INSERT INTO contacts (id, name, avatar, email, notifications_url, public_note, private_note, evm_public_address, icp_principal, seed_phrase, from_placeholder_user_id, redeem_code, created_at, last_online_ms, external_id, external_payload, secret_entropy)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`

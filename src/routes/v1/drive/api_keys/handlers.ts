@@ -14,11 +14,13 @@ import {
   ApiKeyValue,
   FactoryApiKey,
   SystemTableValueEnum,
+  DriveID,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 import { checkSystemPermissions } from "../../../../services/permissions/system";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 // Type definitions for route params
 interface GetApiKeyParams extends OrgIdParams {
@@ -30,10 +32,20 @@ interface ListApiKeysParams extends OrgIdParams {
 }
 
 // Helper function to validate request body
-function validateCreateRequest(body: IRequestCreateApiKey): {
-  valid: boolean;
-  error?: string;
-} {
+async function validateCreateRequest(
+  body: IRequestCreateApiKey,
+  orgId: DriveID
+): Promise<{ valid: boolean; error?: string }> {
+  if (body.id) {
+    const is_claimed = await isUUIDClaimed(body.id, orgId);
+    if (is_claimed) {
+      return {
+        valid: false,
+        error: "UUID is already claimed",
+      };
+    }
+  }
+
   if (!body.name || body.name.length > 256) {
     return {
       valid: false,
@@ -279,7 +291,7 @@ export async function createApiKeyHandler(
     const createBody = request.body;
 
     // ... (input validation: name, user_id format, expires_at) ...
-    const validation = validateCreateRequest(createBody);
+    const validation = await validateCreateRequest(createBody, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -359,6 +371,8 @@ export async function createApiKeyHandler(
     };
 
     await dbHelpers.transaction("drive", org_id, (database) => {
+      claimUUID(database, apiKey.id);
+
       const stmt = database.prepare(
         `INSERT INTO api_keys (id, value, user_id, name, private_note, created_at, expires_at, is_revoked, begins_at, external_id, external_payload)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`

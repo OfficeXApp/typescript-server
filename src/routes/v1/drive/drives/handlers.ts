@@ -32,11 +32,7 @@ import {
 } from "../../../../services/permissions/system";
 
 import { validateIcpPrincipal } from "../../../../services/validation";
-import {
-  claimUUID,
-  isUUIDClaimed,
-  updateExternalIDMapping,
-} from "../../../../services/external";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 // Helper to cast Drive to DriveFE and apply redaction logic
 async function castDriveToFE(
@@ -363,16 +359,6 @@ export async function createDriveHandler(
           })
         );
       }
-      // Check if the provided ID is already claimed (Rust's `validate_unclaimed_uuid` check)
-      const alreadyClaimed = await isUUIDClaimed(orgId, id);
-      if (alreadyClaimed) {
-        return reply.status(400).send(
-          createApiResponse(undefined, {
-            code: 400,
-            message: `Provided Drive ID '${id}' is already claimed.`,
-          })
-        );
-      }
     }
     if (!name || name.length > 256) {
       return reply.status(400).send(
@@ -477,25 +463,6 @@ export async function createDriveHandler(
         newDrive.external_id,
         newDrive.external_payload
       );
-
-      if (newDrive.external_id) {
-        // Update external ID mapping as per Rust's `update_external_id_mapping`
-        await updateExternalIDMapping(
-          orgId,
-          undefined, // No old external ID for creation
-          newDrive.external_id,
-          newDrive.id
-        );
-      }
-
-      // Mark the generated/provided DriveID as claimed in the `uuid_claimed` table.
-      const successfullyClaimed = await claimUUID(orgId, newDrive.id);
-      if (!successfullyClaimed) {
-        // This should ideally not be reached if validation is perfect, but provides a safeguard.
-        throw new Error(
-          `Failed to claim UUID for new drive '${newDrive.id}'. It might have been claimed concurrently.`
-        );
-      }
     });
 
     const driveFE = await castDriveToFE(newDrive, requesterUserId, orgId);
@@ -684,16 +651,6 @@ export async function updateDriveHandler(
         `UPDATE drives SET ${updates.join(", ")} WHERE id = ?`
       );
       stmt.run(...values);
-
-      if (external_id !== undefined || oldExternalId !== undefined) {
-        // Check if `external_id` was involved in the update
-        await updateExternalIDMapping(
-          orgId,
-          oldExternalId, // The external_id before the update
-          external_id, // The new external_id from the request body
-          id // The internal DriveID
-        );
-      }
     });
 
     const updatedDrives = await db.queryDrive(

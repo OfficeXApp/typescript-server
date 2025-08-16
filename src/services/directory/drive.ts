@@ -40,6 +40,7 @@ import {
 } from "../permissions/directory";
 import { getDriveOwnerId } from "../../routes/v1/types"; // This is needed for permission checks
 import { generate_s3_upload_url } from "../disks/aws_s3"; // Assuming these are correctly implemented
+import { claimUUID } from "../external";
 
 async function get_disk_from_db(
   driveId: DriveID,
@@ -814,6 +815,7 @@ export async function copyFile(
 
   // SYNCHRONOUS TRANSACTION
   await dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    claimUUID(tx, newFileRecord.id);
     tx.prepare(
       `INSERT INTO files (id, name, parent_folder_id, version_id, extension, full_directory_path, created_by, created_at, disk_id, disk_type, file_size, raw_url, last_updated_date_ms, last_updated_by, drive_id, upload_status, expires_at, has_sovereign_permissions, shortcut_to, notes, external_id, external_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -988,6 +990,8 @@ export async function copyFolder(
 
   // SYNCHRONOUS TRANSACTION for the main folder creation and recursive calls
   return dbHelpers.transaction("drive", driveId, (tx: Database) => {
+    claimUUID(tx, newFolderUuid);
+
     // Create new folder record (shallow copy initially)
     const newFolderRecord: FolderRecord = {
       id: newFolderUuid,

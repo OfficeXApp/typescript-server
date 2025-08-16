@@ -41,6 +41,7 @@ import {
   removeMemberFromGroup, // Use this for removing members
   addAdminToGroup, // New import
 } from "../../../../services/groups";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 interface GetGroupParams extends OrgIdParams {
   group_id: string;
@@ -53,10 +54,19 @@ interface ListGroupsBody {
   cursor?: string;
 }
 
-function validateCreateRequest(body: IRequestCreateGroup): {
-  valid: boolean;
-  error?: string;
-} {
+async function validateCreateRequest(
+  body: IRequestCreateGroup,
+  orgID: DriveID
+): Promise<{ valid: boolean; error?: string }> {
+  if (body.id) {
+    const is_claimed = await isUUIDClaimed(body.id, orgID);
+    if (is_claimed) {
+      return {
+        valid: false,
+        error: "UUID is already claimed",
+      };
+    }
+  }
   if (!body.name || body.name.length > 256) {
     return {
       valid: false,
@@ -519,7 +529,7 @@ export async function createGroupHandler(
     const orgId = request.params.org_id as DriveID;
 
     // Validate request
-    const validation = validateCreateRequest(body);
+    const validation = await validateCreateRequest(body, orgId);
     if (!validation.valid) {
       return reply.status(400).send(
         createApiResponse(undefined, {
@@ -581,6 +591,8 @@ export async function createGroupHandler(
 
     // Insert group using transaction
     await dbHelpers.transaction("drive", orgId, (database) => {
+      claimUUID(database, group.id);
+
       // 1. Insert the group itself
       const groupStmt = database.prepare(
         `INSERT INTO groups (

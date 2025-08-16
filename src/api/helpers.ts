@@ -21,3 +21,48 @@ export interface ValidationError {
   field: string;
   message: string;
 }
+
+export function getContentTypeFromExtension(
+  fileExtension: string
+): string | undefined {
+  if (!fileExtension) return undefined;
+
+  const normalizedExtension = fileExtension.toLowerCase();
+
+  switch (normalizedExtension) {
+    case "pdf":
+      return "application/pdf";
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "svg":
+      return "image/svg+xml";
+    case "mp4":
+      return "video/mp4";
+    case "webm":
+      return "video/webm";
+    case "mp3":
+      return "audio/mpeg";
+    case "wav":
+      return "audio/wav";
+    case "xlsx":
+    case "xls":
+      // Note: XLSX has a specific MIME type, but for simplicity, we use a common one.
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    case "csv":
+      return "text/csv";
+    case "txt":
+      return "text/plain";
+    case "json":
+      return "application/json";
+    case "zip":
+      return "application/zip";
+    default:
+      // For a file that is not a common type, we return undefined
+      return undefined;
+  }
+}

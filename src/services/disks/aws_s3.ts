@@ -5,6 +5,7 @@ import fetch, {
   Response as NodeFetchResponse,
   HeadersInit,
 } from "node-fetch";
+import { getContentTypeFromExtension } from "../../api/helpers";
 
 // Define the types needed for the functions
 export interface AwsBucketAuth {
@@ -163,7 +164,7 @@ export function generate_s3_upload_url(
   const targetKey = `${driveId}/${diskId}/${fileId}/${fileId}.${fileExtension}`;
   const credential = `${auth.access_key}/${date}/${auth.region}/s3/aws4_request`;
 
-  const policy = JSON.stringify({
+  const _policy = {
     expiration: expiration,
     conditions: [
       { bucket: auth.bucket },
@@ -175,7 +176,18 @@ export function generate_s3_upload_url(
       { "x-amz-date": dateTime },
       { "Content-Disposition": "inline" },
     ],
-  });
+  };
+
+  // Use the helper function to get the content type
+  const contentType = getContentTypeFromExtension(fileExtension);
+
+  // Conditionally add Content-Type to fields and policy
+  if (contentType) {
+    // @ts-ignore
+    _policy.conditions.push({ "Content-Type": contentType });
+  }
+
+  const policy = JSON.stringify(_policy);
 
   const policyBase64 = Buffer.from(policy).toString("base64");
   const signingKey = deriveSigningKey(auth.secret_key, date, auth.region, "s3");
@@ -191,6 +203,9 @@ export function generate_s3_upload_url(
     policy: policyBase64,
     "x-amz-signature": signature,
   };
+  if (contentType) {
+    fields["Content-Type"] = contentType;
+  }
 
   const url = auth.endpoint
     ? `${auth.endpoint}/${auth.bucket}`

@@ -54,11 +54,7 @@ import {
   getActiveLabelWebhooks,
   fireLabelWebhook,
 } from "../../../../services/webhooks";
-import {
-  claimUUID,
-  isUUIDClaimed,
-  updateExternalIDMapping,
-} from "../../../../services/external";
+import { claimUUID, isUUIDClaimed } from "../../../../services/external";
 
 interface GetLabelParams extends OrgIdParams {
   label_id: string; // Can be LabelID or LabelValue
@@ -717,14 +713,6 @@ export async function createLabelHandler(
         validationErrors.push(
           `Label ID must start with '${IDPrefixEnum.LabelID}'.`
         );
-      } else {
-        // Check if the provided ID is already claimed
-        const alreadyClaimed = await isUUIDClaimed(org_id, createReq.id);
-        if (alreadyClaimed) {
-          validationErrors.push(
-            `Provided Label ID '${createReq.id}' is already claimed.`
-          );
-        }
       }
     }
 
@@ -780,26 +768,6 @@ export async function createLabelHandler(
         );
       request.log.debug(`Created label ${newLabel.id}`);
     });
-
-    // Update external ID mapping as per Rust's `update_external_id_mapping`
-    if (newLabel.external_id) {
-      await updateExternalIDMapping(
-        org_id,
-        undefined, // No old external ID for creation
-        newLabel.external_id,
-        newLabel.id
-      );
-    }
-
-    // Mark the generated/provided LabelID as claimed in the `uuid_claimed` table.
-    const successfullyClaimed = await claimUUID(org_id, newLabel.id);
-    if (!successfullyClaimed) {
-      // This case should ideally not be reached if validation (isUUIDClaimed) is perfect,
-      // but provides a safeguard against very unlikely race conditions.
-      throw new Error(
-        `Failed to claim UUID for new label '${newLabel.id}'. It might have been claimed concurrently.`
-      );
-    }
 
     const labelFE = await castLabelToLabelFE(
       newLabel,
@@ -971,13 +939,6 @@ export async function updateLabelHandler(
       updates.push("external_id = ?");
       params.push(updateReq.external_id);
       existingLabel.external_id = updateReq.external_id;
-      // Handle external ID mapping change
-      await updateExternalIDMapping(
-        org_id, // Pass the driveId (org_id)
-        oldExternalId, // The external_id before the update
-        updateReq.external_id, // The new external_id from the request body
-        labelId // The internal LabelID
-      );
     }
     if (updateReq.external_payload !== undefined) {
       updates.push("external_payload = ?");
@@ -1485,15 +1446,6 @@ export async function deleteLabelHandler(
       request.log.debug(`Deleted label ${labelId} from labels table.`);
     });
 
-    if (oldExternalId) {
-      await updateExternalIDMapping(
-        org_id, // Pass the driveId (org_id)
-        oldExternalId, // The external_id to remove
-        undefined, // No new external ID (signal for removal)
-        oldInternalId // The internal LabelID
-      );
-    }
-
     return reply.status(200).send(
       createApiResponse<IResponseDeleteLabel["ok"]["data"]>({
         id: labelId,
@@ -1906,12 +1858,6 @@ export async function labelResourceHandler(
           database
             .prepare(`DELETE FROM label_labels WHERE child_label_id = ?`)
             .run(plainLabelId);
-          await updateExternalIDMapping(
-            org_id,
-            rawLabel.external_id,
-            undefined, // null signals removal
-            labelId
-          ); // Clean up external ID mapping
         }
       }
     });
