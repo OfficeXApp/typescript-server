@@ -256,9 +256,7 @@ export function generate_s3_view_url(
   const expiration = (expires_in ?? DEFAULT_EXPIRATION_SECONDS).toString();
   const host = `${auth.bucket}.s3.${auth.region}.amazonaws.com`;
   const s3Key = `${drive_id}/${disk_id}/${file_id}/${file_id}.${file_extension}`;
-
-  // Set the Content-Disposition header to force a download with a specific filename
-  const contentDisposition = `attachment; filename="${download_filename}"`;
+  const contentDisposition = "inline";
 
   // 1. Build query parameters
   const queryParams: [string, string][] = [
@@ -266,7 +264,7 @@ export function generate_s3_view_url(
     ["X-Amz-Credential", credential],
     ["X-Amz-Date", dateTime],
     ["X-Amz-Expires", expiration],
-    ["X-Amz-SignedHeaders", "host;response-content-disposition"],
+    ["X-Amz-SignedHeaders", "host"],
     ["response-content-disposition", contentDisposition],
   ];
 
@@ -279,8 +277,8 @@ export function generate_s3_view_url(
     .join("&");
 
   // 4. Create the canonical request
-  const canonicalHeaders = `host:${host}\nresponse-content-disposition:${url_encode(contentDisposition)}\n`;
-  const signedHeaders = "host;response-content-disposition";
+  const canonicalHeaders = `host:${host}\n`;
+  const signedHeaders = "host";
   const canonicalRequest = `GET\n/${s3Key}\n${canonicalQueryString}\n${canonicalHeaders}\n${signedHeaders}\nUNSIGNED-PAYLOAD`;
 
   // 5. Create the string to sign
