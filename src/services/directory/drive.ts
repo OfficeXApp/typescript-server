@@ -71,6 +71,8 @@ export async function createFile(
     ...rest
   } = params;
 
+  let effective_expires_at = expires_at;
+
   // check if there is an existing file by id or path
   let hasEditPermission = false;
   if (params.id) {
@@ -110,6 +112,10 @@ export async function createFile(
 
   const disk = await get_disk_from_db(driveId, disk_id);
   if (!disk) throw new Error("Disk not found.");
+
+  if (disk.autoexpire_ms) {
+    effective_expires_at = Date.now() + disk.autoexpire_ms;
+  }
 
   if (
     disk.disk_type !== DiskTypeEnum.AwsBucket &&
@@ -256,7 +262,7 @@ export async function createFile(
       last_updated_by: userId,
       deleted: false,
       drive_id: driveId,
-      expires_at: expires_at,
+      expires_at: effective_expires_at,
       has_sovereign_permissions: params.has_sovereign_permissions ?? false,
       upload_status: params.raw_url
         ? UploadStatus.COMPLETED
@@ -338,7 +344,7 @@ export async function createFile(
       last_updated_by: userId,
       deleted: false,
       drive_id: driveId,
-      expires_at: expires_at,
+      expires_at: effective_expires_at,
       has_sovereign_permissions: params.has_sovereign_permissions ?? false,
       upload_status: params.raw_url
         ? UploadStatus.COMPLETED

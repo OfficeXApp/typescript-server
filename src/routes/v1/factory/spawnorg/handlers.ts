@@ -21,6 +21,8 @@ import {
   GroupRole,
   SystemPermissionType,
   SystemTableValueEnum,
+  IResponseCreateDisk,
+  BundleDefaultDisk,
 } from "@officexapp/types";
 import {
   configureDatabase,
@@ -458,12 +460,12 @@ export async function createGiftcardSpawnOrgHandler(
       timestamp_ms: Date.now(),
       external_id: createBody.external_id || undefined,
       redeemed: false,
-      disk_auth_json: createBody.disk_auth_json || "",
+      bundled_default_disk: createBody.bundled_default_disk || undefined,
     };
 
     await dbHelpers.transaction("factory", null, (database) => {
       const stmt = database.prepare(
-        `INSERT INTO giftcard_spawn_orgs (id, usd_revenue_cents, note, gas_cycles_included, timestamp_ms, external_id, redeemed, disk_auth_json)
+        `INSERT INTO giftcard_spawn_orgs (id, usd_revenue_cents, note, gas_cycles_included, timestamp_ms, external_id, redeemed, bundled_default_disk)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       );
       stmt.run(
@@ -474,7 +476,7 @@ export async function createGiftcardSpawnOrgHandler(
         newGiftcard.timestamp_ms,
         newGiftcard.external_id,
         newGiftcard.redeemed ? 1 : 0,
-        newGiftcard.disk_auth_json || null
+        JSON.stringify(newGiftcard.bundled_default_disk) || null
       );
 
       // Link to owner in user_giftcard_spawn_orgs
@@ -577,10 +579,10 @@ export async function updateGiftcardSpawnOrgHandler(
       values.push(updateBody.external_id);
       giftcardToUpdate.external_id = updateBody.external_id;
     }
-    if (updateBody.disk_auth_json !== undefined) {
-      updates.push("disk_auth_json = ?");
-      values.push(updateBody.disk_auth_json);
-      giftcardToUpdate.disk_auth_json = updateBody.disk_auth_json;
+    if (updateBody.bundled_default_disk !== undefined) {
+      updates.push("bundled_default_disk = ?");
+      values.push(updateBody.bundled_default_disk);
+      giftcardToUpdate.bundled_default_disk = updateBody.bundled_default_disk;
     }
 
     if (updates.length === 0) {
@@ -811,8 +813,8 @@ export async function redeemGiftcardSpawnOrgHandler(
             drive_id, drive_name, canister_id, version, drive_state_checksum,
             timestamp_ms, owner_id, host_url,
             transfer_owner_id, spawn_redeem_code, spawn_note,
-            nonce_uuid_generated, default_everyone_group_id, external_id, frontend_url
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            nonce_uuid_generated, default_everyone_group_id, external_id, frontend_url, bundled_default_disk
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       insertAboutDriveStmt.run(
         driveId,
@@ -829,7 +831,8 @@ export async function redeemGiftcardSpawnOrgHandler(
         0,
         groupID,
         body.external_id || "",
-        frontend_url
+        frontend_url,
+        JSON.stringify(giftcard.bundled_default_disk)
       );
 
       // Optionally, create the owner contact in the new drive's DB
@@ -1027,7 +1030,7 @@ export async function redeemGiftcardSpawnOrgHandler(
         drive_id: driveId,
         host: host_url,
         redeem_code: redeemCode,
-        disk_auth_json: giftcard.disk_auth_json,
+        bundled_default_disk: giftcard.bundled_default_disk,
       })
     );
   } catch (error) {

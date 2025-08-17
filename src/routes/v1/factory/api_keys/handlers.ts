@@ -614,7 +614,7 @@ export async function quickstartFactoryHandler(
 ): Promise<void> {
   try {
     const endpoint = getAppropriateUrlEndpoint(request);
-    const { email, note, org_name, admin, members, disk_auth_json } =
+    const { email, note, org_name, admin, members, bundled_default_disk } =
       request.body;
 
     const organization_name = org_name || "Anonymous Org";
@@ -632,7 +632,7 @@ export async function quickstartFactoryHandler(
         },
         body: JSON.stringify({
           note: note || "Created via Quickstart",
-          disk_auth_json,
+          bundled_default_disk,
         }),
       })
     ).json()) as IResponseCreateGiftcardSpawnOrg;
