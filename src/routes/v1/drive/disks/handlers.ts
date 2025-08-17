@@ -568,6 +568,8 @@ export async function createDiskHandler(
 
     const isOwner = requesterApiKey.user_id === (await getDriveOwnerId(org_id));
 
+    console.log(`create-disk-handler`, body);
+
     const validation = await validateCreateDiskRequest(body, org_id);
     if (!validation.valid) {
       return reply.status(400).send(
@@ -634,8 +636,8 @@ export async function createDiskHandler(
 
         // 1. Insert the disk record with NULL for root_folder and trash_folder
         const insertDiskStmt = database.prepare(
-          `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder, trash_folder, external_id, external_payload, endpoint)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)` // Set to NULL initially
+          `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder, trash_folder, external_id, external_payload, endpoint, autoexpire_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)` // Set to NULL initially
         );
         insertDiskStmt.run(
           diskId,
@@ -647,7 +649,8 @@ export async function createDiskHandler(
           now,
           body.external_id || null,
           body.external_payload || null,
-          body.endpoint || null
+          body.endpoint || null,
+          body.autoexpire_ms || null
         );
 
         const rootPath = `${diskId}::/`;
@@ -804,6 +807,7 @@ export async function createDiskHandler(
           external_id: body.external_id,
           external_payload: body.external_payload,
           endpoint: body.endpoint,
+          autoexpire_ms: body.autoexpire_ms,
         };
         return constructedDisk;
       }
@@ -961,6 +965,11 @@ export async function updateDiskHandler(
     if (body.endpoint !== undefined) {
       updates.push("endpoint = ?");
       values.push(body.endpoint);
+    }
+
+    if (body.autoexpire_ms !== undefined) {
+      updates.push("autoexpire_ms = ?");
+      values.push(body.autoexpire_ms);
     }
 
     if (updates.length === 0) {

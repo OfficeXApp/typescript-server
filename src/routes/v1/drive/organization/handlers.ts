@@ -28,7 +28,9 @@ import {
   SystemResourceID,
   IErrorResponse,
   IRequestShortLink,
-  IResponseShortLink, // Import SystemTableValueEnum
+  IResponseShortLink,
+  BundleDefaultDisk,
+  IResponseCreateDisk, // Import SystemTableValueEnum
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import {
@@ -46,6 +48,7 @@ import {
   getDriveSnapshot,
 } from "../../../../services/snapshot/drive";
 import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
+import { getAppropriateUrlEndpoint } from "../../factory/spawnorg/handlers";
 
 /**
  * Handles the /organization/about route.
@@ -875,7 +878,7 @@ export async function redeemOrganizationDriveHandler(
     // Get stored redeem code and spawn note from `about_drive` table
     const driveAboutInfo = await db.queryDrive(
       org_id,
-      `SELECT spawn_redeem_code, spawn_note, owner_id, host_url, drive_name FROM about_drive LIMIT 1`
+      `SELECT spawn_redeem_code, spawn_note, owner_id, host_url, drive_name, bundled_default_disk FROM about_drive LIMIT 1`
     );
 
     if (driveAboutInfo.length === 0) {
@@ -892,6 +895,7 @@ export async function redeemOrganizationDriveHandler(
     const driveOwnerId = driveAboutInfo[0].owner_id;
     const driveEndpointUrl = driveAboutInfo[0].host_url;
     const driveName = driveAboutInfo[0].drive_name;
+    const bundledDefaultDisk = driveAboutInfo[0].bundled_default_disk;
 
     if (!storedRedeemCode || storedRedeemCode.length === 0) {
       return reply.status(400).send(
@@ -955,6 +959,35 @@ export async function redeemOrganizationDriveHandler(
         )
         .run("", org_id);
     });
+    if (bundledDefaultDisk) {
+      try {
+        const bundled_default_disk: BundleDefaultDisk = JSON.parse(
+          JSON.parse(bundledDefaultDisk)
+        );
+
+        const endpoint = getAppropriateUrlEndpoint(request);
+        const _default_disk = (await (
+          await fetch(`${endpoint}/v1/drive/${org_id}/disks/create`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${adminApiKeyValue}`,
+            },
+            body: JSON.stringify({
+              name: bundled_default_disk.name,
+              disk_type: bundled_default_disk.disk_type,
+              public_note: bundled_default_disk.public_note || "Default Disk",
+              endpoint: bundled_default_disk.endpoint,
+              autoexpire_ms: bundled_default_disk.autoexpire_ms,
+              auth_json: JSON.stringify(bundled_default_disk.auth_json),
+            }),
+          })
+        ).json()) as IResponseCreateDisk;
+        console.log(`_default_disk===`, _default_disk);
+      } catch (e) {
+        console.log(e);
+      }
+    }
 
     // Construct the admin login password
     const adminLoginPassword = `${org_id}:${adminApiKeyValue}@${driveEndpointUrl}`;

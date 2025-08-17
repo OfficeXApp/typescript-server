@@ -10,7 +10,8 @@ import {
   GiftcardSpawnOrg,
   ICPPrincipalString,
   HostURL,
-  FactoryApiKey, // Using FactoryApiKey as per your types, assuming factory_api_keys table maps to it
+  FactoryApiKey,
+  BundleDefaultDisk, // Using FactoryApiKey as per your types, assuming factory_api_keys table maps to it
 } from "@officexapp/types";
 import { db } from "../database"; // Corrected: Use 'db' for query methods
 
@@ -178,7 +179,7 @@ async function getGiftcardSpawnOrgState(): Promise<
         timestamp_ms,
         external_id,
         redeemed,
-        disk_auth_json
+        bundled_default_disk
       FROM giftcard_spawn_orgs
       ORDER BY timestamp_ms ASC;`
   );
@@ -195,7 +196,9 @@ async function getGiftcardSpawnOrgState(): Promise<
       timestamp_ms: row.timestamp_ms as number,
       external_id: row.external_id as string,
       redeemed: Boolean(row.redeemed),
-      disk_auth_json: row.disk_auth_json as string | undefined,
+      bundled_default_disk: JSON.parse(row.bundled_default_disk) as
+        | BundleDefaultDisk
+        | undefined,
     };
     giftcard_by_id[giftcard.id] = giftcard;
     historical_giftcards.push(giftcard.id);

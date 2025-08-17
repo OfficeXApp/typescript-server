@@ -43,7 +43,7 @@ CREATE TABLE giftcard_spawn_orgs (
     timestamp_ms INTEGER NOT NULL,         -- Corresponds to GiftcardSpawnOrg.timestamp_ms
     external_id TEXT UNIQUE,               -- Corresponds to GiftcardSpawnOrg.external_id (e.g., Stripe charge ID)
     redeemed INTEGER NOT NULL DEFAULT 0,   -- Corresponds to GiftcardSpawnOrg.redeemed
-    disk_auth_json TEXT                    -- Corresponds to GiftcardSpawnOrg.disk_auth_json
+    bundled_default_disk TEXT                    -- Corresponds to GiftcardSpawnOrg.bundled_default_disk
 );
 
 -- Table: factory_spawn_history

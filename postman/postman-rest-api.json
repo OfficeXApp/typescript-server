@@ -261,7 +261,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n//   \"email\": \"\",\n//   note?: string;\n//   org_name?: string;\n//   admin?: string;\n//   disk_auth_json?: string;\n  \"members\": [{ \"name\": \"Joe\" }]\n}",
+					"raw": "{\n//   \"email\": \"\",\n//   note?: string;\n//   org_name?: string;\n//   admin?: string;\n//   \"members\": [{ \"name\": \"Joe\" }],\n//   \"bundled_default_disk\": {\n//     \"name\": \"Default Storage\",\n//     \"disk_type\": \"AWS_BUCKET\",\n//     \"public_note\": \"Files only valid for 24 hours\",\n//     \"autoexpire_ms\": 100000,\n//     \"auth_json\": {\n//         \"endpoint\": \"https://s3.amazonaws.com\",\n//         \"access_key\": \"________\",\n//         \"secret_key\": \"___________\",\n//         \"bucket\": \"________\",\n//         \"region\": \"us-east-1\"\n//     }\n//     }\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -5573,6 +5573,7 @@
 							"              trash_folder: { type: \"string\" },",
 							"              external_id: { type: \"string\" },",
 							"              external_payload: { type: \"string\" },",
+							"              autoexpire_ms: { type: \"number\" },",
 							"              permission_previews: {",
 							"                type: \"array\",",
 							"                items: { type: \"string\" }",
@@ -5608,7 +5609,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"name\": \"Project Cloud Storage\",\n  \"disk_type\": \"AWS_BUCKET\",\n  \"public_note\": \"Storage for group project files\",\n  \"private_note\": \"Contains sensitive project data\",\n  \"auth_json\": \"{\\\"access_key\\\": \\\"redacted\\\", \\\"secret_key\\\": \\\"redacted\\\", \\\"region\\\": \\\"us-east-1\\\", \\\"bucket\\\": \\\"ofx-bucket-friend-696\\\", \\\"endpoint\\\": \\\"redacted\\\"}\",\n  \"external_id\": \"ext-disk-001\",\n  \"external_payload\": \"{\\\"department\\\": \\\"engineering\\\", \\\"cost_center\\\": \\\"cc-12345\\\", \\\"project_id\\\": \\\"p-987654\\\"}\"\n}",
+					"raw": "{\n  \"name\": \"Project Cloud Storage\",\n  \"disk_type\": \"AWS_BUCKET\",\n  \"public_note\": \"Storage for group project files\",\n  \"private_note\": \"Contains sensitive project data\",\n  \"auth_json\": \"{\\\"access_key\\\": \\\"redacted\\\", \\\"secret_key\\\": \\\"redacted\\\", \\\"region\\\": \\\"us-east-1\\\", \\\"bucket\\\": \\\"ofx-bucket-friend-696\\\", \\\"endpoint\\\": \\\"redacted\\\"}\",\n  \"external_id\": \"ext-disk-001\",\n  \"external_payload\": \"{\\\"department\\\": \\\"engineering\\\", \\\"cost_center\\\": \\\"cc-12345\\\", \\\"project_id\\\": \\\"p-987654\\\"}\",\n  \"autoexpire_ms\": 10000\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -5875,7 +5876,7 @@
 							"    pm.expect(responseData.ok.data).to.exist;",
 							"",
 							"    const data = responseData.ok.data;",
-							"    pm.expect(data).to.have.all.keys('id', 'name', 'disk_type', 'private_note', 'public_note', 'auth_json', 'created_at', 'root_folder', 'trash_folder', 'external_id', 'external_payload', 'endpoint', 'permission_previews', 'labels');",
+							"    pm.expect(data).to.have.all.keys('id', 'name', 'disk_type', 'private_note', 'public_note', 'auth_json', 'created_at', 'root_folder', 'trash_folder', 'external_id', 'external_payload', 'endpoint', 'permission_previews', 'labels', 'autoexpire_ms');",
 							"});",
 							"",
 							"",
@@ -6036,7 +6037,8 @@
 							"        'external_payload',",
 							"        'endpoint',",
 							"        'permission_previews',",
-							"        'labels'",
+							"        'labels',",
+							"        'autoexpire_ms'",
 							"    );",
 							"});",
 							"",
