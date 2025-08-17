@@ -694,7 +694,7 @@ export async function quickstartFactoryHandler(
 
     const driveInfo = result[0];
 
-    const response: IResponseQuickstart = {
+    const response = {
       organization: {
         drive_id: _3.ok.data.drive_id,
         org_name: organization_name,
@@ -769,6 +769,7 @@ export async function quickstartFactoryHandler(
       );
       const autoLoginUrl = `${frontend_endpoint}/auto-login?token=${auto_login_redeem_token}`;
 
+      // @ts-ignore
       response.members.push({
         user_id: memberCryptoIdentity.user_id,
         api_key_value: _a.ok.data.value,
@@ -784,7 +785,7 @@ export async function quickstartFactoryHandler(
       });
     }
 
-    reply.status(200).send(response);
+    reply.status(200).send(createApiResponse(response));
   } catch (error: any) {
     request.log.error("Error in snapshotFactoryHandler:", error);
     // Differentiate between authorization errors and other internal errors
