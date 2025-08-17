@@ -42,6 +42,7 @@ import {
   addAdminToGroup, // New import
 } from "../../../../services/groups";
 import { claimUUID, isUUIDClaimed } from "../../../../services/external";
+import { trackEvent } from "../../../../services/analytics";
 
 interface GetGroupParams extends OrgIdParams {
   group_id: string;
@@ -686,6 +687,12 @@ export async function createGroupHandler(
       member_previews: memberPreviews,
       permission_previews: permissionPreviews,
     };
+
+    trackEvent("create_group", {
+      group_id: group.id,
+      created_by: currentUserId,
+      drive_id: orgId,
+    });
 
     return reply.status(200).send(createApiResponse(groupFE));
   } catch (error) {

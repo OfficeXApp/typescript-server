@@ -1,10 +1,16 @@
 // src/server.ts
 
 import "./instrument";
+import "./services/analytics";
 
+import mixpanel from "mixpanel";
 import { fastify } from "fastify";
 import { app } from "./app";
 import { LOCAL_DEV_MODE } from "./constants";
+
+if (process.env.MIXPANEL_TOKEN) {
+  mixpanel.init(process.env.MIXPANEL_TOKEN);
+}
 
 // Configure server options based on environment
 const serverOptions = LOCAL_DEV_MODE

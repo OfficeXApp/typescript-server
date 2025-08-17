@@ -40,6 +40,7 @@ import {
   isUserInGroup, // Added for consistency
 } from "../../../../services/groups";
 import { claimUUID, isUUIDClaimed } from "../../../../services/external";
+import { trackEvent } from "../../../../services/analytics";
 
 interface GetGroupInviteParams extends OrgIdParams {
   invite_id: string;
@@ -623,6 +624,13 @@ export async function createGroupInviteHandler(
       permission_previews: permissionPreviews,
     };
 
+    trackEvent("create_group_invite", {
+      group_id: group.id,
+      invite_id: invite.id,
+      invitee_id: inviteeIdString,
+      drive_id: orgId,
+    });
+
     return reply.status(200).send(createApiResponse(inviteFE));
   } catch (error) {
     request.log.error("Error in createGroupInviteHandler:", error);
@@ -1136,6 +1144,13 @@ export async function redeemGroupInviteHandler(
         },
       };
 
+      trackEvent("redeem_group_invite", {
+        group_id: invite.group_id,
+        invite_id: invite.id,
+        invitee_id: currentUserId,
+        drive_id: orgId,
+      });
+
       return reply.status(200).send(createApiResponse(responseData));
     } else if (
       invite.invitee_id.startsWith(IDPrefixEnum.PlaceholderGroupInviteeID)
@@ -1230,6 +1245,13 @@ export async function redeemGroupInviteHandler(
         },
       };
 
+      trackEvent("redeem_group_invite", {
+        group_id: invite.group_id,
+        invite_id: invite.id,
+        invitee_id: currentUserId,
+        drive_id: orgId,
+      });
+
       return reply.status(200).send(createApiResponse(responseData));
     } else if (invite.invitee_id.startsWith(IDPrefixEnum.User)) {
       // If it's a direct user invite, and the user matches the API key,
@@ -1293,6 +1315,13 @@ export async function redeemGroupInviteHandler(
           ...redeemedInvite,
         },
       };
+
+      trackEvent("redeem_group_invite", {
+        group_id: invite.group_id,
+        invite_id: invite.id,
+        invitee_id: currentUserId,
+        drive_id: orgId,
+      });
       return reply.status(200).send(createApiResponse(responseData));
     } else {
       return reply.status(400).send(

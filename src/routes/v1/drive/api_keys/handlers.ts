@@ -22,6 +22,7 @@ import { authenticateRequest, generateApiKey } from "../../../../services/auth";
 import { createApiResponse, getDriveOwnerId, OrgIdParams } from "../../types";
 import { checkSystemPermissions } from "../../../../services/permissions/system";
 import { claimUUID, isUUIDClaimed } from "../../../../services/external";
+import { trackEvent } from "../../../../services/analytics";
 
 // Type definitions for route params
 interface GetApiKeyParams extends OrgIdParams {
@@ -409,6 +410,11 @@ export async function createApiKeyHandler(
       requesterApiKey, // The key of the user making the request
       org_id
     );
+
+    trackEvent("create_api_key", {
+      user_id: apiKey.user_id,
+      drive_id: org_id,
+    });
 
     return reply.status(200).send(createApiResponse(redactedResponse));
   } catch (error) {
