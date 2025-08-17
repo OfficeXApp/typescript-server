@@ -118,6 +118,9 @@ function validateDeleteGiftcardSpawnOrgRequest(
 function validateRedeemGiftcardSpawnOrgRequest(
   body: IRequestRedeemGiftcardSpawnOrg
 ): { valid: boolean; error?: string } {
+  if (!body.giftcard_id) {
+    return { valid: false, error: "Gift Card ID is required" };
+  }
   if (!body.giftcard_id.startsWith(IDPrefixEnum.GiftcardSpawnOrg)) {
     return {
       valid: false,

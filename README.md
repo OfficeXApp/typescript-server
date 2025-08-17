@@ -162,8 +162,6 @@ $ docker exec -it typescript-server-app-1 /bin/bash
 # Stop and restart (preserves data/volumes)
 $ docker-compose -f docker-compose.prod.yml down && docker-compose -f docker-compose.prod.yml up --pull always -d
 
-# Clear and restart, wipe volumes (DANGER: DELETES ALL DATA AND CERTS!)
-$ docker-compose -f docker-compose.prod.yml down --volumes
 ```
 
 Push update to production:

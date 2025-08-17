@@ -1565,7 +1565,7 @@ export async function generateAutoLoginLinkHandler(
     return reply.status(200).send(
       createApiResponse({
         user_id: contact.id,
-        auto_login_link: autoLoginUrl,
+        auto_login_url: autoLoginUrl,
         full_login_instructions,
       })
     );

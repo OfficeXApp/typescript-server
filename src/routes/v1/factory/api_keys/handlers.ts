@@ -1,4 +1,4 @@
-import { FastifyRequest, FastifyReply } from "fastify";
+import fastify, { FastifyRequest, FastifyReply } from "fastify";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import {
@@ -12,19 +12,30 @@ import {
   IDPrefixEnum,
   DriveID,
   UserID,
+  IRequestQuickstart,
+  IResponseQuickstart,
+  IResponseCreateGiftcardSpawnOrg,
+  IResponseRedeemGiftcardSpawnOrg,
+  IResponseRedeemOrg,
+  IResponseCreateApiKey,
 } from "@officexapp/types";
 import {
   db,
   dbHelpers,
   runDriveMigrations,
 } from "../../../../services/database";
-import { authenticateRequest, generateApiKey } from "../../../../services/auth";
+import {
+  authenticateRequest,
+  generateApiKey,
+  generateCryptoIdentity,
+  urlSafeBase64Encode,
+} from "../../../../services/auth";
 import { OrgIdParams } from "../../types";
 import {
   getFactorySnapshot,
   FactoryStateSnapshot,
 } from "../../../../services/snapshot/factory";
-import { LOCAL_DEV_MODE } from "../../../../constants";
+import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
 import { getAppropriateUrlEndpoint } from "../spawnorg/handlers";
 
 // Import the database service
@@ -594,5 +605,203 @@ export async function migrateFactoryHandler(
         message: `Internal Server Error: ${error.message}`,
       })
     );
+  }
+}
+
+export async function quickstartFactoryHandler(
+  request: FastifyRequest<{ Body: IRequestQuickstart }>,
+  reply: FastifyReply
+): Promise<void> {
+  try {
+    const endpoint = getAppropriateUrlEndpoint(request);
+    const { email, note, org_name, admin, members, disk_auth_json } =
+      request.body;
+
+    const organization_name = org_name || "Anonymous Org";
+
+    const adminCryptoIdentity = await generateCryptoIdentity({
+      secret_entropy: admin || uuidv4(),
+    });
+
+    const _1 = (await (
+      await fetch(`${endpoint}/v1/factory/giftcards/spawnorg/create`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ______`,
+        },
+        body: JSON.stringify({
+          note: note || "Created via Quickstart",
+          disk_auth_json,
+        }),
+      })
+    ).json()) as IResponseCreateGiftcardSpawnOrg;
+
+    if (!_1.ok.data.id) {
+      throw new Error(`Failed to quickstart`);
+    }
+
+    const _2 = (await (
+      await fetch(`${endpoint}/v1/factory/giftcards/spawnorg/redeem`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ______`,
+        },
+        body: JSON.stringify({
+          giftcard_id: _1.ok.data.id,
+          owner_user_id: adminCryptoIdentity.user_id,
+          organization_name: organization_name,
+          owner_name: "Admin",
+          email,
+        }),
+      })
+    ).json()) as IResponseRedeemGiftcardSpawnOrg;
+
+    const _3 = (await (
+      await fetch(
+        `${endpoint}/v1/drive/${_2.ok.data.drive_id}/organization/redeem`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ______`,
+          },
+          body: JSON.stringify({
+            redeem_code: _2.ok.data.redeem_code,
+          }),
+        }
+      )
+    ).json()) as IResponseRedeemOrg;
+
+    // Retrieve data from SQLite `about_drive` table
+    const result = await db.queryDrive(
+      _3.ok.data.drive_id,
+      `SELECT drive_id, drive_name, canister_id, version, drive_state_checksum,
+                  timestamp_ms, owner_id, host_url, transfer_owner_id,
+                  spawn_redeem_code, spawn_note, nonce_uuid_generated, external_id, frontend_url
+           FROM about_drive LIMIT 1`
+    );
+
+    if (result.length === 0) {
+      return reply.status(404).send(
+        createApiResponse(undefined, {
+          code: 404,
+          message: "Drive information not found",
+        })
+      );
+    }
+
+    const driveInfo = result[0];
+
+    const response: IResponseQuickstart = {
+      organization: {
+        drive_id: _3.ok.data.drive_id,
+        org_name: organization_name,
+        host_url: _2.ok.data.host_url,
+        frontend_url: driveInfo.frontend_url,
+      },
+      admin: {
+        user_id: _2.ok.data.owner_id,
+        api_key_value: _3.ok.data.api_key,
+        auto_login_url: _3.ok.data.auto_login_url,
+        auth_json: {
+          host: _2.ok.data.host_url,
+          drive_id: _2.ok.data.drive_id,
+          org_name: organization_name,
+          user_id: _2.ok.data.owner_id,
+          profile_name: "Admin",
+          api_key_value: _3.ok.data.api_key,
+        },
+      },
+      members: [],
+    };
+
+    for (const member of members || []) {
+      const memberCryptoIdentity = await generateCryptoIdentity({
+        secret_entropy: member.entropy || uuidv4(),
+      });
+
+      const _c = (await (
+        await fetch(
+          `${endpoint}/v1/drive/${_2.ok.data.drive_id}/contacts/create`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${_3.ok.data.api_key}`,
+            },
+            body: JSON.stringify({
+              name: member.name,
+              id: memberCryptoIdentity.user_id,
+            }),
+          }
+        )
+      ).json()) as IResponseRedeemOrg;
+
+      const _a = (await (
+        await fetch(
+          `${endpoint}/v1/drive/${_2.ok.data.drive_id}/api_keys/create`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${_3.ok.data.api_key}`,
+            },
+            body: JSON.stringify({
+              name: member.name,
+              user_id: memberCryptoIdentity.user_id,
+            }),
+          }
+        )
+      ).json()) as IResponseCreateApiKey;
+
+      const auto_login_details = {
+        org_name: organization_name,
+        org_id: _2.ok.data.drive_id,
+        org_host: _2.ok.data.host_url,
+        profile_id: memberCryptoIdentity.user_id,
+        profile_name: member.name,
+        profile_api_key: _a.ok.data.value,
+      };
+      const auto_login_redeem_token = urlSafeBase64Encode(
+        JSON.stringify(auto_login_details)
+      );
+      const autoLoginUrl = `${frontend_endpoint}/auto-login?token=${auto_login_redeem_token}`;
+
+      response.members.push({
+        user_id: memberCryptoIdentity.user_id,
+        api_key_value: _a.ok.data.value,
+        auto_login_url: autoLoginUrl,
+        auth_json: {
+          host: _2.ok.data.host_url,
+          drive_id: _2.ok.data.drive_id,
+          org_name: organization_name,
+          user_id: memberCryptoIdentity.user_id,
+          profile_name: member.name,
+          api_key_value: _a.ok.data.value,
+        },
+      });
+    }
+
+    reply.status(200).send(response);
+  } catch (error: any) {
+    request.log.error("Error in snapshotFactoryHandler:", error);
+    // Differentiate between authorization errors and other internal errors
+    if (error.message.includes("Forbidden")) {
+      reply.status(403).send(
+        createApiResponse<undefined>(undefined, {
+          code: 403,
+          message: error.message,
+        })
+      );
+    } else {
+      reply.status(500).send(
+        createApiResponse<undefined>(undefined, {
+          code: 500,
+          message: `Internal server error - ${error}`,
+        })
+      );
+    }
   }
 }

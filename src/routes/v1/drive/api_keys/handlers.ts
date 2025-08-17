@@ -15,6 +15,7 @@ import {
   FactoryApiKey,
   SystemTableValueEnum,
   DriveID,
+  ApiKeyFE,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
@@ -111,8 +112,8 @@ async function redactApiKey(
   apiKey: ApiKey,
   requesterApiKey: ApiKey | FactoryApiKey,
   orgId: string
-): Promise<ApiKey> {
-  const redactedApiKey = { ...apiKey };
+): Promise<ApiKeyFE> {
+  const redactedApiKey: ApiKeyFE = { ...apiKey, permission_previews: [] };
 
   const ownerId = await getDriveOwnerId(orgId);
   const isOwner = requesterApiKey.user_id === ownerId;
@@ -122,6 +123,15 @@ async function redactApiKey(
   if (!isOwner && !isOwnKey) {
     redactedApiKey.value = `sk_...${apiKey.value.slice(-4)}` as ApiKeyValue;
   }
+
+  const permissions = await checkSystemPermissions({
+    resourceTable: `TABLE_${SystemTableValueEnum.API_KEYS}`,
+    resourceId: apiKey.id,
+    granteeId: requesterApiKey.user_id,
+    orgId: orgId,
+  });
+
+  redactedApiKey.permission_previews = permissions;
 
   return redactedApiKey;
 }
@@ -521,7 +531,13 @@ export async function updateApiKeyHandler(
       [body.id]
     );
 
-    return reply.status(200).send(createApiResponse(updatedKeys[0] as ApiKey));
+    const redactedApiKey = await redactApiKey(
+      updatedKeys[0] as ApiKey,
+      requesterApiKey,
+      request.params.org_id
+    );
+
+    return reply.status(200).send(createApiResponse(redactedApiKey));
   } catch (error) {
     request.log.error("Error in updateApiKeyHandler:", error);
     return reply.status(500).send(
