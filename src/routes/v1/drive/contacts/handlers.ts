@@ -55,6 +55,7 @@ import { checkSystemPermissions } from "../../../../services/permissions/system"
 import { getGroupById } from "../../../../services/groups";
 import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
 import { claimUUID, isUUIDClaimed } from "../../../../services/external";
+import { trackEvent } from "../../../../services/analytics";
 
 // Type definitions for route params
 interface GetContactParams extends OrgIdParams {
@@ -771,6 +772,12 @@ export async function createContactHandler(
       requesterApiKey.user_id,
       org_id
     );
+
+    trackEvent("create_contact", {
+      user_id: castFeContact.id,
+      created_by: requesterApiKey.user_id,
+      drive_id: org_id,
+    });
 
     return reply.status(200).send(createApiResponse(castFeContact));
   } catch (error) {

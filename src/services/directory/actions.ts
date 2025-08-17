@@ -79,6 +79,7 @@ import {
 } from "../webhooks/share";
 import { updateSubfolderPaths } from "./internals";
 import { isUUIDClaimed } from "../external";
+import { trackEvent } from "../analytics";
 
 /**
  * Custom error class for directory actions to return structured errors.
@@ -213,6 +214,12 @@ export async function pipeAction(
         throw new DirectoryActionError(404, "File not found");
       }
 
+      trackEvent("directory_get_file", {
+        file_id: action.payload.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
+
       // PERMIT: Check permissions for viewing the file
       if (!isOwner) {
         const permissions = await checkDirectoryPermissionsService(
@@ -345,6 +352,12 @@ export async function pipeAction(
       if (!folder) {
         throw new DirectoryActionError(404, "Folder not found");
       }
+
+      trackEvent("directory_get_folder", {
+        folder_id: action.payload.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
 
       // PERMIT: Check permissions for viewing the folder
       if (!isOwner) {
@@ -527,6 +540,12 @@ export async function pipeAction(
         upload: uploadResponse,
         notes: "File created successfully",
       };
+
+      trackEvent("directory_create_file", {
+        file_id: fileRecord.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
       return response_payload;
     }
 
@@ -579,6 +598,12 @@ export async function pipeAction(
           `Subfolder created in folder: ${folderRecord.parent_folder_uuid}`
         );
       }
+
+      trackEvent("directory_create_folder", {
+        folder_id: folderRecord.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
 
       return {
         folder: await castFolderToFE(folderRecord, userId, driveId),
@@ -963,6 +988,12 @@ export async function pipeAction(
         );
       }
 
+      trackEvent("directory_delete_file", {
+        file_id: payload.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
+
       const result = { file_id: payload.id, path_to_trash };
       return result;
     }
@@ -1068,6 +1099,12 @@ export async function pipeAction(
         );
       }
 
+      trackEvent("directory_delete_file", {
+        file_id: payload.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
+
       // TODO: Rust had `deleted_files` and `deleted_folders` in response for `DeleteFolderResponse`.
       // We might need to gather these from `driveDeleteResource` if it provided them.
       // For now, returning empty arrays as placeholders based on current `driveDeleteResource` return.
@@ -1131,6 +1168,12 @@ export async function pipeAction(
         );
       }
 
+      trackEvent("directory_copy_file", {
+        file_id: copiedFile.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
+
       const result = await castFileToFE(copiedFile, userId, driveId);
       return result;
     }
@@ -1184,6 +1227,12 @@ export async function pipeAction(
           `Subfolder copied into folder: ${copiedFolder.parent_folder_uuid}`
         );
       }
+
+      trackEvent("directory_copy_folder", {
+        folder_id: copiedFolder.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
 
       const result = await castFolderToFE(copiedFolder, userId, driveId);
       return result;
@@ -1269,6 +1318,12 @@ export async function pipeAction(
         );
       }
 
+      trackEvent("directory_move_file", {
+        file_id: movedFile.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
+
       const result = await castFileToFE(movedFile, userId, driveId);
       return result;
     }
@@ -1352,6 +1407,12 @@ export async function pipeAction(
           `Subfolder moved (deleted from old location): ${folder.name}`
         );
       }
+
+      trackEvent("directory_move_folder", {
+        folder_id: payload.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
 
       const result = await castFolderToFE(movedFolder, userId, driveId);
       return result;
@@ -1437,6 +1498,12 @@ export async function pipeAction(
           "Invalid resource ID for restore trash."
         );
       }
+
+      trackEvent("directory_restore_trash", {
+        resource_id: payload.id,
+        user_id: userId,
+        drive_id: driveId,
+      });
 
       const result = restoreResponse;
       return result;

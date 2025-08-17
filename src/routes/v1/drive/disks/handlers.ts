@@ -38,6 +38,7 @@ import {
   checkSystemPermissions,
 } from "../../../../services/permissions/system";
 import { claimUUID, isUUIDClaimed } from "../../../../services/external";
+import { trackEvent } from "../../../../services/analytics";
 
 // --- Helper Types for Request Params ---
 
@@ -842,6 +843,12 @@ export async function createDiskHandler(
         )
       )
     ).filter((label): label is string => label !== null);
+
+    trackEvent("create_disk", {
+      disk_id: diskFE.id,
+      disk_type: diskFE.disk_type,
+      drive_id: org_id,
+    });
 
     return reply.status(200).send(createApiResponse(diskFE));
   } catch (error) {

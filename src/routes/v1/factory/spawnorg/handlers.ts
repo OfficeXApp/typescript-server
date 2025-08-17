@@ -42,6 +42,7 @@ import path from "path";
 import Database from "better-sqlite3";
 import fs from "fs";
 import { frontend_endpoint } from "../../../../constants";
+import { trackEvent } from "../../../../services/analytics";
 
 // Type definitions for route params
 interface GetGiftcardSpawnOrgParams {
@@ -1012,6 +1013,12 @@ export async function redeemGiftcardSpawnOrgHandler(
           `INSERT OR IGNORE INTO user_giftcard_spawn_orgs (user_id, giftcard_id) VALUES (?, ?)`
         )
         .run(ownerId, giftcard.id);
+    });
+
+    trackEvent("spawn_org", {
+      drive_id: driveId,
+      host: host_url,
+      factory: process.env.SERVER_DOMAIN || "localhost",
     });
 
     return reply.status(200).send(

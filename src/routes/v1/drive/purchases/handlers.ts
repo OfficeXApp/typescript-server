@@ -33,6 +33,7 @@ import {
   checkSystemPermissions,
 } from "../../../../services/permissions/system";
 import { GetPurchaseParams } from ".";
+import { trackEvent } from "../../../../services/analytics";
 
 export async function getPurchaseHandler(
   request: FastifyRequest<{ Params: GetPurchaseParams }>,
@@ -468,7 +469,12 @@ export async function createPurchaseHandler(
       )
     ).filter((label): label is string => label !== null);
 
-    purchaseFE.related_resources = []; // Ensure related_resources is empty
+    purchaseFE.related_resources = [];
+
+    trackEvent("create_purchase", {
+      purchase_id: newPurchase.id,
+      drive_id: org_id,
+    });
 
     return reply.status(200).send(createApiResponse(purchaseFE));
   } catch (error) {

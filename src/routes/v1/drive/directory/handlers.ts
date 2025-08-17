@@ -47,6 +47,7 @@ import {
   AwsBucketAuth,
   generate_s3_view_url,
 } from "../../../../services/disks/aws_s3";
+import { trackEvent } from "../../../../services/analytics";
 
 /**
  * Clips a full directory path for frontend display.
@@ -267,6 +268,11 @@ export async function listDirectoryHandler(
         permission_previews: [], // Permissions are on individual items for shortcuts
       };
 
+      trackEvent("list_directory_shortcuts", {
+        disk_id: listRequest.disk_id,
+        drive_id: driveId,
+      });
+
       return reply.status(200).send(response);
     }
 
@@ -452,6 +458,12 @@ export async function listDirectoryHandler(
       breadcrumbs,
       permission_previews: permissionsForFolder,
     };
+
+    trackEvent("list_directory", {
+      folder_id: targetFolderId,
+      disk_id: listRequest.disk_id,
+      drive_id: driveId,
+    });
 
     return reply.status(200).send(response);
   } catch (error) {

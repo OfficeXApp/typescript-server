@@ -221,6 +221,95 @@
       "response": []
     },
     {
+      "name": "factory/quickstart",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [""],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n//   \"email\": \"\",\n//   note?: string;\n//   org_name?: string;\n//   admin?: string;\n//   disk_auth_json?: string;\n  \"members\": [{ \"name\": \"Joe\" }]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{FactoryEndpoint}}/v1/factory/quickstart",
+          "host": ["{{FactoryEndpoint}}"],
+          "path": ["v1", "factory", "quickstart"]
+        }
+      },
+      "response": [
+        {
+          "name": "sample response",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer YOUR_API_KEY",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"action\": \"CREATE\",\n    \"usd_revenue_cents\": 200,\n    \"note\": \"Giftcard for new organization\",\n    \"gas_cycles_included\": 3500000000000\n    // \"external_id\": \"StripeID_abc123\",\n    // \"disk_auth_json\": \"{\\\"endpoint\\\":\\\"https://gateway.storjshare.io\\\",\\\"access_key\\\":\\\"YOUR_S3_ACCESS_KEY\\\",\\\"secret_key\\\":\\\"YOUR_S3_SECRET_KEY\\\",\\\"bucket\\\":\\\"YOUR_S3_BUCKET_NAME\\\",\\\"region\\\":\\\"us-east-1\\\"}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{FactoryEndpoint}}/v1/factory/giftcards/spawnorg/upsert",
+              "host": ["{{FactoryEndpoint}}"],
+              "path": ["v1", "factory", "giftcards", "spawnorg", "upsert"]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Access-Control-Allow-Origin",
+              "value": "*"
+            },
+            {
+              "key": "Content-Length",
+              "value": "225"
+            },
+            {
+              "key": "Content-Type",
+              "value": "application/json; charset=utf-8"
+            },
+            {
+              "key": "Date",
+              "value": "Wed, 23 Jul 2025 19:40:23 GMT"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n    \"ok\": {\n        \"data\": {\n            \"id\": \"GiftcardSpawnOrgID_3d53b19c-4025-49e1-a4ac-086a4db6ed92\",\n            \"usd_revenue_cents\": 200,\n            \"note\": \"Giftcard for new organization\",\n            \"gas_cycles_included\": 3500000000000,\n            \"timestamp_ms\": 1753299623042,\n            \"redeemed\": false\n        }\n    }\n}"
+        }
+      ]
+    },
+    {
       "name": "factory/helpers/generate-crypto-identity",
       "event": [
         {

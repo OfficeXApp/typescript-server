@@ -39,6 +39,7 @@ import { LOCAL_DEV_MODE } from "../constants";
 import { wordlist } from "@scure/bip39/wordlists/english";
 import { generateMnemonic } from "@scure/bip39";
 import { bytesToHex, sha256, toBytes } from "viem";
+import { trackEvent } from "./analytics";
 
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 
@@ -539,6 +540,10 @@ export const generateCryptoIdentity = async (
       },
     };
 
+    trackEvent("spawn_identity", {
+      user_id: cryptoIdentity.user_id,
+    });
+
     return cryptoIdentity;
   } else if (seed_phrase) {
     const wallets = await seed_phrase_to_wallet_addresses(seed_phrase);
@@ -552,6 +557,9 @@ export const generateCryptoIdentity = async (
         seed_phrase,
       },
     };
+    trackEvent("spawn_identity", {
+      user_id: cryptoIdentity.user_id,
+    });
     return cryptoIdentity;
   } else if (secret_entropy) {
     const seed = passwordToSeedPhrase(secret_entropy);
@@ -566,6 +574,9 @@ export const generateCryptoIdentity = async (
         seed_phrase,
       },
     };
+    trackEvent("spawn_identity", {
+      user_id: cryptoIdentity.user_id,
+    });
     return cryptoIdentity;
   } else {
     throw new Error("Invalid arguments");

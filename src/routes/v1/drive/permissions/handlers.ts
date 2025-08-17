@@ -77,6 +77,7 @@ import {
 } from "../../../../services/permissions/system";
 import { authenticateRequest } from "../../../../services/auth";
 import { claimUUID, isUUIDClaimed } from "../../../../services/external";
+import { trackEvent } from "../../../../services/analytics";
 
 // Constants for ID prefixes to match Rust enum variants in string format
 export const PUBLIC_GRANTEE_ID_STRING = "PUBLIC";
@@ -1351,6 +1352,12 @@ export async function createDirectoryPermissionsHandler(
       data,
       requesterId
     );
+
+    trackEvent("create_directory_permit", {
+      permit_id: createdPermissionFE.id,
+      drive_id: org_id,
+    });
+
     reply.status(200).send({
       ok: {
         data: { permission: createdPermissionFE },
@@ -1538,6 +1545,10 @@ export async function redeemDirectoryPermissionsHandler(
       requesterId,
     });
     if (result.permission) {
+      trackEvent("redeem_directory_permit", {
+        permit_id: result.permission.id,
+        drive_id: org_id,
+      });
       reply.status(200).send({
         ok: {
           data: { permission: result.permission },
@@ -1703,6 +1714,11 @@ export async function createSystemPermissionsHandler(
       data,
       requesterId
     );
+
+    trackEvent("create_system_permit", {
+      permit_id: createdPermissionFE.id,
+      drive_id: org_id,
+    });
     reply.status(200).send({
       ok: {
         data: { permission: createdPermissionFE },
@@ -1899,6 +1915,10 @@ export async function redeemSystemPermissionsHandler(
   try {
     const result = await redeemSystemPermission(org_id, data, requesterId);
     if (result.permission) {
+      trackEvent("redeem_system_permit", {
+        permit_id: result.permission.id,
+        drive_id: org_id,
+      });
       reply.status(200).send({
         ok: {
           data: result.permission,
