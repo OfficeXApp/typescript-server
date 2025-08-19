@@ -153,10 +153,10 @@ async function validateCreateDiskRequest(
       error: "External payload must be 8,192 characters or less.",
     };
   }
-  if (body.endpoint && body.endpoint.length > 2048) {
+  if (body.billing_url && body.billing_url.length > 2048) {
     return {
       valid: false,
-      error: "Endpoint must be 2048 characters or less.",
+      error: "Billing_url must be 2048 characters or less.",
     };
   }
 
@@ -252,10 +252,10 @@ async function validateUpdateDiskRequest(
       error: "External payload must be 8,192 characters or less.",
     };
   }
-  if (body.endpoint && body.endpoint.length > 2048) {
+  if (body.billing_url && body.billing_url.length > 2048) {
     return {
       valid: false,
-      error: "Endpoint must be 2048 characters or less.",
+      error: "billing_url must be 2048 characters or less.",
     };
   }
 
@@ -636,7 +636,7 @@ export async function createDiskHandler(
 
         // 1. Insert the disk record with NULL for root_folder and trash_folder
         const insertDiskStmt = database.prepare(
-          `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder, trash_folder, external_id, external_payload, endpoint, autoexpire_ms)
+          `INSERT INTO disks (id, name, disk_type, private_note, public_note, auth_json, created_at, root_folder, trash_folder, external_id, external_payload, billing_url, autoexpire_ms)
            VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)` // Set to NULL initially
         );
         insertDiskStmt.run(
@@ -649,7 +649,7 @@ export async function createDiskHandler(
           now,
           body.external_id || null,
           body.external_payload || null,
-          body.endpoint || null,
+          body.billing_url || null,
           body.autoexpire_ms || null
         );
 
@@ -806,7 +806,7 @@ export async function createDiskHandler(
           trash_folder: generatedTrashFolderId,
           external_id: body.external_id,
           external_payload: body.external_payload,
-          endpoint: body.endpoint,
+          billing_url: body.billing_url,
           autoexpire_ms: body.autoexpire_ms,
         };
         return constructedDisk;
@@ -962,9 +962,9 @@ export async function updateDiskHandler(
       updates.push("external_payload = ?");
       values.push(body.external_payload);
     }
-    if (body.endpoint !== undefined) {
-      updates.push("endpoint = ?");
-      values.push(body.endpoint);
+    if (body.billing_url !== undefined) {
+      updates.push("billing_url = ?");
+      values.push(body.billing_url);
     }
 
     if (body.autoexpire_ms !== undefined) {

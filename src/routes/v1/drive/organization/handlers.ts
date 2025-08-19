@@ -977,7 +977,7 @@ export async function redeemOrganizationDriveHandler(
               name: bundled_default_disk.name,
               disk_type: bundled_default_disk.disk_type,
               public_note: bundled_default_disk.public_note || "Default Disk",
-              endpoint: bundled_default_disk.endpoint,
+              billing_url: bundled_default_disk.billing_url,
               autoexpire_ms: bundled_default_disk.autoexpire_ms,
               auth_json: JSON.stringify(bundled_default_disk.auth_json),
             }),

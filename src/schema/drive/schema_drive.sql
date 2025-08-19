@@ -46,6 +46,7 @@ CREATE TABLE contacts (
     notifications_url TEXT,
     public_note TEXT,
     private_note TEXT,
+    secret_entropy TEXT,
     evm_public_address TEXT NOT NULL,
     icp_principal TEXT NOT NULL UNIQUE,
     seed_phrase TEXT,
