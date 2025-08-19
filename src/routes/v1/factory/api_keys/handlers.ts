@@ -614,13 +614,20 @@ export async function quickstartFactoryHandler(
 ): Promise<void> {
   try {
     const endpoint = getAppropriateUrlEndpoint(request);
-    const { email, note, org_name, admin, members, bundled_default_disk } =
-      request.body;
+    const {
+      email,
+      note,
+      org_name,
+      admin,
+      members,
+      bundled_default_disk,
+      tracer,
+    } = request.body;
 
     const organization_name = org_name || "Anonymous Org";
 
     const adminCryptoIdentity = await generateCryptoIdentity({
-      secret_entropy: admin || uuidv4(),
+      secret_entropy: admin?.secret_entropy || uuidv4(),
     });
 
     const _1 = (await (
@@ -652,7 +659,7 @@ export async function quickstartFactoryHandler(
           giftcard_id: _1.ok.data.id,
           owner_user_id: adminCryptoIdentity.user_id,
           organization_name: organization_name,
-          owner_name: "Admin",
+          owner_name: admin?.name || "Admin",
           email,
         }),
       })
@@ -698,19 +705,21 @@ export async function quickstartFactoryHandler(
       organization: {
         drive_id: _3.ok.data.drive_id,
         org_name: organization_name,
-        host_url: _2.ok.data.host_url,
+        host_url: _2.ok.data.host,
         frontend_url: driveInfo.frontend_url,
+        tracer,
       },
       admin: {
         user_id: _2.ok.data.owner_id,
         api_key_value: _3.ok.data.api_key,
         auto_login_url: _3.ok.data.auto_login_url,
+        tracer: admin?.tracer,
         auth_json: {
-          host: _2.ok.data.host_url,
+          host: _2.ok.data.host,
           drive_id: _2.ok.data.drive_id,
           org_name: organization_name,
           user_id: _2.ok.data.owner_id,
-          profile_name: "Admin",
+          profile_name: admin?.name || "Admin",
           api_key_value: _3.ok.data.api_key,
         },
       },
@@ -719,7 +728,7 @@ export async function quickstartFactoryHandler(
 
     for (const member of members || []) {
       const memberCryptoIdentity = await generateCryptoIdentity({
-        secret_entropy: member.entropy || uuidv4(),
+        secret_entropy: member.secret_entropy || uuidv4(),
       });
 
       const _c = (await (
@@ -759,7 +768,7 @@ export async function quickstartFactoryHandler(
       const auto_login_details = {
         org_name: organization_name,
         org_id: _2.ok.data.drive_id,
-        org_host: _2.ok.data.host_url,
+        org_host: _2.ok.data.host,
         profile_id: memberCryptoIdentity.user_id,
         profile_name: member.name,
         profile_api_key: _a.ok.data.value,
@@ -775,12 +784,13 @@ export async function quickstartFactoryHandler(
         api_key_value: _a.ok.data.value,
         auto_login_url: autoLoginUrl,
         auth_json: {
-          host: _2.ok.data.host_url,
+          host: _2.ok.data.host,
           drive_id: _2.ok.data.drive_id,
           org_name: organization_name,
           user_id: memberCryptoIdentity.user_id,
           profile_name: member.name,
           api_key_value: _a.ok.data.value,
+          tracer: member.tracer,
         },
       });
     }
