@@ -1030,7 +1030,6 @@ export async function redeemGiftcardSpawnOrgHandler(
         drive_id: driveId,
         host: host_url,
         redeem_code: redeemCode,
-        bundled_default_disk: giftcard.bundled_default_disk,
       })
     );
   } catch (error) {

@@ -590,6 +590,8 @@ export async function getRawUrlProxyHandler(
   // Try to authenticate the request (optional - might be public access)
   const userApiKey = await authenticateRequest(request, "drive", driveId);
 
+  console.log(`debug-file-password, userApiKey:`, userApiKey);
+
   if (userApiKey) {
     // Check if user is the owner
     const ownerId = await getDriveOwnerId(driveId);
@@ -605,6 +607,8 @@ export async function getRawUrlProxyHandler(
         driveId
       );
 
+      console.log(`debug-file-password, permissions:`, permissions);
+
       hasPermission =
         permissions.includes(DirectoryPermissionType.VIEW) ||
         permissions.includes(DirectoryPermissionType.EDIT) ||
@@ -617,6 +621,8 @@ export async function getRawUrlProxyHandler(
       "Public", // Special identifier for public access
       driveId
     );
+
+    console.log(`debug-file-password, permissions:`, permissions);
 
     hasPermission = permissions.includes(DirectoryPermissionType.VIEW);
   }
