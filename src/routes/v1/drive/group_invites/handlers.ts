@@ -1021,7 +1021,7 @@ export async function redeemGroupInviteHandler(
       return reply.status(400).send(
         createApiResponse(undefined, {
           code: 400,
-          message: "Invalid redeem code",
+          message: "Invalid redeem code. It may already been redeemed.",
         })
       );
     }

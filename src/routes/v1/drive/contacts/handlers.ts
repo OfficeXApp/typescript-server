@@ -31,7 +31,8 @@ import {
   IRequestAutoLoginLink,
   Drive,
   IResponseAutoLoginLink,
-  IRequestGenerateCryptoIdentity, // Added GroupInviteeID import
+  IRequestGenerateCryptoIdentity,
+  IResponseGenerateCryptoIdentity, // Added GroupInviteeID import
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import {
@@ -1590,7 +1591,7 @@ export async function generateAutoLoginLinkHandler(
 export async function generateCryptoIdentityHandler(
   request: FastifyRequest<{ Body: IRequestGenerateCryptoIdentity }>,
   reply: FastifyReply
-): Promise<IResponseAutoLoginLink> {
+): Promise<IResponseGenerateCryptoIdentity> {
   try {
     const cryptoIdentity = await generateCryptoIdentity(request.body);
     return reply.status(200).send(createApiResponse(cryptoIdentity));
