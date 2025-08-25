@@ -20,6 +20,10 @@ import {
   ISuccessResponse,
   SortDirection,
   SystemResourceID,
+  IResponseGetDrive,
+  IResponseListDrives,
+  IResponseCreateDrive,
+  IResponseUpdateDrive,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -83,7 +87,7 @@ interface GetDriveParams extends OrgIdParams {
 }
 
 export async function getDriveHandler(
-  request: FastifyRequest<{ Params: GetDriveParams }>,
+  request: FastifyRequest<{ Params: GetDriveParams; Reply: IResponseGetDrive }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -167,7 +171,11 @@ export async function getDriveHandler(
 }
 
 export async function listDrivesHandler(
-  request: FastifyRequest<{ Body: IRequestListDrives; Params: OrgIdParams }>,
+  request: FastifyRequest<{
+    Body: IRequestListDrives;
+    Params: OrgIdParams;
+    Reply: IResponseListDrives;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -300,7 +308,11 @@ export async function listDrivesHandler(
 }
 
 export async function createDriveHandler(
-  request: FastifyRequest<{ Body: IRequestCreateDrive; Params: OrgIdParams }>,
+  request: FastifyRequest<{
+    Body: IRequestCreateDrive;
+    Params: OrgIdParams;
+    Reply: IResponseCreateDrive;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -479,7 +491,11 @@ export async function createDriveHandler(
 }
 
 export async function updateDriveHandler(
-  request: FastifyRequest<{ Body: IRequestUpdateDrive; Params: OrgIdParams }>,
+  request: FastifyRequest<{
+    Body: IRequestUpdateDrive;
+    Params: OrgIdParams;
+    Reply: IResponseUpdateDrive;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -679,7 +695,11 @@ export async function updateDriveHandler(
 }
 
 export async function deleteDriveHandler(
-  request: FastifyRequest<{ Body: IRequestDeleteDrive; Params: OrgIdParams }>,
+  request: FastifyRequest<{
+    Body: IRequestDeleteDrive;
+    Params: OrgIdParams;
+    Reply: IResponseDeleteDrive;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {

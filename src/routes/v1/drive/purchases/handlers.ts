@@ -10,7 +10,11 @@ import {
   IRequestGetPurchase,
   IRequestListPurchases,
   IRequestUpdatePurchase,
+  IResponseCreatePurchase,
   IResponseDeletePurchase,
+  IResponseGetPurchase,
+  IResponseListPurchases,
+  IResponseUpdatePurchase,
   Purchase,
   PurchaseFE,
   PurchaseStatus,
@@ -36,7 +40,10 @@ import { GetPurchaseParams } from ".";
 import { trackEvent } from "../../../../services/analytics";
 
 export async function getPurchaseHandler(
-  request: FastifyRequest<{ Params: GetPurchaseParams }>,
+  request: FastifyRequest<{
+    Params: GetPurchaseParams;
+    Reply: IResponseGetPurchase;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -136,7 +143,11 @@ export async function getPurchaseHandler(
 }
 
 export async function listPurchasesHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestListPurchases }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestListPurchases;
+    Reply: IResponseListPurchases;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -307,6 +318,7 @@ export async function createPurchaseHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestCreatePurchase;
+    Reply: IResponseCreatePurchase;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -492,6 +504,7 @@ export async function updatePurchaseHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestUpdatePurchase;
+    Reply: IResponseUpdatePurchase;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -732,6 +745,7 @@ export async function deletePurchaseHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestDeletePurchase;
+    Reply: IResponseDeletePurchase;
   }>,
   reply: FastifyReply
 ): Promise<void> {

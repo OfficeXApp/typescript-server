@@ -11,6 +11,8 @@ import {
   IRequestAutoLoginLink,
   IRequestGenerateCryptoIdentity,
   IRequestQuickstart,
+  IResponseGenerateCryptoIdentity,
+  IResponseQuickstart,
 } from "@officexapp/types";
 import { generateCryptoIdentityHandler } from "../drive/contacts/handlers";
 
@@ -38,13 +40,16 @@ const factoryRoutes: FastifyPluginAsync = async (
   );
 
   // POST /helpers/generate-crypto-identity
-  fastify.post<{ Body: IRequestGenerateCryptoIdentity }>(
+  fastify.post<{
+    Body: IRequestGenerateCryptoIdentity;
+    Reply: IResponseGenerateCryptoIdentity;
+  }>(
     `/helpers/generate-crypto-identity`,
     { preHandler: [factoryRateLimitPreHandler] }, // Add the preHandler here
     generateCryptoIdentityHandler
   );
   // quickstart
-  fastify.post<{ Body: IRequestQuickstart }>(
+  fastify.post<{ Body: IRequestQuickstart; Reply: IResponseQuickstart }>(
     "/quickstart",
     { preHandler: [factoryRateLimitPreHandler] },
     quickstartFactoryHandler

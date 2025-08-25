@@ -24,6 +24,7 @@ import {
   GenerateID,
   DiskTypeEnum,
   Disk,
+  IResponseDirectoryAction,
 } from "@officexapp/types";
 import { authenticateRequest } from "../../../../services/auth";
 import { db } from "../../../../services/database";
@@ -231,6 +232,7 @@ export async function listDirectoryHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestListDirectory;
+    Reply: IResponseListDirectory;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -483,6 +485,7 @@ export async function directoryActionHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestDirectoryAction;
+    Reply: IResponseDirectoryAction;
   }>,
   reply: FastifyReply
 ): Promise<void> {

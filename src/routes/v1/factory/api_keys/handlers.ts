@@ -18,6 +18,10 @@ import {
   IResponseRedeemGiftcardSpawnOrg,
   IResponseRedeemOrg,
   IResponseCreateApiKey,
+  IResponseGetApiKey,
+  IResponseListApiKeys,
+  IResponseUpdateApiKey,
+  IResponseDeleteApiKey,
 } from "@officexapp/types";
 import {
   db,
@@ -126,7 +130,10 @@ function createApiResponse<T>(
 }
 
 export async function getApiKeyHandler(
-  request: FastifyRequest<{ Params: GetApiKeyParams }>,
+  request: FastifyRequest<{
+    Params: GetApiKeyParams;
+    Reply: IResponseGetApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -184,7 +191,10 @@ export async function getApiKeyHandler(
 }
 
 export async function listApiKeysHandler(
-  request: FastifyRequest<{ Params: ListApiKeysParams }>,
+  request: FastifyRequest<{
+    Params: ListApiKeysParams;
+    Reply: IResponseListApiKeys;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -239,7 +249,10 @@ export async function listApiKeysHandler(
 }
 
 export async function createApiKeyHandler(
-  request: FastifyRequest<{ Body: IRequestFactoryCreateApiKey }>,
+  request: FastifyRequest<{
+    Body: IRequestFactoryCreateApiKey;
+    Reply: IResponseCreateApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -320,7 +333,10 @@ export async function createApiKeyHandler(
 }
 
 export async function updateApiKeyHandler(
-  request: FastifyRequest<{ Body: IRequestFactoryUpdateApiKey }>,
+  request: FastifyRequest<{
+    Body: IRequestFactoryUpdateApiKey;
+    Reply: IResponseUpdateApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -433,7 +449,10 @@ export async function updateApiKeyHandler(
 }
 
 export async function deleteApiKeyHandler(
-  request: FastifyRequest<{ Body: IRequestFactoryDeleteApiKey }>,
+  request: FastifyRequest<{
+    Body: IRequestFactoryDeleteApiKey;
+    Reply: IResponseDeleteApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -609,7 +628,10 @@ export async function migrateFactoryHandler(
 }
 
 export async function quickstartFactoryHandler(
-  request: FastifyRequest<{ Body: IRequestQuickstart }>,
+  request: FastifyRequest<{
+    Body: IRequestQuickstart;
+    Reply: IResponseQuickstart;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {

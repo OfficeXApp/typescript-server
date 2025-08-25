@@ -32,7 +32,10 @@ import {
   Drive,
   IResponseAutoLoginLink,
   IRequestGenerateCryptoIdentity,
-  IResponseGenerateCryptoIdentity, // Added GroupInviteeID import
+  IResponseGenerateCryptoIdentity,
+  IResponseGetContact,
+  IResponseCreateContact,
+  IResponseUpdateContact, // Added GroupInviteeID import
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import {
@@ -183,7 +186,10 @@ async function redactContact(
 // --- Handlers ---
 
 export async function getContactHandler(
-  request: FastifyRequest<{ Params: GetContactParams }>,
+  request: FastifyRequest<{
+    Params: GetContactParams;
+    Reply: IResponseGetContact;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -258,7 +264,11 @@ export async function getContactHandler(
 }
 
 export async function listContactsHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestListContacts }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestListContacts;
+    Reply: IResponseListContacts;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -397,7 +407,11 @@ export async function listContactsHandler(
 }
 
 export async function createContactHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestCreateContact }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestCreateContact;
+    Reply: IResponseCreateContact;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -793,7 +807,11 @@ export async function createContactHandler(
 }
 
 export async function updateContactHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestUpdateContact }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateContact;
+    Reply: IResponseUpdateContact;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -1030,7 +1048,11 @@ export async function updateContactHandler(
 }
 
 export async function deleteContactHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestDeleteContact }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteContact;
+    Reply: IResponseDeleteContact;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -1150,7 +1172,11 @@ export async function deleteContactHandler(
 }
 
 export async function redeemContactHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestRedeemContact }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestRedeemContact;
+    Reply: IResponseRedeemContact;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -1441,7 +1467,11 @@ export async function redeemContactHandler(
 }
 
 export async function generateAutoLoginLinkHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestAutoLoginLink }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestAutoLoginLink;
+    Reply: IResponseAutoLoginLink;
+  }>,
   reply: FastifyReply
 ): Promise<IResponseAutoLoginLink> {
   try {
@@ -1589,7 +1619,10 @@ export async function generateAutoLoginLinkHandler(
 }
 
 export async function generateCryptoIdentityHandler(
-  request: FastifyRequest<{ Body: IRequestGenerateCryptoIdentity }>,
+  request: FastifyRequest<{
+    Body: IRequestGenerateCryptoIdentity;
+    Reply: IResponseGenerateCryptoIdentity;
+  }>,
   reply: FastifyReply
 ): Promise<IResponseGenerateCryptoIdentity> {
   try {

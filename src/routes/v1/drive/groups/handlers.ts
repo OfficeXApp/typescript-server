@@ -24,6 +24,10 @@ import {
   GroupInviteeTypeEnum,
   IPaginatedResponse,
   SortDirection,
+  IResponseGetGroup,
+  IResponseListGroups,
+  IResponseCreateGroup,
+  IResponseUpdateGroup,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -136,7 +140,7 @@ function validateUpdateRequest(body: IRequestUpdateGroup): {
 }
 
 export async function getGroupHandler(
-  request: FastifyRequest<{ Params: GetGroupParams }>,
+  request: FastifyRequest<{ Params: GetGroupParams; Reply: IResponseGetGroup }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -311,7 +315,11 @@ export async function getGroupHandler(
 }
 
 export async function listGroupsHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: ListGroupsBody }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: ListGroupsBody;
+    Reply: IResponseListGroups;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -508,7 +516,11 @@ export async function listGroupsHandler(
 }
 
 export async function createGroupHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestCreateGroup }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestCreateGroup;
+    Reply: IResponseCreateGroup;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -707,7 +719,11 @@ export async function createGroupHandler(
 }
 
 export async function updateGroupHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestUpdateGroup }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateGroup;
+    Reply: IResponseUpdateGroup;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -916,7 +932,11 @@ export async function updateGroupHandler(
 }
 
 export async function deleteGroupHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestDeleteGroup }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteGroup;
+    Reply: IResponseDeleteGroup;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -1031,6 +1051,7 @@ export async function validateGroupMemberHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestValidateGroupMember;
+    Reply: IResponseValidateGroupMember;
   }>,
   reply: FastifyReply
 ): Promise<void> {

@@ -15,6 +15,8 @@ import { OrgIdParams } from "../../types"; // Adjust path if needed for your typ
 import {
   IRequestListDirectory, // Assuming these types exist for your handlers
   IRequestDirectoryAction,
+  IResponseListDirectory,
+  IResponseDirectoryAction,
 } from "@officexapp/types"; // Adjust this path if your types are elsewhere
 
 // Define interfaces for params and body if they are not already defined in @officexapp/types
@@ -41,14 +43,22 @@ const directoryRoutes: FastifyPluginAsync = async (
   opts
 ): Promise<void> => {
   // POST /v1/drive/:org_id/directory/list
-  fastify.post<{ Params: OrgIdParams; Body: IRequestListDirectory }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestListDirectory;
+    Reply: IResponseListDirectory;
+  }>(
     DIRECTORY_LIST_PATH,
     { preHandler: [driveRateLimitPreHandler] },
     listDirectoryHandler
   );
 
   // POST /v1/drive/:org_id/directory/action
-  fastify.post<{ Params: OrgIdParams; Body: IRequestDirectoryAction }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestDirectoryAction;
+    Reply: IResponseDirectoryAction;
+  }>(
     DIRECTORY_ACTION_PATH,
     { preHandler: [driveRateLimitPreHandler] },
     directoryActionHandler

@@ -18,6 +18,12 @@ import {
   IRequestListGroups,
   IRequestUpdateGroup,
   IRequestValidateGroupMember,
+  IResponseCreateGroup,
+  IResponseDeleteGroup,
+  IResponseGetGroup,
+  IResponseListGroups,
+  IResponseUpdateGroup,
+  IResponseValidateGroupMember,
 } from "@officexapp/types"; // Adjust this path if your types are elsewhere
 
 interface GetGroupParams extends OrgIdParams {
@@ -29,42 +35,46 @@ const groupRoutes: FastifyPluginAsync = async (
   opts
 ): Promise<void> => {
   // GET /v1/drive/groups/get/:group_id
-  fastify.get<{ Params: GetGroupParams }>(
+  fastify.get<{ Params: GetGroupParams; Reply: IResponseGetGroup }>(
     "/get/:group_id",
     { preHandler: [driveRateLimitPreHandler] },
     getGroupHandler
   );
 
   // POST /v1/drive/groups/list
-  fastify.post<{ Params: OrgIdParams; Body: IRequestListGroups }>(
-    "/list",
-    { preHandler: [driveRateLimitPreHandler] },
-    listGroupsHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestListGroups;
+    Reply: IResponseListGroups;
+  }>("/list", { preHandler: [driveRateLimitPreHandler] }, listGroupsHandler);
 
   // POST /v1/drive/groups/create
-  fastify.post<{ Params: OrgIdParams; Body: IRequestCreateGroup }>(
-    "/create",
-    { preHandler: [driveRateLimitPreHandler] },
-    createGroupHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestCreateGroup;
+    Reply: IResponseCreateGroup;
+  }>("/create", { preHandler: [driveRateLimitPreHandler] }, createGroupHandler);
 
   // POST /v1/drive/groups/update
-  fastify.post<{ Params: OrgIdParams; Body: IRequestUpdateGroup }>(
-    "/update",
-    { preHandler: [driveRateLimitPreHandler] },
-    updateGroupHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateGroup;
+    Reply: IResponseUpdateGroup;
+  }>("/update", { preHandler: [driveRateLimitPreHandler] }, updateGroupHandler);
 
   // POST /v1/drive/groups/delete
-  fastify.post<{ Params: OrgIdParams; Body: IRequestDeleteGroup }>(
-    "/delete",
-    { preHandler: [driveRateLimitPreHandler] },
-    deleteGroupHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteGroup;
+    Reply: IResponseDeleteGroup;
+  }>("/delete", { preHandler: [driveRateLimitPreHandler] }, deleteGroupHandler);
 
   // POST /v1/drive/groups/validate
-  fastify.post<{ Params: OrgIdParams; Body: IRequestValidateGroupMember }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestValidateGroupMember;
+    Reply: IResponseValidateGroupMember;
+  }>(
     "/validate",
     { preHandler: [driveRateLimitPreHandler] },
     validateGroupMemberHandler

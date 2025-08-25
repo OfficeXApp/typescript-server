@@ -23,6 +23,10 @@ import {
   DriveID,
   GroupInviteeTypeEnum,
   SortDirection,
+  IResponseGetGroupInvite,
+  IResponseListGroupInvites,
+  IResponseCreateGroupInvite,
+  IResponseUpdateGroupInvite,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -93,7 +97,10 @@ async function validateCreateRequest(
 }
 
 export async function getGroupInviteHandler(
-  request: FastifyRequest<{ Params: GetGroupInviteParams }>,
+  request: FastifyRequest<{
+    Params: GetGroupInviteParams;
+    Reply: IResponseGetGroupInvite;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -240,7 +247,11 @@ export async function getGroupInviteHandler(
 }
 
 export async function listGroupInvitesHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: ListGroupInvitesBody }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: ListGroupInvitesBody;
+    Reply: IResponseListGroupInvites;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -409,6 +420,7 @@ export async function createGroupInviteHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestCreateGroupInvite;
+    Reply: IResponseCreateGroupInvite;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -647,6 +659,7 @@ export async function updateGroupInviteHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestUpdateGroupInvite;
+    Reply: IResponseUpdateGroupInvite;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -849,6 +862,7 @@ export async function deleteGroupInviteHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestDeleteGroupInvite;
+    Reply: IResponseDeleteGroupInvite;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -980,6 +994,7 @@ export async function redeemGroupInviteHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestRedeemGroupInvite;
+    Reply: IResponseRedeemGroupInvite;
   }>,
   reply: FastifyReply
 ): Promise<void> {
