@@ -32,6 +32,7 @@ import {
   BundleDefaultDisk,
   IResponseCreateDisk, // Import SystemTableValueEnum
 } from "@officexapp/types";
+import { WebsocketHandler } from "@fastify/websocket";
 import { db, dbHelpers } from "../../../../services/database";
 import {
   authenticateRequest,
@@ -152,6 +153,25 @@ export async function aboutDriveHandler(
     );
   }
 }
+
+export const webrtcDriveHandler: WebsocketHandler = (socket, request) => {
+  // TypeScript now correctly infers 'connection' is a SocketStream
+  // and 'request' is a FastifyRequest.
+
+  console.log("Client connected!");
+
+  console.log(`socket---`, socket);
+  console.log(`request---`, request);
+
+  socket.on("message", (message: any) => {
+    console.log(`Received message: ${message}`);
+    socket.send(`You said: ${message}`);
+  });
+
+  socket.on("close", () => {
+    console.log("Client disconnected.");
+  });
+};
 
 /**
  * Handles the /organization/replay route.

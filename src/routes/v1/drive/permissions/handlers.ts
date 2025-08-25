@@ -1482,16 +1482,16 @@ export async function checkDirectoryPermissionsHandler(
   const { org_id } = request.params;
   const { resource_id, grantee_id } = request.body;
 
-  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
-  if (!requesterApiKey) {
-    return reply
-      .status(401)
-      .send(
-        createApiResponse(undefined, { code: 401, message: "Unauthorized" })
-      );
-  }
+  // const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  // if (!requesterApiKey) {
+  //   return reply
+  //     .status(401)
+  //     .send(
+  //       createApiResponse(undefined, { code: 401, message: "Unauthorized" })
+  //     );
+  // }
 
-  const requesterId = requesterApiKey.user_id;
+  // const requesterId = requesterApiKey.user_id;
 
   try {
     if (!resource_id || !grantee_id) {

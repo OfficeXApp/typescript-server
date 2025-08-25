@@ -14,6 +14,7 @@ import {
   redeemOrganizationDriveHandler,
   inboxDriveHandler,
   shortlinkHandler,
+  webrtcDriveHandler,
 } from "./handlers";
 import { driveRateLimitPreHandler } from "../../../../services/rate-limit";
 import { OrgIdParams } from "../../types"; // Assuming this path is correct for OrgIdParams
@@ -48,6 +49,13 @@ const organizationRoutes: FastifyPluginAsync = async (
     `/about`,
     { preHandler: [driveRateLimitPreHandler] },
     aboutDriveHandler
+  );
+
+  // GET wss:// /v1/drive/:org_id/organization/webrtc
+  fastify.get<{ Params: OrgIdParams; Reply: IAboutDriveResponseData }>(
+    `/webrtc`,
+    { websocket: true, preHandler: [driveRateLimitPreHandler] },
+    webrtcDriveHandler
   );
 
   // GET /v1/drive/:org_id/organization/snapshot
