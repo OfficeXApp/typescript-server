@@ -50,6 +50,43 @@ import {
 } from "../../../../services/snapshot/drive";
 import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
 import { getAppropriateUrlEndpoint } from "../../factory/spawnorg/handlers";
+import * as map from "lib0/map";
+
+const wsReadyStateConnecting = 0;
+const wsReadyStateOpen = 1;
+const pingTimeout = 30000;
+
+/**
+ * The central state of the signaling server. It maps a topic name
+ * to a Set of all connected clients subscribed to that topic.
+ * @type {Map<string, Set<WebSocket>>}
+ */
+const topics = new Map<string, Set<WebSocket>>();
+
+/**
+ * A helper function to safely send a message to a single client.
+ */
+const send = (conn: WebSocket, message: object) => {
+  if (
+    conn.readyState !== wsReadyStateConnecting &&
+    conn.readyState !== wsReadyStateOpen
+  ) {
+    conn.close();
+    return;
+  }
+  try {
+    conn.send(JSON.stringify(message));
+  } catch (e) {
+    conn.close();
+  }
+};
+
+interface YWebRTCMessage {
+  type: "subscribe" | "unsubscribe" | "publish" | "ping";
+  topics?: string[];
+  topic?: string;
+  [key: string]: any;
+}
 
 /**
  * Handles the /organization/about route.
@@ -155,22 +192,81 @@ export async function aboutDriveHandler(
 }
 
 export const webrtcDriveHandler: WebsocketHandler = (socket, request) => {
-  // TypeScript now correctly infers 'connection' is a SocketStream
-  // and 'request' is a FastifyRequest.
+  // State specific to this one connection
+  const subscribedTopics = new Set<string>();
+  let pongReceived = true;
+
+  // Set up a heartbeat to disconnect inactive clients
+  const pingInterval = setInterval(() => {
+    if (!pongReceived) {
+      socket.close();
+      clearInterval(pingInterval);
+    } else {
+      pongReceived = false;
+      try {
+        socket.ping();
+      } catch (e) {
+        socket.close();
+      }
+    }
+  }, pingTimeout);
+
+  socket.on("pong", () => {
+    pongReceived = true;
+  });
+
+  // When a client disconnects, clean up their subscriptions
+  socket.on("close", () => {
+    subscribedTopics.forEach((topicName) => {
+      const subs = topics.get(topicName);
+      if (subs) {
+        subs.delete(socket);
+        if (subs.size === 0) {
+          topics.delete(topicName);
+        }
+      }
+    });
+    subscribedTopics.clear();
+    clearInterval(pingInterval);
+    console.log("Client disconnected and cleaned up.");
+  });
+
+  // Handle incoming messages from this specific client
+  socket.on("message", (messageData: Buffer | string) => {
+    const message: YWebRTCMessage = JSON.parse(messageData.toString());
+    if (message && message.type) {
+      switch (message.type) {
+        case "subscribe":
+          (message.topics || []).forEach((topicName) => {
+            const topic = map.setIfUndefined(
+              topics,
+              topicName,
+              () => new Set()
+            );
+            topic.add(socket);
+            subscribedTopics.add(topicName);
+          });
+          break;
+        case "unsubscribe":
+          (message.topics || []).forEach((topicName) => {
+            const subs = topics.get(topicName);
+            subs?.delete(socket);
+          });
+          break;
+        case "publish":
+          if (message.topic) {
+            const receivers = topics.get(message.topic);
+            receivers?.forEach((receiver) => send(receiver, message));
+          }
+          break;
+        case "ping":
+          send(socket, { type: "pong" });
+          break;
+      }
+    }
+  });
 
   console.log("Client connected!");
-
-  console.log(`socket---`, socket);
-  console.log(`request---`, request);
-
-  socket.on("message", (message: any) => {
-    console.log(`Received message: ${message}`);
-    socket.send(`You said: ${message}`);
-  });
-
-  socket.on("close", () => {
-    console.log("Client disconnected.");
-  });
 };
 
 /**
