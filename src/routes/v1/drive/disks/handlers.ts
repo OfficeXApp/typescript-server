@@ -29,6 +29,10 @@ import {
   FolderRecordFE,
   FileRecordFE,
   GroupID,
+  IResponseGetDisk,
+  IResponseListDisks,
+  IResponseCreateDisk,
+  IResponseUpdateDisk,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest } from "../../../../services/auth";
@@ -295,7 +299,7 @@ function snapshotPoststate(prestate: any, notes?: string): void {
 // --- Handlers ---
 
 export async function getDiskHandler(
-  request: FastifyRequest<{ Params: GetDiskParams }>,
+  request: FastifyRequest<{ Params: GetDiskParams; Reply: IResponseGetDisk }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -396,7 +400,11 @@ export async function getDiskHandler(
 }
 
 export async function listDisksHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestListDisks }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestListDisks;
+    Reply: IResponseListDisks;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -550,7 +558,11 @@ export async function listDisksHandler(
 }
 
 export async function createDiskHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestCreateDisk }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestCreateDisk;
+    Reply: IResponseCreateDisk;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -867,7 +879,11 @@ export async function createDiskHandler(
 }
 
 export async function updateDiskHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestUpdateDisk }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateDisk;
+    Reply: IResponseUpdateDisk;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -1049,7 +1065,11 @@ export async function updateDiskHandler(
 }
 
 export async function deleteDiskHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestDeleteDisk }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteDisk;
+    Reply: IResponseDeleteDisk;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {

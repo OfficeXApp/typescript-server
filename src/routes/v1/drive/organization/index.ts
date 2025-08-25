@@ -29,6 +29,14 @@ import {
   IRequestInboxOrg,
   IResponseWhoAmI,
   IRequestShortLink,
+  IResponseReplayDrive,
+  IResponseSearchDrive,
+  IResponseReindexDrive,
+  IResponseTransferDriveOwnership,
+  IResponseSuperswapUser,
+  IResponseRedeemOrg,
+  IResponseInboxOrg,
+  IResponseShortLink,
 } from "@officexapp/types"; // Adjust this path if your types are elsewhere
 
 const organizationRoutes: FastifyPluginAsync = async (
@@ -52,28 +60,36 @@ const organizationRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/drive/:org_id/organization/replay
-  fastify.post<{ Params: OrgIdParams; Body: IRequestReplayDrive }>(
-    `/replay`,
-    { preHandler: [driveRateLimitPreHandler] },
-    replayDriveHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestReplayDrive;
+    Reply: IResponseReplayDrive;
+  }>(`/replay`, { preHandler: [driveRateLimitPreHandler] }, replayDriveHandler);
 
   // POST /v1/drive/:org_id/organization/search
-  fastify.post<{ Params: OrgIdParams; Body: IRequestSearchDrive }>(
-    `/search`,
-    { preHandler: [driveRateLimitPreHandler] },
-    searchDriveHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestSearchDrive;
+    Reply: IResponseSearchDrive;
+  }>(`/search`, { preHandler: [driveRateLimitPreHandler] }, searchDriveHandler);
 
   // POST /v1/drive/:org_id/organization/reindex
-  fastify.post<{ Params: OrgIdParams; Body: IRequestReindexDrive }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestReindexDrive;
+    Reply: IResponseReindexDrive;
+  }>(
     `/reindex`,
     { preHandler: [driveRateLimitPreHandler] },
     reindexDriveHandler
   );
 
   // POST /v1/drive/:org_id/organization/transfer_ownership
-  fastify.post<{ Params: OrgIdParams; Body: IRequestTransferDriveOwnership }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestTransferDriveOwnership;
+    Reply: IResponseTransferDriveOwnership;
+  }>(
     `/transfer_ownership`,
     { preHandler: [driveRateLimitPreHandler] },
     transferOwnershipDriveHandler
@@ -96,7 +112,11 @@ const organizationRoutes: FastifyPluginAsync = async (
 
   // POST /v1/drive/:org_id/organization/superswap_user
   // Corrected type to IRequestSuperswapUser based on your provided types.
-  fastify.post<{ Params: OrgIdParams; Body: IRequestSuperswapUser }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestSuperswapUser;
+    Reply: IResponseSuperswapUser;
+  }>(
     `/superswap_user`,
     { preHandler: [driveRateLimitPreHandler] },
     superswapUserIdDriveHandler
@@ -104,7 +124,11 @@ const organizationRoutes: FastifyPluginAsync = async (
 
   // POST /v1/drive/:org_id/organization/redeem
   // Corrected type to IRequestRedeemOrg based on your provided types.
-  fastify.post<{ Params: OrgIdParams; Body: IRequestRedeemOrg }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestRedeemOrg;
+    Reply: IResponseRedeemOrg;
+  }>(
     `/redeem`,
     { preHandler: [driveRateLimitPreHandler] },
     redeemOrganizationDriveHandler
@@ -112,14 +136,18 @@ const organizationRoutes: FastifyPluginAsync = async (
 
   // POST /v1/drive/:org_id/organization/inbox
   // Corrected type to IRequestInboxOrg based on your provided types.
-  fastify.post<{ Params: OrgIdParams; Body: IRequestInboxOrg }>(
-    `/inbox`,
-    { preHandler: [driveRateLimitPreHandler] },
-    inboxDriveHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestInboxOrg;
+    Reply: IResponseInboxOrg;
+  }>(`/inbox`, { preHandler: [driveRateLimitPreHandler] }, inboxDriveHandler);
 
   // POST /v1/drive/:org_id/organization/shortlink
-  fastify.post<{ Params: OrgIdParams; Body: IRequestShortLink }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestShortLink;
+    Reply: IResponseShortLink;
+  }>(
     `/shortlink`,
     { preHandler: [driveRateLimitPreHandler] },
     shortlinkHandler

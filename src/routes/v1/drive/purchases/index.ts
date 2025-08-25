@@ -17,6 +17,11 @@ import {
   IRequestGetPurchase,
   IRequestListPurchases,
   IRequestUpdatePurchase,
+  IResponseGetPurchase,
+  IResponseDeletePurchase,
+  IResponseUpdatePurchase,
+  IResponseCreatePurchase,
+  IResponseListPurchases,
 } from "@officexapp/types";
 
 // Define interfaces for params and body
@@ -29,35 +34,47 @@ const purchasesRoutes: FastifyPluginAsync = async (
   opts
 ): Promise<void> => {
   // GET /v1/drive/purchases/get/:purchase_id
-  fastify.get<{ Params: GetPurchaseParams }>(
+  fastify.get<{ Params: GetPurchaseParams; Reply: IResponseGetPurchase }>(
     "/get/:purchase_id",
     { preHandler: [driveRateLimitPreHandler] },
     getPurchaseHandler
   );
 
   // POST /v1/drive/purchases/list
-  fastify.post<{ Params: OrgIdParams; Body: IRequestListPurchases }>(
-    "/list",
-    { preHandler: [driveRateLimitPreHandler] },
-    listPurchasesHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestListPurchases;
+    Reply: IResponseListPurchases;
+  }>("/list", { preHandler: [driveRateLimitPreHandler] }, listPurchasesHandler);
 
   // POST /v1/drive/purchases/create
-  fastify.post<{ Params: OrgIdParams; Body: IRequestCreatePurchase }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestCreatePurchase;
+    Reply: IResponseCreatePurchase;
+  }>(
     "/create",
     { preHandler: [driveRateLimitPreHandler] },
     createPurchaseHandler
   );
 
   // POST /v1/drive/purchases/update
-  fastify.post<{ Params: OrgIdParams; Body: IRequestUpdatePurchase }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestUpdatePurchase;
+    Reply: IResponseUpdatePurchase;
+  }>(
     "/update",
     { preHandler: [driveRateLimitPreHandler] },
     updatePurchaseHandler
   );
 
   // POST /v1/drive/purchases/delete
-  fastify.post<{ Params: OrgIdParams; Body: IRequestDeletePurchase }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestDeletePurchase;
+    Reply: IResponseDeletePurchase;
+  }>(
     "/delete",
     { preHandler: [driveRateLimitPreHandler] },
     deletePurchaseHandler

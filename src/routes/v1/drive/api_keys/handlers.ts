@@ -16,6 +16,10 @@ import {
   SystemTableValueEnum,
   DriveID,
   ApiKeyFE,
+  IResponseGetApiKey,
+  IResponseListApiKeys,
+  IResponseCreateApiKey,
+  IResponseUpdateApiKey,
 } from "@officexapp/types";
 import { db, dbHelpers } from "../../../../services/database";
 import { authenticateRequest, generateApiKey } from "../../../../services/auth";
@@ -138,7 +142,10 @@ async function redactApiKey(
 }
 
 export async function getApiKeyHandler(
-  request: FastifyRequest<{ Params: GetApiKeyParams }>,
+  request: FastifyRequest<{
+    Params: GetApiKeyParams;
+    Reply: IResponseGetApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -213,7 +220,10 @@ export async function getApiKeyHandler(
 }
 
 export async function listApiKeysHandler(
-  request: FastifyRequest<{ Params: ListApiKeysParams }>,
+  request: FastifyRequest<{
+    Params: ListApiKeysParams;
+    Reply: IResponseListApiKeys;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -285,7 +295,11 @@ export async function listApiKeysHandler(
 }
 
 export async function createApiKeyHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestCreateApiKey }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestCreateApiKey;
+    Reply: IResponseCreateApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -429,7 +443,11 @@ export async function createApiKeyHandler(
 }
 
 export async function updateApiKeyHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestUpdateApiKey }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateApiKey;
+    Reply: IResponseUpdateApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -556,7 +574,11 @@ export async function updateApiKeyHandler(
 }
 
 export async function deleteApiKeyHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestDeleteApiKey }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteApiKey;
+    Reply: IResponseDeleteApiKey;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -632,7 +654,7 @@ export async function deleteApiKeyHandler(
       },
     };
 
-    return reply.status(200).send(createApiResponse(deletedData));
+    return reply.status(200).send(deletedData);
   } catch (error) {
     request.log.error("Error in deleteApiKeyHandler:", error);
     return reply.status(500).send(

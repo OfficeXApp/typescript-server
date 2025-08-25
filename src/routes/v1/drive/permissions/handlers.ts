@@ -1202,6 +1202,7 @@ export async function redeemSystemPermission(
 export async function getDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string; directory_permission_id: string };
+    Reply: IResponseGetDirectoryPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1248,6 +1249,7 @@ export async function listDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestListDirectoryPermissions;
+    Reply: IResponseListDirectoryPermissions;
   }>,
   reply: FastifyReply
 ) {
@@ -1317,6 +1319,7 @@ export async function createDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestCreateDirectoryPermission;
+    Reply: IResponseCreateDirectoryPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1374,6 +1377,7 @@ export async function updateDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestUpdateDirectoryPermission;
+    Reply: IResponseUpdateDirectoryPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1422,6 +1426,7 @@ export async function deleteDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestDeleteDirectoryPermission;
+    Reply: IResponseDeleteDirectoryPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1470,6 +1475,7 @@ export async function checkDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestCheckDirectoryPermissions;
+    Reply: IResponseCheckDirectoryPermissions;
   }>,
   reply: FastifyReply
 ) {
@@ -1522,6 +1528,7 @@ export async function redeemDirectoryPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestRedeemDirectoryPermission;
+    Reply: IResponseRedeemDirectoryPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1574,6 +1581,7 @@ export async function redeemDirectoryPermissionsHandler(
 export async function getSystemPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string; system_permission_id: string };
+    Reply: IResponseGetSystemPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1621,6 +1629,7 @@ export async function listSystemPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestListSystemPermissions;
+    Reply: IResponseListSystemPermissions;
   }>,
   reply: FastifyReply
 ) {
@@ -1679,6 +1688,7 @@ export async function createSystemPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestCreateSystemPermission;
+    Reply: IResponseCreateSystemPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1735,6 +1745,7 @@ export async function updateSystemPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestUpdateSystemPermission;
+    Reply: IResponseUpdateSystemPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1783,6 +1794,7 @@ export async function deleteSystemPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestDeleteSystemPermission;
+    Reply: IResponseDeleteSystemPermission;
   }>,
   reply: FastifyReply
 ) {
@@ -1831,6 +1843,7 @@ export async function checkSystemPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestCheckSystemPermissions;
+    Reply: IResponseCheckSystemPermissions;
   }>,
   reply: FastifyReply
 ) {
@@ -1895,6 +1908,7 @@ export async function redeemSystemPermissionsHandler(
   request: FastifyRequest<{
     Params: { org_id: string };
     Body: IRequestRedeemSystemPermission;
+    Reply: IResponseRedeemSystemPermission;
   }>,
   reply: FastifyReply
 ) {

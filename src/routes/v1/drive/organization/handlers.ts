@@ -55,7 +55,10 @@ import { getAppropriateUrlEndpoint } from "../../factory/spawnorg/handlers";
  * Returns information about the current drive/organization.
  */
 export async function aboutDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Reply: IAboutDriveResponseData;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -155,7 +158,11 @@ export async function aboutDriveHandler(
  * Applies state diffs to the drive.
  */
 export async function replayDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestReplayDrive }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestReplayDrive;
+    Reply: IResponseReplayDrive;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -232,6 +239,7 @@ export async function searchDriveHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestSearchDrive;
+    Reply: IResponseSearchDrive;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -281,7 +289,11 @@ export async function searchDriveHandler(
  * Triggers reindexing of drive content for search.
  */
 export async function reindexDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestReindexDrive }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestReindexDrive;
+    Reply: IResponseReindexDrive;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -346,6 +358,7 @@ export async function transferOwnershipDriveHandler(
   request: FastifyRequest<{
     Params: OrgIdParams;
     Body: IRequestTransferDriveOwnership;
+    Reply: IResponseTransferDriveOwnership;
   }>,
   reply: FastifyReply
 ): Promise<void> {
@@ -528,7 +541,7 @@ export async function updateAllowedDomainsDriveHandler(
  * Returns information about the authenticated user and the drive.
  */
 export async function whoAmIDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams }>,
+  request: FastifyRequest<{ Params: OrgIdParams; Reply: IResponseWhoAmI }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -601,7 +614,11 @@ export async function whoAmIDriveHandler(
  * Swaps all references from an old user ID to a new user ID.
  */
 export async function superswapUserIdDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestSuperswapUser }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestSuperswapUser;
+    Reply: IResponseSuperswapUser;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -855,7 +872,11 @@ export async function superswapUserIdDriveHandler(
  * Redeems a spawn code for the drive.
  */
 export async function redeemOrganizationDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestRedeemOrg }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestRedeemOrg;
+    Reply: IResponseRedeemOrg;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -1030,7 +1051,11 @@ export async function redeemOrganizationDriveHandler(
  * Forwards an inbox notification to registered webhooks.
  */
 export async function inboxDriveHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestInboxOrg }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestInboxOrg;
+    Reply: IResponseInboxOrg;
+  }>,
   reply: FastifyReply
 ): Promise<void> {
   try {
@@ -1168,7 +1193,11 @@ export async function snapshotDriveHandler(
 }
 
 export async function shortlinkHandler(
-  request: FastifyRequest<{ Params: OrgIdParams; Body: IRequestShortLink }>,
+  request: FastifyRequest<{
+    Params: OrgIdParams;
+    Body: IRequestShortLink;
+    Reply: IResponseShortLink;
+  }>,
   reply: FastifyReply
 ): Promise<IResponseShortLink> {
   const { org_id: driveId } = request.params;
@@ -1313,7 +1342,7 @@ export async function shortlinkHandler(
       return reply.status(200).send(
         createApiResponse({
           slug,
-          original_url,
+          original_url: "https://officex.app/not-found",
           shortlink_url: wrapOrgCode({
             frontend_url: frontend_endpoint,
             drive_id: driveId,

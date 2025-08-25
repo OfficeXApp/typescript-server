@@ -16,6 +16,11 @@ import {
   IRequestDeleteDrive,
   IRequestListDrives,
   IRequestUpdateDrive,
+  IResponseCreateDrive,
+  IResponseDeleteDrive,
+  IResponseGetDrive,
+  IResponseListDrives,
+  IResponseUpdateDrive,
 } from "@officexapp/types"; // Adjust this path if your types are elsewhere
 
 interface GetDriveParams extends OrgIdParams {
@@ -27,39 +32,39 @@ const driveRoutes: FastifyPluginAsync = async (
   opts
 ): Promise<void> => {
   // GET /v1/drive/drives/get/:drive_id
-  fastify.get<{ Params: GetDriveParams }>(
+  fastify.get<{ Params: GetDriveParams; Reply: IResponseGetDrive }>(
     "/get/:drive_id",
     { preHandler: [driveRateLimitPreHandler] },
     getDriveHandler
   );
 
   // POST /v1/drive/drives/list
-  fastify.post<{ Params: OrgIdParams; Body: IRequestListDrives }>(
-    "/list",
-    { preHandler: [driveRateLimitPreHandler] },
-    listDrivesHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestListDrives;
+    Reply: IResponseListDrives;
+  }>("/list", { preHandler: [driveRateLimitPreHandler] }, listDrivesHandler);
 
   // POST /v1/drive/drives/create
-  fastify.post<{ Params: OrgIdParams; Body: IRequestCreateDrive }>(
-    "/create",
-    { preHandler: [driveRateLimitPreHandler] },
-    createDriveHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestCreateDrive;
+    Reply: IResponseCreateDrive;
+  }>("/create", { preHandler: [driveRateLimitPreHandler] }, createDriveHandler);
 
   // POST /v1/drive/drives/update
-  fastify.post<{ Params: OrgIdParams; Body: IRequestUpdateDrive }>(
-    "/update",
-    { preHandler: [driveRateLimitPreHandler] },
-    updateDriveHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateDrive;
+    Reply: IResponseUpdateDrive;
+  }>("/update", { preHandler: [driveRateLimitPreHandler] }, updateDriveHandler);
 
   // POST /v1/drive/drives/delete
-  fastify.post<{ Params: OrgIdParams; Body: IRequestDeleteDrive }>(
-    "/delete",
-    { preHandler: [driveRateLimitPreHandler] },
-    deleteDriveHandler
-  );
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteDrive;
+    Reply: IResponseDeleteDrive;
+  }>("/delete", { preHandler: [driveRateLimitPreHandler] }, deleteDriveHandler);
 };
 
 export default driveRoutes;

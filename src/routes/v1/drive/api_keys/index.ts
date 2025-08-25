@@ -15,6 +15,11 @@ import {
   IRequestListApiKeys,
   IRequestListContacts,
   IRequestUpdateApiKey,
+  IResponseCreateApiKey,
+  IResponseDeleteApiKey,
+  IResponseGetApiKey,
+  IResponseListApiKeys,
+  IResponseUpdateApiKey,
   UserID,
 } from "@officexapp/types";
 import { OrgIdParams } from "../../types";
@@ -34,7 +39,7 @@ const apiKeyRoutes: FastifyPluginAsync = async (
   opts
 ): Promise<void> => {
   // GET /v1/drive/api_keys/get/:api_key_id
-  fastify.get<{ Params: GetApiKeyParams }>(
+  fastify.get<{ Params: GetApiKeyParams; Reply: IResponseGetApiKey }>(
     "/get/:api_key_id",
     { preHandler: [driveRateLimitPreHandler] },
     getApiKeyHandler
@@ -44,6 +49,7 @@ const apiKeyRoutes: FastifyPluginAsync = async (
   fastify.post<{
     Params: ListApiKeysParams;
     Body: IRequestListApiKeys;
+    Reply: IResponseListApiKeys;
   }>(
     "/list/:user_id",
     { preHandler: [driveRateLimitPreHandler] },
@@ -54,6 +60,7 @@ const apiKeyRoutes: FastifyPluginAsync = async (
   fastify.post<{
     Body: IRequestCreateApiKey;
     Params: OrgIdParams;
+    Reply: IResponseCreateApiKey;
   }>(
     "/create",
     { preHandler: [driveRateLimitPreHandler] },
@@ -61,14 +68,22 @@ const apiKeyRoutes: FastifyPluginAsync = async (
   );
 
   // POST /v1/drive/api_keys/update
-  fastify.post<{ Params: OrgIdParams; Body: IRequestUpdateApiKey }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestUpdateApiKey;
+    Reply: IResponseUpdateApiKey;
+  }>(
     "/update",
     { preHandler: [driveRateLimitPreHandler] },
     updateApiKeyHandler
   );
 
   // POST /v1/drive/api_keys/delete
-  fastify.post<{ Params: OrgIdParams; Body: IRequestDeleteApiKey }>(
+  fastify.post<{
+    Params: OrgIdParams;
+    Body: IRequestDeleteApiKey;
+    Reply: IResponseDeleteApiKey;
+  }>(
     "/delete",
     { preHandler: [driveRateLimitPreHandler] },
     deleteApiKeyHandler
