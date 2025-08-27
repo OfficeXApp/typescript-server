@@ -30,8 +30,11 @@ import {
   IRequestShortLink,
   IResponseShortLink,
   BundleDefaultDisk,
-  IResponseCreateDisk, // Import SystemTableValueEnum
+  IResponseCreateDisk,
+  DirectoryResourceID,
+  DirectoryPermissionType, // Import SystemTableValueEnum
 } from "@officexapp/types";
+import { checkDirectoryPermissions } from "../../../../services/permissions/directory";
 import { WebsocketHandler } from "@fastify/websocket";
 import { db, dbHelpers } from "../../../../services/database";
 import {
@@ -191,7 +194,46 @@ export async function aboutDriveHandler(
   }
 }
 
-export const webrtcDriveHandler: WebsocketHandler = (socket, request) => {
+export const webrtcDriveHandler: WebsocketHandler = async (socket, request) => {
+  // Extract auth token from URL parameters
+  const url = new URL(request.url || "", `http://${request.headers.host}`);
+  const authToken = url.searchParams.get("auth");
+  const fileID = url.searchParams.get("file_id");
+  const { org_id } = request.params as any;
+
+  // Optional: Validate auth token before proceeding
+  if (!authToken) {
+    console.log("WebSocket connection rejected: missing auth url param");
+    socket.close(1008, "Missing auth url param");
+    return;
+  }
+  if (!fileID) {
+    console.log("WebSocket connection rejected: missing file_id");
+    socket.close(1008, "Missing file_id parameter");
+    return;
+  }
+  if (!org_id) {
+    console.log("WebSocket connection rejected: missing org_id");
+    socket.close(1008, "Missing org_id parameter");
+    return;
+  }
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    console.log("WebSocket connection rejected: missing requesterApiKey");
+    socket.close(1008, "Missing requesterApiKey parameter");
+    return;
+  }
+
+  const permissions = await checkDirectoryPermissions(
+    `${fileID}` as DirectoryResourceID,
+    requesterApiKey.user_id,
+    org_id
+  );
+  if (!permissions.includes(DirectoryPermissionType.VIEW)) {
+    socket.close(1008, "Missing auth_token parameter");
+    return;
+  }
+
   // State specific to this one connection
   const subscribedTopics = new Set<string>();
   let pongReceived = true;
