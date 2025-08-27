@@ -7,6 +7,7 @@ import mixpanel from "mixpanel";
 import { fastify } from "fastify";
 import { app } from "./app";
 import { LOCAL_DEV_MODE } from "./constants";
+import fastifyWebsocket from "@fastify/websocket";
 
 if (process.env.MIXPANEL_TOKEN) {
   mixpanel.init(process.env.MIXPANEL_TOKEN);
@@ -33,7 +34,7 @@ const serverOptions = LOCAL_DEV_MODE
     };
 
 const server = fastify(serverOptions);
-
+server.register(fastifyWebsocket);
 // Register your application
 server.register(app);
 

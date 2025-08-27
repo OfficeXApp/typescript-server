@@ -30,8 +30,12 @@ import {
   IRequestShortLink,
   IResponseShortLink,
   BundleDefaultDisk,
-  IResponseCreateDisk, // Import SystemTableValueEnum
+  IResponseCreateDisk,
+  DirectoryResourceID,
+  DirectoryPermissionType, // Import SystemTableValueEnum
 } from "@officexapp/types";
+import { checkDirectoryPermissions } from "../../../../services/permissions/directory";
+import { WebsocketHandler } from "@fastify/websocket";
 import { db, dbHelpers } from "../../../../services/database";
 import {
   authenticateRequest,
@@ -49,6 +53,43 @@ import {
 } from "../../../../services/snapshot/drive";
 import { frontend_endpoint, LOCAL_DEV_MODE } from "../../../../constants";
 import { getAppropriateUrlEndpoint } from "../../factory/spawnorg/handlers";
+import * as map from "lib0/map";
+
+const wsReadyStateConnecting = 0;
+const wsReadyStateOpen = 1;
+const pingTimeout = 30000;
+
+/**
+ * The central state of the signaling server. It maps a topic name
+ * to a Set of all connected clients subscribed to that topic.
+ * @type {Map<string, Set<WebSocket>>}
+ */
+const topics = new Map<string, Set<WebSocket>>();
+
+/**
+ * A helper function to safely send a message to a single client.
+ */
+const send = (conn: WebSocket, message: object) => {
+  if (
+    conn.readyState !== wsReadyStateConnecting &&
+    conn.readyState !== wsReadyStateOpen
+  ) {
+    conn.close();
+    return;
+  }
+  try {
+    conn.send(JSON.stringify(message));
+  } catch (e) {
+    conn.close();
+  }
+};
+
+interface YWebRTCMessage {
+  type: "subscribe" | "unsubscribe" | "publish" | "ping";
+  topics?: string[];
+  topic?: string;
+  [key: string]: any;
+}
 
 /**
  * Handles the /organization/about route.
@@ -152,6 +193,123 @@ export async function aboutDriveHandler(
     );
   }
 }
+
+export const webrtcDriveHandler: WebsocketHandler = async (socket, request) => {
+  // Extract auth token from URL parameters
+  const url = new URL(request.url || "", `http://${request.headers.host}`);
+  const authToken = url.searchParams.get("auth");
+  const fileID = url.searchParams.get("file_id");
+  const { org_id } = request.params as any;
+
+  // Optional: Validate auth token before proceeding
+  if (!authToken) {
+    console.log("WebSocket connection rejected: missing auth url param");
+    socket.close(1008, "Missing auth url param");
+    return;
+  }
+  if (!fileID) {
+    console.log("WebSocket connection rejected: missing file_id");
+    socket.close(1008, "Missing file_id parameter");
+    return;
+  }
+  if (!org_id) {
+    console.log("WebSocket connection rejected: missing org_id");
+    socket.close(1008, "Missing org_id parameter");
+    return;
+  }
+  const requesterApiKey = await authenticateRequest(request, "drive", org_id);
+  if (!requesterApiKey) {
+    console.log("WebSocket connection rejected: missing requesterApiKey");
+    socket.close(1008, "Missing requesterApiKey parameter");
+    return;
+  }
+
+  const permissions = await checkDirectoryPermissions(
+    `${fileID}` as DirectoryResourceID,
+    requesterApiKey.user_id,
+    org_id
+  );
+  if (!permissions.includes(DirectoryPermissionType.VIEW)) {
+    socket.close(1008, "Missing auth_token parameter");
+    return;
+  }
+
+  // State specific to this one connection
+  const subscribedTopics = new Set<string>();
+  let pongReceived = true;
+
+  // Set up a heartbeat to disconnect inactive clients
+  const pingInterval = setInterval(() => {
+    if (!pongReceived) {
+      socket.close();
+      clearInterval(pingInterval);
+    } else {
+      pongReceived = false;
+      try {
+        socket.ping();
+      } catch (e) {
+        socket.close();
+      }
+    }
+  }, pingTimeout);
+
+  socket.on("pong", () => {
+    pongReceived = true;
+  });
+
+  // When a client disconnects, clean up their subscriptions
+  socket.on("close", () => {
+    subscribedTopics.forEach((topicName) => {
+      const subs = topics.get(topicName);
+      if (subs) {
+        subs.delete(socket);
+        if (subs.size === 0) {
+          topics.delete(topicName);
+        }
+      }
+    });
+    subscribedTopics.clear();
+    clearInterval(pingInterval);
+    console.log("Client disconnected and cleaned up.");
+  });
+
+  // Handle incoming messages from this specific client
+  socket.on("message", (messageData: Buffer | string) => {
+    const message: YWebRTCMessage = JSON.parse(messageData.toString());
+    if (message && message.type) {
+      switch (message.type) {
+        case "subscribe":
+          (message.topics || []).forEach((topicName) => {
+            const topic = map.setIfUndefined(
+              topics,
+              topicName,
+              () => new Set()
+            );
+            topic.add(socket);
+            subscribedTopics.add(topicName);
+          });
+          break;
+        case "unsubscribe":
+          (message.topics || []).forEach((topicName) => {
+            const subs = topics.get(topicName);
+            subs?.delete(socket);
+          });
+          break;
+        case "publish":
+          if (message.topic) {
+            const receivers = topics.get(message.topic);
+            receivers?.forEach((receiver) => send(receiver, message));
+          }
+          break;
+        case "ping":
+          send(socket, { type: "pong" });
+          break;
+      }
+    }
+  });
+
+  console.log("Client connected!");
+};
 
 /**
  * Handles the /organization/replay route.
