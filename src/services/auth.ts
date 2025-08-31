@@ -1,5 +1,5 @@
 // src/services/auth.ts
-
+import { derivePath } from "ed25519-hd-key";
 import { Principal } from "@dfinity/principal";
 import * as ed from "@noble/ed25519";
 import { sign, verify, getPublicKey, utils } from "@noble/ed25519";
@@ -405,14 +405,12 @@ export const seed_phrase_to_wallet_addresses = async (seedPhrase: string) => {
     const evmAccount = mnemonicToAccount(seedPhrase);
     const evmAddress = evmAccount.address;
 
-    const derivedKey = await deriveEd25519KeyFromSeed(
-      mnemonicToSeedSync(seedPhrase || "")
+    const keySpecificSeed64 = await mnemonicToSeed(seedPhrase);
+    const seedHex = bytesToHex(keySpecificSeed64).slice(2);
+    const { key } = derivePath("m/44'/223'/0'/0'/0'", seedHex);
+    const identity = Ed25519KeyIdentity.fromSecretKey(
+      key as unknown as ArrayBuffer
     );
-    // Create the identity from the derived key
-    // @ts-ignore
-    const identity = Ed25519KeyIdentity.fromSecretKey(derivedKey);
-
-    // Get the principal using the identity's getPrincipal method
     const principal = identity.getPrincipal();
     const principalStr = principal.toString();
 
@@ -602,12 +600,4 @@ export const passwordToSeedPhrase = (password: string) => {
   // 3. Use bip39.entropyToMnemonic to convert the entropy into a mnemonic.
   // The library expects a Buffer, so we need to convert our Uint8Array.
   return bip39.entropyToMnemonic(Buffer.from(entropyBytes), wordlist);
-};
-
-// Function to derive Ed25519 key from seed (uses the first 32 bytes of the seed)
-const deriveEd25519KeyFromSeed = async (
-  seed: Uint8Array
-): Promise<Uint8Array> => {
-  const hashBuffer = await crypto.subtle.digest("SHA-256", seed);
-  return new Uint8Array(hashBuffer).slice(0, 32); // Ed25519 secret key should be 32 bytes
 };
