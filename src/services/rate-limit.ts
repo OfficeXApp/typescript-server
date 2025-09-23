@@ -12,7 +12,7 @@ interface RateLimitConfig {
 
 // Default configuration for rate limits
 const DEFAULT_RATE_LIMIT_CONFIG: RateLimitConfig = {
-  ipLimit: 600, // Max 600 requests per IP per minute
+  ipLimit: 1200, // Max 1200 requests per IP per minute
   ipWindowMs: 60 * 1000, // 1 minute
   orgLimit: 6000, // Max 6000 requests per organization per minute
   orgWindowMs: 60 * 1000, // 1 minute
