@@ -8,11 +8,12 @@
   },
   "scripts": {
     "newman": "newman run postman/postman-rest-api.json",
+    "clean": "npx rimraf dist",
     "test": "npm run build:ts && tsc -p test/tsconfig.json && c8 node --test -r ts-node/register \"test/**/*.ts\"",
     "start": "npm run build:ts && node dist/server.js",
-    "build": "tsc && npm run copy-assets",
-    "build:ts": "tsc && npm run copy-assets",
-    "watch:ts": "tsc -w && npm run copy-assets",
+    "build": "npm run clean && tsc && npm run copy-assets",
+    "build:ts": "npm run clean && tsc && npm run copy-assets",
+    "watch:ts": "npm run clean && tsc -w && npm run copy-assets",
     "copy-assets": "cpx \"src/schema/**/*.sql\" dist/schema",
     "dev": "npm run build:ts && nodemon -L --watch src --ext ts,js,sql --exec \"npm run build:ts && node dist/server.js\"",
     "dev:start": "nodemon -L --watch dist --exec \"node dist/server.js\""
@@ -59,6 +60,7 @@
     "cpx": "^1.5.0",
     "fastify-tsconfig": "^3.0.0",
     "nodemon": "^3.1.10",
+    "rimraf": "^6.0.1",
     "ts-node": "^10.4.0",
     "typescript": "~5.8.2"
   }

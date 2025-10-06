@@ -157,7 +157,7 @@ $ docker-compose -f docker-compose.prod.yml logs -f
 
 # Poke around in docker sqlite
 $ docker exec -it typescript-server-app-1 /bin/bash
-# cd /data/drives/ && ls
+# cd /data/drive/ && ls
 
 # Stop and restart (preserves data/volumes)
 $ docker-compose -f docker-compose.prod.yml down && docker-compose -f docker-compose.prod.yml up --pull always -d
