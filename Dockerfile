@@ -20,26 +20,25 @@ COPY src ./src
 
 # Build TypeScript
 RUN npm run build
+ 
+ # Prune dev dependencies to produce a production-only node_modules
+ RUN npm prune --omit=dev
 
 # Production stage
 FROM node:20-slim
 
 # Install curl for healthcheck, sqlite3 for database operations, and python3 for node-gyp
 RUN apt-get update && \
-    apt-get install -y curl sqlite3 python3 && \ 
+    apt-get install -y curl sqlite3 && \
     rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --only=production
-
-# Copy built application from builder stage
+# Copy built application and production dependencies from builder stage
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY package*.json ./
 
 # Create data directory structure
 RUN mkdir -p /data/drives
